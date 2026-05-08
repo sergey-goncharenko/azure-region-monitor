@@ -12,6 +12,10 @@ This project aims to become the canonical source of truth for Azure regional rol
 
 See `/docs/spec` for full product specification and `/docs/roadmap` for the engineering plan.
 
+PoC dashboard: <https://gray-island-09dc9e703.7.azurestaticapps.net/>
+
+Latest JSON snapshot: <https://gray-island-09dc9e703.7.azurestaticapps.net/api/latest.json>
+
 ## Current Starter
 
 The first implementation slice is a Python service with:
