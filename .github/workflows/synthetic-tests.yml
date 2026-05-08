@@ -64,6 +64,7 @@ jobs:
       - name: Run AKS extension probe
         run: |
           mkdir -p data/snapshots data/diffs
+          rm -f data/snapshots/latest.json data/diffs/latest.json
           azure-region-monitor run \
             --probe aks-extension-cli \
             ${{ steps.regions.outputs.args }} \
