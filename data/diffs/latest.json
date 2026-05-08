@@ -1,0 +1,15 @@
+{
+  "changes": [
+    {
+      "change_type": "new_availability",
+      "current": "available",
+      "feature": "extensions.gitops",
+      "previous": "unavailable",
+      "region": "swedencentral",
+      "service": "aks"
+    }
+  ],
+  "current_timestamp": "2026-05-08T00:00:00Z",
+  "previous_timestamp": "2026-05-07T00:00:00Z",
+  "timestamp": "2026-05-08T00:00:00Z"
+}

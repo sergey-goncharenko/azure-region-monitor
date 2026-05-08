@@ -1,0 +1,88 @@
+name: Synthetic regional tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      regions:
+        description: "Comma-separated Azure regions to test"
+        required: false
+        default: "westeurope,swedencentral,eastus"
+  schedule:
+    - cron: "17 3 * * *"
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  aks-extension-poc:
+    name: AKS extension PoC
+    runs-on: ubuntu-latest
+    env:
+      SNAPSHOT_DATE: ${{ github.run_id }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: python -m pip install ".[dev]"
+
+      - name: Install Azure CLI extension
+        run: az extension add --name k8s-extension --upgrade
+
+      - name: Build region arguments
+        id: regions
+        shell: bash
+        run: |
+          raw_regions="${{ inputs.regions || 'westeurope,swedencentral,eastus' }}"
+          region_args=""
+          IFS=',' read -ra regions <<< "$raw_regions"
+          for region in "${regions[@]}"; do
+            trimmed="$(echo "$region" | xargs)"
+            if [ -n "$trimmed" ]; then
+              region_args="$region_args --region $trimmed"
+            fi
+          done
+          echo "args=$region_args" >> "$GITHUB_OUTPUT"
+
+      - name: Run AKS extension probe
+        run: |
+          mkdir -p data/snapshots data/diffs
+          azure-region-monitor run \
+            --probe aks-extension-cli \
+            ${{ steps.regions.outputs.args }} \
+            --output data/snapshots/latest.json
+
+      - name: Build diff when previous sample exists
+        run: |
+          if [ -f data/snapshots/2026-05-07.json ]; then
+            azure-region-monitor diff \
+              data/snapshots/2026-05-07.json \
+              data/snapshots/latest.json \
+              --output data/diffs/latest.json
+          fi
+
+      - name: Upload synthetic data artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: azure-region-monitor-synthetic-data
+          path: |
+            data/snapshots/latest.json
+            data/diffs/latest.json
+          if-no-files-found: warn
+
+      - name: Azure logout
+        if: always()
+        run: az logout

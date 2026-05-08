@@ -1,0 +1,53 @@
+{
+  "regions": {
+    "eastus": {
+      "aks": {
+        "extensions.gitops": {
+          "error_code": null,
+          "latency_ms": 58,
+          "message": "Deterministic sample probe result for project bootstrap.",
+          "status": "unavailable"
+        },
+        "extensions.monitor": {
+          "error_code": null,
+          "latency_ms": 53,
+          "message": "Deterministic sample probe result for project bootstrap.",
+          "status": "available"
+        }
+      }
+    },
+    "swedencentral": {
+      "aks": {
+        "extensions.gitops": {
+          "error_code": null,
+          "latency_ms": 111,
+          "message": "Deterministic sample probe result for project bootstrap.",
+          "status": "unavailable"
+        },
+        "extensions.monitor": {
+          "error_code": "ExtensionTypeNotFound",
+          "latency_ms": 106,
+          "message": "Sample previous-day unavailable result.",
+          "status": "unavailable"
+        }
+      }
+    },
+    "westeurope": {
+      "aks": {
+        "extensions.gitops": {
+          "error_code": null,
+          "latency_ms": 34,
+          "message": "Deterministic sample probe result for project bootstrap.",
+          "status": "available"
+        },
+        "extensions.monitor": {
+          "error_code": null,
+          "latency_ms": 29,
+          "message": "Deterministic sample probe result for project bootstrap.",
+          "status": "available"
+        }
+      }
+    }
+  },
+  "timestamp": "2026-05-07T00:00:00Z"
+}
