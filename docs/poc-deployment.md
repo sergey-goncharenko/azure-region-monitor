@@ -7,7 +7,8 @@ The PoC proves that synthetic checks can produce structured, region-by-region Az
 ## Current PoC Shape
 
 - Probe: `aks-extension-cli`
-- Default regions: `westeurope`, `swedencentral`, `eastus`
+- Original PoC regions: `westeurope`, `swedencentral`, `eastus`
+- Default workflow regions: `eastus`, `eastus2`, `westus3`, `westeurope`, `northeurope`, `swedencentral`, `uksouth`, `germanywestcentral`, `southeastasia`, `australiaeast`
 - Default features:
   - `extensions.gitops=microsoft.flux`
   - `extensions.monitor=microsoft.azuremonitor.containers`
@@ -37,7 +38,7 @@ azure-region-monitor diff data/snapshots/2026-05-07.json data/snapshots/latest.j
 Run both read-only AKS probes locally:
 
 ```powershell
-azure-region-monitor run --probe aks-extension-cli --probe aks-version-cli --output data/snapshots/latest.json
+azure-region-monitor run --probe aks-extension-cli --probe aks-extension-catalog-cli --probe aks-version-cli --output data/snapshots/latest.json
 ```
 
 To override regions:

@@ -6,7 +6,7 @@ on:
       regions:
         description: "Comma-separated Azure regions to test"
         required: false
-        default: "westeurope,swedencentral,eastus"
+        default: "eastus,eastus2,westus3,westeurope,northeurope,swedencentral,uksouth,germanywestcentral,southeastasia,australiaeast"
       previous_snapshot:
         description: "Optional path to a previous snapshot in the repository for diff generation"
         required: false
@@ -55,7 +55,7 @@ jobs:
         id: regions
         shell: bash
         run: |
-          raw_regions="${{ inputs.regions || 'westeurope,swedencentral,eastus' }}"
+          raw_regions="${{ inputs.regions || 'eastus,eastus2,westus3,westeurope,northeurope,swedencentral,uksouth,germanywestcentral,southeastasia,australiaeast' }}"
           region_args=""
           IFS=',' read -ra regions <<< "$raw_regions"
           for region in "${regions[@]}"; do
@@ -72,6 +72,7 @@ jobs:
           rm -f data/snapshots/latest.json data/diffs/latest.json
           azure-region-monitor run \
             --probe aks-extension-cli \
+            --probe aks-extension-catalog-cli \
             --probe aks-version-cli \
             ${{ steps.regions.outputs.args }} \
             --output data/snapshots/latest.json

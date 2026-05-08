@@ -2,7 +2,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-DEFAULT_REGIONS = ["westeurope", "swedencentral", "eastus"]
+DEFAULT_REGIONS = [
+    "eastus",
+    "eastus2",
+    "westus3",
+    "westeurope",
+    "northeurope",
+    "swedencentral",
+    "uksouth",
+    "germanywestcentral",
+    "southeastasia",
+    "australiaeast",
+]
 DEFAULT_AKS_KUBERNETES_VERSION_PREFIXES = ["1.32", "1.33", "1.34", "1.35"]
 
 

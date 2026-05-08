@@ -12,6 +12,7 @@ from azure_region_monitor.config import (
 )
 from azure_region_monitor.diff import build_diff
 from azure_region_monitor.probes.aks_extension import AksExtensionCliProbe
+from azure_region_monitor.probes.aks_extension_catalog import AksExtensionCatalogCliProbe
 from azure_region_monitor.probes.aks_versions import AksKubernetesVersionCliProbe
 from azure_region_monitor.probes.sample import SampleAksExtensionProbe
 from azure_region_monitor.runner import run_probes
@@ -28,7 +29,12 @@ def main() -> None:
     run_parser.add_argument(
         "--probe",
         action="append",
-        choices=["sample-aks-extension", "aks-extension-cli", "aks-version-cli"],
+        choices=[
+            "sample-aks-extension",
+            "aks-extension-cli",
+            "aks-extension-catalog-cli",
+            "aks-version-cli",
+        ],
         dest="probes",
         help="Synthetic probe implementation to run; repeat to run multiple probes",
     )
@@ -97,6 +103,8 @@ def _build_probe(probe_name: str):
         return AksExtensionCliProbe(
             features=parse_aks_extension_features(os.environ.get("AKS_EXTENSION_FEATURES"))
         )
+    if probe_name == "aks-extension-catalog-cli":
+        return AksExtensionCatalogCliProbe()
     if probe_name == "aks-version-cli":
         return AksKubernetesVersionCliProbe(
             version_prefixes=parse_aks_kubernetes_version_prefixes(

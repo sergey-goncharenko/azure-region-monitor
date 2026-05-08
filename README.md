@@ -23,6 +23,7 @@ The first implementation slice is a Python service with:
 - A modular synthetic probe runner
 - A deterministic sample AKS extension probe for the PoC regions
 - An Azure CLI-backed AKS extension probe for real regional checks
+- An Azure CLI-backed AKS extension catalog probe that tracks every listed extension type per region
 - An Azure CLI-backed AKS Kubernetes version probe for minor-version rollout checks
 - JSON snapshot and diff storage helpers
 - A diff engine that classifies new availability and regressions
@@ -74,7 +75,13 @@ azure-region-monitor run --probe aks-extension-cli --output data/snapshots/lates
 Run both read-only AKS probes locally:
 
 ```powershell
-azure-region-monitor run --probe aks-extension-cli --probe aks-version-cli --output data/snapshots/latest.json
+azure-region-monitor run --probe aks-extension-cli --probe aks-extension-catalog-cli --probe aks-version-cli --output data/snapshots/latest.json
+```
+
+Default regions now cover a small global spread:
+
+```text
+eastus, eastus2, westus3, westeurope, northeurope, swedencentral, uksouth, germanywestcentral, southeastasia, australiaeast
 ```
 
 Customize AKS extension features with comma-separated `feature=extensionType` pairs:
@@ -120,7 +127,7 @@ Useful endpoints:
 ## Next Engineering Steps
 
 1. Inspect the Azure Static Web Apps deployment from `.github/workflows/synthetic-tests.yml`.
-2. Confirm whether the chosen AKS extension types or Kubernetes version prefixes expose regional differences across more regions.
+2. Confirm whether the AKS extension catalog or Kubernetes version prefixes expose regional differences across more regions.
 3. Add a controlled AKS lifecycle probe if read-only checks stay identical.
 4. Add alert delivery once the daily diff flow is stable.
 
