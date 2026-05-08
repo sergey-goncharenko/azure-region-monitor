@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import html
 import json
+import re
 import shutil
 from pathlib import Path
 
@@ -41,6 +42,12 @@ def _render_index(snapshot: Snapshot) -> str:
     )
     modality_rows = "\n".join(_render_modality_row(row) for row in _modality_summaries(rows))
     region_rows = "\n".join(_render_region_row(row) for row in _region_summaries(rows))
+    uniform_extensions = _uniform_extension_summaries(rows, regions)
+    uniform_extension_rows = "\n".join(_render_uniform_extension_row(row) for row in uniform_extensions)
+    uniform_extension_label = "feature" if len(uniform_extensions) == 1 else "features"
+    uniform_extension_body = uniform_extension_rows or (
+        '<tr><td colspan="4" class="empty">No extension features are available in every tested region.</td></tr>'
+    )
     difference_rows = "\n".join(_render_difference_row(row, regions) for row in _difference_summaries(rows))
     difference_body = difference_rows or (
         f'<tr><td colspan="{len(regions) + 2}" class="empty">No regional status differences in this snapshot.</td></tr>'
@@ -159,6 +166,8 @@ def _render_index(snapshot: Snapshot) -> str:
     tr:last-child td {{ border-bottom: 0; }}
     .number {{ text-align: right; font-variant-numeric: tabular-nums; }}
     .matrix table {{ min-width: 980px; }}
+    .uniform table {{ min-width: 760px; }}
+    .uniform .table-wrap {{ max-height: 420px; }}
     .matrix th, .matrix td {{ text-align: center; }}
     .matrix th:first-child, .matrix td:first-child,
     .matrix th:nth-child(2), .matrix td:nth-child(2) {{ text-align: left; }}
@@ -325,6 +334,25 @@ def _render_index(snapshot: Snapshot) -> str:
             <tbody>{region_rows}</tbody>
           </table>
         </div>
+      </div>
+    </section>
+    <section class="panel uniform" aria-label="Uniform extension availability">
+      <div class="panel-header">
+        <h2>Uniform Extension Availability</h2>
+        <div class="panel-subtitle">{len(uniform_extensions)} extension {uniform_extension_label} available in all {len(regions)} tested regions</div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Modality</th>
+              <th>Extension type</th>
+              <th>Feature</th>
+              <th class="number">Regions</th>
+            </tr>
+          </thead>
+          <tbody>{uniform_extension_body}</tbody>
+        </table>
       </div>
     </section>
     <section class="panel matrix" aria-label="Regional differences">
@@ -527,6 +555,71 @@ def _render_region_row(row: dict[str, object]) -> str:
                 <td class="number">{statuses.get("unavailable", 0)}</td>
                 <td class="number">{statuses.get("unknown", 0)}</td>
               </tr>"""
+
+
+def _uniform_extension_summaries(
+    rows: list[dict[str, object]],
+    regions: list[str],
+) -> list[dict[str, object]]:
+    features: dict[tuple[str, str], dict[str, object]] = {}
+    for row in rows:
+        feature = str(row["feature"])
+        if not _is_extension_feature(feature):
+            continue
+
+        key = (str(row["service"]), feature)
+        summary = features.setdefault(
+            key,
+            {
+                "service": key[0],
+                "feature": key[1],
+                "category": str(row["category"]),
+                "extension_type": _extension_type_label(feature, str(row["message"])),
+                "regions": {},
+            },
+        )
+        summary["regions"][str(row["region"])] = str(row["status"])
+
+    uniform = []
+    for summary in features.values():
+        statuses = summary["regions"]
+        if len(statuses) == len(regions) and all(status == "available" for status in statuses.values()):
+            uniform.append(summary)
+
+    return sorted(
+        uniform,
+        key=lambda item: (_extension_category_rank(str(item["category"])), str(item["extension_type"])),
+    )
+
+
+def _render_uniform_extension_row(row: dict[str, object]) -> str:
+    return f"""<tr>
+                <td>{html.escape(str(row["category"]))}</td>
+                <td><code>{html.escape(str(row["extension_type"]))}</code></td>
+                <td><code>{html.escape(str(row["feature"]))}</code></td>
+                <td class="number">{len(row["regions"])}</td>
+              </tr>"""
+
+
+def _is_extension_feature(feature: str) -> bool:
+    return feature.startswith("extensions.") or feature.startswith("extensionTypes.")
+
+
+def _extension_type_label(feature: str, message: str) -> str:
+    match = re.search(r"extension type '([^']+)'", message)
+    if match:
+        return match.group(1)
+    if feature.startswith("extensionTypes."):
+        return feature.removeprefix("extensionTypes.")
+    return feature
+
+
+def _extension_category_rank(category: str) -> int:
+    if category == "Curated AKS extensions":
+        return 0
+    if category == "AKS extension catalog":
+        return 1
+    return 2
 
 
 def _difference_summaries(rows: list[dict[str, object]]) -> list[dict[str, object]]:
