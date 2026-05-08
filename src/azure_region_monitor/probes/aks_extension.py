@@ -1,23 +1,12 @@
 from __future__ import annotations
 
 import json
-import shutil
-import subprocess
 import time
-from collections.abc import Callable
-from dataclasses import dataclass
 
 from azure_region_monitor.config import AksExtensionFeature, DEFAULT_AKS_EXTENSION_FEATURES
 from azure_region_monitor.models import FeatureResult
+from azure_region_monitor.probes.azure_cli import AzureCliError, CliRunner, az_executable, run_az
 from azure_region_monitor.probes.base import ProbeResult
-
-CliRunner = Callable[[list[str]], subprocess.CompletedProcess[str]]
-
-
-@dataclass(frozen=True)
-class AzureCliError:
-    error_code: str
-    message: str
 
 
 class AksExtensionCliProbe:
@@ -29,7 +18,7 @@ class AksExtensionCliProbe:
         cli_runner: CliRunner | None = None,
     ) -> None:
         self._features = features or DEFAULT_AKS_EXTENSION_FEATURES
-        self._cli_runner = cli_runner or _run_az
+        self._cli_runner = cli_runner or run_az
 
     def run(self, region: str):
         started = time.perf_counter()
@@ -63,7 +52,7 @@ class AksExtensionCliProbe:
 
     def _list_extension_types(self, region: str) -> tuple[set[str], AzureCliError | None]:
         command = [
-            _az_executable(),
+            az_executable(),
             "k8s-extension",
             "extension-types",
             "list-by-location",
@@ -88,15 +77,6 @@ class AksExtensionCliProbe:
             return set(), AzureCliError("AzureCliInvalidJson", str(error))
 
         return _extract_extension_type_names(payload), None
-
-
-def _run_az(command: list[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(command, capture_output=True, check=False, text=True)
-
-
-def _az_executable() -> str:
-    return shutil.which("az") or shutil.which("az.cmd") or "az"
-
 
 def _extract_extension_type_names(payload: object) -> set[str]:
     if not isinstance(payload, list):

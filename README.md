@@ -23,6 +23,7 @@ The first implementation slice is a Python service with:
 - A modular synthetic probe runner
 - A deterministic sample AKS extension probe for the PoC regions
 - An Azure CLI-backed AKS extension probe for real regional checks
+- An Azure CLI-backed AKS Kubernetes version probe for minor-version rollout checks
 - JSON snapshot and diff storage helpers
 - A diff engine that classifies new availability and regressions
 - A FastAPI read-only API matching the initial API spec
@@ -70,11 +71,24 @@ az extension add --name k8s-extension --upgrade
 azure-region-monitor run --probe aks-extension-cli --output data/snapshots/latest.json
 ```
 
+Run both read-only AKS probes locally:
+
+```powershell
+azure-region-monitor run --probe aks-extension-cli --probe aks-version-cli --output data/snapshots/latest.json
+```
+
 Customize AKS extension features with comma-separated `feature=extensionType` pairs:
 
 ```powershell
 $env:AKS_EXTENSION_FEATURES="extensions.gitops=microsoft.flux,extensions.monitor=microsoft.azuremonitor.containers"
 azure-region-monitor run --probe aks-extension-cli --output data/snapshots/latest.json
+```
+
+Customize AKS Kubernetes minor versions with comma-separated prefixes:
+
+```powershell
+$env:AKS_KUBERNETES_VERSION_PREFIXES="1.32,1.33,1.34,1.35"
+azure-region-monitor run --probe aks-version-cli --output data/snapshots/latest.json
 ```
 
 Generate a diff between two snapshots:
@@ -106,8 +120,8 @@ Useful endpoints:
 ## Next Engineering Steps
 
 1. Inspect the Azure Static Web Apps deployment from `.github/workflows/synthetic-tests.yml`.
-2. Confirm whether the chosen AKS extension types expose regional differences across more regions.
-3. Add a more discriminating AKS lifecycle probe if list-based extension checks stay identical.
+2. Confirm whether the chosen AKS extension types or Kubernetes version prefixes expose regional differences across more regions.
+3. Add a controlled AKS lifecycle probe if read-only checks stay identical.
 4. Add alert delivery once the daily diff flow is stable.
 
 See [docs/poc-deployment.md](docs/poc-deployment.md) for the PoC deployment/runbook.

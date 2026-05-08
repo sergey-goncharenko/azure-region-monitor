@@ -5,9 +5,14 @@ import os
 from datetime import datetime
 from pathlib import Path
 
-from azure_region_monitor.config import DEFAULT_REGIONS, parse_aks_extension_features
+from azure_region_monitor.config import (
+    DEFAULT_REGIONS,
+    parse_aks_extension_features,
+    parse_aks_kubernetes_version_prefixes,
+)
 from azure_region_monitor.diff import build_diff
 from azure_region_monitor.probes.aks_extension import AksExtensionCliProbe
+from azure_region_monitor.probes.aks_versions import AksKubernetesVersionCliProbe
 from azure_region_monitor.probes.sample import SampleAksExtensionProbe
 from azure_region_monitor.runner import run_probes
 from azure_region_monitor.storage import load_snapshot, write_diff, write_snapshot
@@ -22,9 +27,10 @@ def main() -> None:
     run_parser.add_argument("--region", action="append", dest="regions", help="Azure region to test")
     run_parser.add_argument(
         "--probe",
-        choices=["sample-aks-extension", "aks-extension-cli"],
-        default="sample-aks-extension",
-        help="Synthetic probe implementation to run",
+        action="append",
+        choices=["sample-aks-extension", "aks-extension-cli", "aks-version-cli"],
+        dest="probes",
+        help="Synthetic probe implementation to run; repeat to run multiple probes",
     )
     run_parser.add_argument("--output", type=Path, default=Path("data/snapshots/latest.json"))
     run_parser.add_argument("--timestamp", type=_parse_timestamp)
@@ -54,7 +60,7 @@ def main() -> None:
 
 def _run(args: argparse.Namespace) -> None:
     regions = args.regions or DEFAULT_REGIONS
-    snapshot = run_probes(regions, [_build_probe(args.probe)], timestamp=args.timestamp)
+    snapshot = run_probes(regions, _build_probes(args.probes), timestamp=args.timestamp)
     write_snapshot(args.output, snapshot)
     print(f"Wrote snapshot for {len(regions)} regions to {args.output}")
 
@@ -80,12 +86,22 @@ def _parse_timestamp(raw: str) -> datetime:
     return datetime.fromisoformat(raw.replace("Z", "+00:00"))
 
 
+def _build_probes(probe_names: list[str] | None):
+    return [_build_probe(probe_name) for probe_name in (probe_names or ["sample-aks-extension"])]
+
+
 def _build_probe(probe_name: str):
     if probe_name == "sample-aks-extension":
         return SampleAksExtensionProbe()
     if probe_name == "aks-extension-cli":
         return AksExtensionCliProbe(
             features=parse_aks_extension_features(os.environ.get("AKS_EXTENSION_FEATURES"))
+        )
+    if probe_name == "aks-version-cli":
+        return AksKubernetesVersionCliProbe(
+            version_prefixes=parse_aks_kubernetes_version_prefixes(
+                os.environ.get("AKS_KUBERNETES_VERSION_PREFIXES")
+            )
         )
     raise ValueError(f"Unsupported probe: {probe_name}")
 

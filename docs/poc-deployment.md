@@ -11,6 +11,11 @@ The PoC proves that synthetic checks can produce structured, region-by-region Az
 - Default features:
   - `extensions.gitops=microsoft.flux`
   - `extensions.monitor=microsoft.azuremonitor.containers`
+- Default AKS Kubernetes version prefixes:
+  - `1.32`
+  - `1.33`
+  - `1.34`
+  - `1.35`
 - Output snapshot: `data/snapshots/latest.json`
 - Output diff: `data/diffs/latest.json`
 - Automation: `.github/workflows/synthetic-tests.yml`
@@ -29,6 +34,12 @@ azure-region-monitor run --probe aks-extension-cli --output data/snapshots/lates
 azure-region-monitor diff data/snapshots/2026-05-07.json data/snapshots/latest.json --output data/diffs/latest.json
 ```
 
+Run both read-only AKS probes locally:
+
+```powershell
+azure-region-monitor run --probe aks-extension-cli --probe aks-version-cli --output data/snapshots/latest.json
+```
+
 To override regions:
 
 ```powershell
@@ -40,6 +51,13 @@ To override extension mappings:
 ```powershell
 $env:AKS_EXTENSION_FEATURES="extensions.gitops=microsoft.flux,extensions.monitor=microsoft.azuremonitor.containers"
 azure-region-monitor run --probe aks-extension-cli --output data/snapshots/latest.json
+```
+
+To override AKS Kubernetes version prefixes:
+
+```powershell
+$env:AKS_KUBERNETES_VERSION_PREFIXES="1.32,1.33,1.34,1.35"
+azure-region-monitor run --probe aks-version-cli --output data/snapshots/latest.json
 ```
 
 ## GitHub Actions Setup
@@ -70,8 +88,9 @@ Run the workflow manually first:
 2. Select `Synthetic regional tests`.
 3. Use `Run workflow`.
 4. Optionally enter comma-separated regions.
-5. Optionally enter a previous snapshot path, such as `data/snapshots/2026-05-08.json`, only when you intentionally want to compare against that checked-in file.
-6. Download the `azure-region-monitor-synthetic-data` artifact.
+5. Optionally enter comma-separated AKS Kubernetes minor version prefixes.
+6. Optionally enter a previous snapshot path, such as `data/snapshots/2026-05-08.json`, only when you intentionally want to compare against that checked-in file.
+7. Download the `azure-region-monitor-synthetic-data` artifact.
 
 ## Success Criteria
 
@@ -84,4 +103,4 @@ The PoC is successful when a run produces:
 
 ## Next Decision
 
-If this AKS extension type listing does not expose a real regional difference, the next probe should use a controlled create/enable/delete lifecycle against a temporary test cluster in each region. That is more expensive and slower, so it should wait until the low-cost list probe has been tried.
+If the read-only AKS extension and Kubernetes version probes do not expose a real regional difference, the next probe should use a controlled create/enable/delete lifecycle against a temporary test cluster in each region. That is more expensive and slower, so it should wait until the low-cost probes have been tried.

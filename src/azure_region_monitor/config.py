@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 DEFAULT_REGIONS = ["westeurope", "swedencentral", "eastus"]
+DEFAULT_AKS_KUBERNETES_VERSION_PREFIXES = ["1.32", "1.33", "1.34", "1.35"]
 
 
 @dataclass(frozen=True)
@@ -34,3 +35,13 @@ def parse_aks_extension_features(raw: str | None) -> list[AksExtensionFeature]:
         features.append(AksExtensionFeature(feature=feature, extension_type=extension_type))
 
     return features
+
+
+def parse_aks_kubernetes_version_prefixes(raw: str | None) -> list[str]:
+    if not raw:
+        return DEFAULT_AKS_KUBERNETES_VERSION_PREFIXES
+
+    prefixes = [item.strip() for item in raw.split(",") if item.strip()]
+    if not prefixes:
+        raise ValueError("AKS Kubernetes version prefixes cannot be empty")
+    return prefixes
