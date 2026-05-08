@@ -50,6 +50,14 @@ Create a Microsoft Entra application or managed identity that can authenticate f
 
 The workflow only needs read-style Azure CLI access for this first probe. Do not add client secrets; use federated credentials for GitHub OIDC.
 
+When scripting the federated credential subject in PowerShell, use `${repo}` before `:ref`:
+
+```powershell
+"repo:${repo}:ref:refs/heads/main"
+```
+
+Using `$repo:ref` makes PowerShell treat `repo` as a scoped variable name and creates the wrong subject.
+
 Run the workflow manually first:
 
 1. Open Actions in GitHub.
