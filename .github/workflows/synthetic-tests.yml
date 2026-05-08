@@ -17,15 +17,11 @@ on:
 permissions:
   contents: read
   id-token: write
-  pages: write
 
 jobs:
   aks-extension-poc:
     name: AKS extension PoC
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy-pages.outputs.page_url }}
     env:
       SNAPSHOT_DATE: ${{ github.run_id }}
     steps:
@@ -98,17 +94,13 @@ jobs:
       - name: Build static site
         run: azure-region-monitor build-static --output public
 
-      - name: Configure GitHub Pages
-        uses: actions/configure-pages@v5
-
-      - name: Upload GitHub Pages artifact
-        uses: actions/upload-pages-artifact@v3
+      - name: Deploy Azure Static Web App
+        uses: Azure/static-web-apps-deploy@v1
         with:
-          path: public
-
-      - name: Deploy GitHub Pages
-        id: deploy-pages
-        uses: actions/deploy-pages@v4
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          action: upload
+          app_location: public
+          skip_app_build: true
 
       - name: Azure logout
         if: always()

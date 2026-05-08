@@ -14,6 +14,8 @@ The PoC proves that synthetic checks can produce structured, region-by-region Az
 - Output snapshot: `data/snapshots/latest.json`
 - Output diff: `data/diffs/latest.json`
 - Automation: `.github/workflows/synthetic-tests.yml`
+- Static host: Azure Static Web Apps
+- Current hostname: `gray-island-09dc9e703.7.azurestaticapps.net`
 
 ## Local Run
 
@@ -49,6 +51,10 @@ Create a Microsoft Entra application or managed identity that can authenticate f
 - `AZURE_SUBSCRIPTION_ID`
 
 The workflow only needs read-style Azure CLI access for this first probe. Do not add client secrets; use federated credentials for GitHub OIDC.
+
+The Azure Static Web Apps deployment step expects this repository secret:
+
+- `AZURE_STATIC_WEB_APPS_API_TOKEN`
 
 When scripting the federated credential subject in PowerShell, use `${repo}` before `:ref`:
 

@@ -23,7 +23,7 @@ The first implementation slice is a Python service with:
 - A diff engine that classifies new availability and regressions
 - A FastAPI read-only API matching the initial API spec
 - A GitHub Actions workflow for manual or scheduled PoC runs
-- A generated static dashboard and JSON endpoint for GitHub Pages
+- A generated static dashboard and JSON endpoint for Azure Static Web Apps
 - Tests for the diff engine and API behavior
 
 ## Project Structure
@@ -101,7 +101,7 @@ Useful endpoints:
 
 ## Next Engineering Steps
 
-1. Inspect the GitHub Pages deployment from `.github/workflows/synthetic-tests.yml`.
+1. Inspect the Azure Static Web Apps deployment from `.github/workflows/synthetic-tests.yml`.
 2. Confirm whether the chosen AKS extension types expose regional differences across more regions.
 3. Add a more discriminating AKS lifecycle probe if list-based extension checks stay identical.
 4. Add alert delivery once the daily diff flow is stable.
