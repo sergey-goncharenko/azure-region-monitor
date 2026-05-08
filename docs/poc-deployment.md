@@ -64,7 +64,8 @@ Run the workflow manually first:
 2. Select `Synthetic regional tests`.
 3. Use `Run workflow`.
 4. Optionally enter comma-separated regions.
-5. Download the `azure-region-monitor-synthetic-data` artifact.
+5. Optionally enter a previous snapshot path, such as `data/snapshots/2026-05-08.json`, only when you intentionally want to compare against that checked-in file.
+6. Download the `azure-region-monitor-synthetic-data` artifact.
 
 ## Success Criteria
 
