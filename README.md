@@ -23,6 +23,7 @@ The first implementation slice is a Python service with:
 - A diff engine that classifies new availability and regressions
 - A FastAPI read-only API matching the initial API spec
 - A GitHub Actions workflow for manual or scheduled PoC runs
+- A generated static dashboard and JSON endpoint for GitHub Pages
 - Tests for the diff engine and API behavior
 
 ## Project Structure
@@ -84,6 +85,12 @@ Run the local API:
 azure-region-monitor serve --reload
 ```
 
+Build the static dashboard and JSON endpoint:
+
+```powershell
+azure-region-monitor build-static --output public
+```
+
 Useful endpoints:
 
 - `GET /api/latest`
@@ -94,10 +101,9 @@ Useful endpoints:
 
 ## Next Engineering Steps
 
-1. Run `.github/workflows/synthetic-tests.yml` manually with GitHub OIDC secrets configured.
-2. Inspect the generated JSON artifact and confirm whether the chosen AKS extension types expose regional differences.
-3. Publish the generated JSON through GitHub Pages, Azure Static Web Apps, or Blob static website.
-4. Build the static dashboard on top of the generated JSON files.
-5. Add alert delivery once the daily diff flow is stable.
+1. Inspect the GitHub Pages deployment from `.github/workflows/synthetic-tests.yml`.
+2. Confirm whether the chosen AKS extension types expose regional differences across more regions.
+3. Add a more discriminating AKS lifecycle probe if list-based extension checks stay identical.
+4. Add alert delivery once the daily diff flow is stable.
 
 See [docs/poc-deployment.md](docs/poc-deployment.md) for the PoC deployment/runbook.

@@ -11,6 +11,7 @@ from azure_region_monitor.probes.aks_extension import AksExtensionCliProbe
 from azure_region_monitor.probes.sample import SampleAksExtensionProbe
 from azure_region_monitor.runner import run_probes
 from azure_region_monitor.storage import load_snapshot, write_diff, write_snapshot
+from azure_region_monitor.static_site import build_static_site
 
 
 def main() -> None:
@@ -41,6 +42,12 @@ def main() -> None:
     serve_parser.add_argument("--reload", action="store_true")
     serve_parser.set_defaults(handler=_serve)
 
+    static_parser = subparsers.add_parser("build-static", help="Build static dashboard and JSON API files")
+    static_parser.add_argument("--output", type=Path, default=Path("public"))
+    static_parser.add_argument("--snapshot", type=Path, default=Path("data/snapshots/latest.json"))
+    static_parser.add_argument("--diff", type=Path, default=Path("data/diffs/latest.json"))
+    static_parser.set_defaults(handler=_build_static)
+
     args = parser.parse_args()
     args.handler(args)
 
@@ -62,6 +69,11 @@ def _serve(args: argparse.Namespace) -> None:
     import uvicorn
 
     uvicorn.run("azure_region_monitor.api:app", host=args.host, port=args.port, reload=args.reload)
+
+
+def _build_static(args: argparse.Namespace) -> None:
+    build_static_site(args.output, snapshot_path=args.snapshot, diff_path=args.diff)
+    print(f"Built static site in {args.output}")
 
 
 def _parse_timestamp(raw: str) -> datetime:
