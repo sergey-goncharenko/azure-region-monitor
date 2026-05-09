@@ -59,5 +59,8 @@ def test_build_static_site_shows_uniform_extension_availability(tmp_path):
 
     assert "Uniform Extension Availability" in index_html
     assert "1 extension feature available in all 2 tested regions" in index_html
+    assert "AKS extensions" in index_html
     assert "microsoft.flux" in index_html
     assert "extensions.gitops" in index_html
+    assert "Curated AKS extensions" not in index_html
+    assert "AKS extension catalog" not in index_html

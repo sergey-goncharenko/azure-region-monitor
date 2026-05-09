@@ -31,7 +31,9 @@ def _render_index(snapshot: Snapshot) -> str:
     rows = _flatten_snapshot(snapshot)
     status_counts = _status_counts(rows)
     status_total = sum(status_counts.values())
-    available_percent = round((status_counts.get("available", 0) / status_total) * 100, 1) if status_total else 0
+    available_percent = (
+        round((status_counts.get("available", 0) / status_total) * 100, 1) if status_total else 0
+    )
     regions = sorted(snapshot.regions)
     unique_features = sorted({str(row["feature"]) for row in rows})
     categories = sorted({str(row["category"]) for row in rows})
@@ -43,12 +45,16 @@ def _render_index(snapshot: Snapshot) -> str:
     modality_rows = "\n".join(_render_modality_row(row) for row in _modality_summaries(rows))
     region_rows = "\n".join(_render_region_row(row) for row in _region_summaries(rows))
     uniform_extensions = _uniform_extension_summaries(rows, regions)
-    uniform_extension_rows = "\n".join(_render_uniform_extension_row(row) for row in uniform_extensions)
+    uniform_extension_rows = "\n".join(
+        _render_uniform_extension_row(row) for row in uniform_extensions
+    )
     uniform_extension_label = "feature" if len(uniform_extensions) == 1 else "features"
     uniform_extension_body = uniform_extension_rows or (
         '<tr><td colspan="4" class="empty">No extension features are available in every tested region.</td></tr>'
     )
-    difference_rows = "\n".join(_render_difference_row(row, regions) for row in _difference_summaries(rows))
+    difference_rows = "\n".join(
+        _render_difference_row(row, regions) for row in _difference_summaries(rows)
+    )
     difference_body = difference_rows or (
         f'<tr><td colspan="{len(regions) + 2}" class="empty">No regional status differences in this snapshot.</td></tr>'
     )
@@ -490,10 +496,8 @@ def _render_raw_row(row: dict[str, object]) -> str:
 
 
 def _feature_category(feature: str) -> str:
-    if feature.startswith("extensionTypes."):
-        return "AKS extension catalog"
-    if feature.startswith("extensions."):
-        return "Curated AKS extensions"
+    if _is_extension_feature(feature):
+        return "AKS extensions"
     if feature.startswith("kubernetesVersions."):
         return "AKS Kubernetes versions"
     return feature.split(".", 1)[0]
@@ -561,42 +565,45 @@ def _uniform_extension_summaries(
     rows: list[dict[str, object]],
     regions: list[str],
 ) -> list[dict[str, object]]:
-    features: dict[tuple[str, str], dict[str, object]] = {}
+    extension_summaries: dict[tuple[str, str], dict[str, object]] = {}
     for row in rows:
         feature = str(row["feature"])
         if not _is_extension_feature(feature):
             continue
 
-        key = (str(row["service"]), feature)
-        summary = features.setdefault(
+        extension_type = _extension_type_label(feature, str(row["message"]))
+        key = (str(row["service"]), extension_type)
+        summary = extension_summaries.setdefault(
             key,
             {
                 "service": key[0],
-                "feature": key[1],
+                "features": set(),
                 "category": str(row["category"]),
-                "extension_type": _extension_type_label(feature, str(row["message"])),
+                "extension_type": extension_type,
                 "regions": {},
             },
         )
-        summary["regions"][str(row["region"])] = str(row["status"])
+        summary["features"].add(feature)
+        region_statuses = summary["regions"].setdefault(str(row["region"]), [])
+        region_statuses.append(str(row["status"]))
 
     uniform = []
-    for summary in features.values():
-        statuses = summary["regions"]
-        if len(statuses) == len(regions) and all(status == "available" for status in statuses.values()):
+    for summary in extension_summaries.values():
+        region_statuses = summary["regions"]
+        if len(region_statuses) == len(regions) and all(
+            status == "available" for statuses in region_statuses.values() for status in statuses
+        ):
             uniform.append(summary)
 
-    return sorted(
-        uniform,
-        key=lambda item: (_extension_category_rank(str(item["category"])), str(item["extension_type"])),
-    )
+    return sorted(uniform, key=lambda item: str(item["extension_type"]))
 
 
 def _render_uniform_extension_row(row: dict[str, object]) -> str:
+    features = ", ".join(sorted(row["features"]))
     return f"""<tr>
                 <td>{html.escape(str(row["category"]))}</td>
                 <td><code>{html.escape(str(row["extension_type"]))}</code></td>
-                <td><code>{html.escape(str(row["feature"]))}</code></td>
+                <td><code>{html.escape(features)}</code></td>
                 <td class="number">{len(row["regions"])}</td>
               </tr>"""
 
@@ -612,14 +619,6 @@ def _extension_type_label(feature: str, message: str) -> str:
     if feature.startswith("extensionTypes."):
         return feature.removeprefix("extensionTypes.")
     return feature
-
-
-def _extension_category_rank(category: str) -> int:
-    if category == "Curated AKS extensions":
-        return 0
-    if category == "AKS extension catalog":
-        return 1
-    return 2
 
 
 def _difference_summaries(rows: list[dict[str, object]]) -> list[dict[str, object]]:
