@@ -1,0 +1,140 @@
+name: Regional probe runner
+
+on:
+  workflow_call:
+    inputs:
+      probes:
+        description: "Comma-separated probe names to run"
+        required: true
+        type: string
+      regions:
+        description: "Comma-separated Azure regions to test"
+        required: false
+        type: string
+        default: "eastus,eastus2,westus3,westeurope,northeurope,swedencentral,uksouth,germanywestcentral,southeastasia,australiaeast"
+      previous_snapshot:
+        description: "Optional path to a previous snapshot in the repository for diff generation"
+        required: false
+        type: string
+        default: ""
+      aks_kubernetes_version_prefixes:
+        description: "Comma-separated AKS Kubernetes minor versions to check"
+        required: false
+        type: string
+        default: "1.32,1.33,1.34,1.35"
+      install_k8s_extension:
+        description: "Install or update the Azure k8s-extension CLI extension"
+        required: false
+        type: boolean
+        default: false
+      artifact_name:
+        description: "Name for uploaded synthetic data artifacts"
+        required: false
+        type: string
+        default: "azure-region-monitor-synthetic-data"
+      deploy_dashboard:
+        description: "Deploy the resulting static dashboard to Azure Static Web Apps"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  run-probes:
+    name: Run regional probes
+    runs-on: ubuntu-latest
+    env:
+      SNAPSHOT_DATE: ${{ github.run_id }}
+      AKS_KUBERNETES_VERSION_PREFIXES: ${{ inputs.aks_kubernetes_version_prefixes }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: python -m pip install ".[dev]"
+
+      - name: Install Azure CLI extension
+        if: inputs.install_k8s_extension
+        run: az extension add --name k8s-extension --upgrade
+
+      - name: Run selected probes
+        shell: bash
+        env:
+          SELECTED_PROBES: ${{ inputs.probes }}
+          SELECTED_REGIONS: ${{ inputs.regions }}
+        run: |
+          mkdir -p data/snapshots data/diffs
+          rm -f data/snapshots/latest.json data/diffs/latest.json
+
+          probe_args=()
+          IFS=',' read -ra probes <<< "$SELECTED_PROBES"
+          for probe in "${probes[@]}"; do
+            trimmed="$(echo "$probe" | xargs)"
+            if [ -n "$trimmed" ]; then
+              probe_args+=(--probe "$trimmed")
+            fi
+          done
+
+          region_args=()
+          IFS=',' read -ra regions <<< "$SELECTED_REGIONS"
+          for region in "${regions[@]}"; do
+            trimmed="$(echo "$region" | xargs)"
+            if [ -n "$trimmed" ]; then
+              region_args+=(--region "$trimmed")
+            fi
+          done
+
+          azure-region-monitor run "${probe_args[@]}" "${region_args[@]}" --output data/snapshots/latest.json
+
+      - name: Build diff when previous snapshot is provided
+        run: |
+          previous_snapshot="${{ inputs.previous_snapshot }}"
+          if [ -n "$previous_snapshot" ] && [ -f "$previous_snapshot" ]; then
+            azure-region-monitor diff \
+              "$previous_snapshot" \
+              data/snapshots/latest.json \
+              --output data/diffs/latest.json
+          else
+            echo "No previous snapshot path was provided; skipping diff generation."
+          fi
+
+      - name: Upload synthetic data artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: |
+            data/snapshots/latest.json
+            data/diffs/latest.json
+          if-no-files-found: warn
+
+      - name: Build static site
+        if: inputs.deploy_dashboard
+        run: azure-region-monitor build-static --output public
+
+      - name: Deploy Azure Static Web App
+        if: inputs.deploy_dashboard
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          action: upload
+          app_location: public
+          skip_app_build: true
+
+      - name: Azure logout
+        if: always()
+        run: az logout || true

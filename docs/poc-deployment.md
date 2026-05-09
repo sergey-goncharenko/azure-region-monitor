@@ -19,7 +19,11 @@ The PoC proves that synthetic checks can produce structured, region-by-region Az
   - `1.35`
 - Output snapshot: `data/snapshots/latest.json`
 - Output diff: `data/diffs/latest.json`
-- Automation: `.github/workflows/synthetic-tests.yml`
+- Full dashboard automation: `.github/workflows/synthetic-tests.yml`
+- Manual modality test workflows:
+  - `.github/workflows/aks-extension-tests.yml`
+  - `.github/workflows/aks-version-tests.yml`
+- Shared runner workflow: `.github/workflows/regional-probe-run.yml`
 - Static host: Azure Static Web Apps
 - Current hostname: `gray-island-09dc9e703.7.azurestaticapps.net`
 
@@ -87,11 +91,18 @@ Run the workflow manually first:
 
 1. Open Actions in GitHub.
 2. Select `Synthetic regional tests`.
-3. Use `Run workflow`.
+3. Use `Run workflow` when you want to run all current modalities and deploy the dashboard.
 4. Optionally enter comma-separated regions.
 5. Optionally enter comma-separated AKS Kubernetes minor version prefixes.
 6. Optionally enter a previous snapshot path, such as `data/snapshots/2026-05-08.json`, only when you intentionally want to compare against that checked-in file.
 7. Download the `azure-region-monitor-synthetic-data` artifact.
+
+For a faster modality-specific run, select one of the focused workflows instead:
+
+- `AKS extension regional tests` runs `aks-extension-cli` and `aks-extension-catalog-cli`.
+- `AKS Kubernetes version regional tests` runs `aks-version-cli` only.
+
+Focused workflows upload modality-specific artifacts and do not deploy the public dashboard by default. Use their `deploy_dashboard` input only when you intentionally want the Static Web Apps dashboard to show that single modality snapshot.
 
 ## Success Criteria
 
