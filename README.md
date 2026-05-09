@@ -25,6 +25,7 @@ The first implementation slice is a Python service with:
 - An Azure CLI-backed AKS extension probe for real regional checks
 - An Azure CLI-backed AKS extension catalog probe that tracks every listed extension type per region
 - An Azure CLI-backed AKS Kubernetes version probe for minor-version rollout checks
+- An Azure CLI-backed VM SKU probe for compute SKU regional availability
 - JSON snapshot and diff storage helpers
 - A diff engine that classifies new availability and regressions
 - A FastAPI read-only API matching the initial API spec
@@ -78,6 +79,12 @@ Run both read-only AKS probes locally:
 azure-region-monitor run --probe aks-extension-cli --probe aks-extension-catalog-cli --probe aks-version-cli --output data/snapshots/latest.json
 ```
 
+Run the read-only VM SKU probe locally:
+
+```powershell
+azure-region-monitor run --probe vm-sku-cli --output data/snapshots/latest.json
+```
+
 Default regions now cover a small global spread:
 
 ```text
@@ -96,6 +103,13 @@ Customize AKS Kubernetes minor versions with comma-separated prefixes:
 ```powershell
 $env:AKS_KUBERNETES_VERSION_PREFIXES="1.32,1.33,1.34,1.35"
 azure-region-monitor run --probe aks-version-cli --output data/snapshots/latest.json
+```
+
+Customize VM SKUs with comma-separated SKU names:
+
+```powershell
+$env:AZURE_VM_SKUS="Standard_B2s,Standard_D2s_v5,Standard_D2as_v5,Standard_E2s_v5"
+azure-region-monitor run --probe vm-sku-cli --output data/snapshots/latest.json
 ```
 
 Generate a diff between two snapshots:
@@ -127,7 +141,7 @@ Useful endpoints:
 ## Next Engineering Steps
 
 1. Inspect the Azure Static Web Apps deployment from `.github/workflows/synthetic-tests.yml`.
-2. Confirm whether the AKS extension catalog or Kubernetes version prefixes expose regional differences across more regions.
+2. Confirm whether the AKS extension catalog, Kubernetes version prefixes, or VM SKU availability expose regional differences across more regions.
 3. Add a controlled AKS lifecycle probe if read-only checks stay identical.
 4. Add alert delivery once the daily diff flow is stable.
 

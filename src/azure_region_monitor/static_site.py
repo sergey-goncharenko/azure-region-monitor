@@ -500,6 +500,8 @@ def _feature_category(feature: str) -> str:
         return "AKS extensions"
     if feature.startswith("kubernetesVersions."):
         return "AKS Kubernetes versions"
+    if feature.startswith("vmSkus."):
+      return "VM SKUs"
     return feature.split(".", 1)[0]
 
 

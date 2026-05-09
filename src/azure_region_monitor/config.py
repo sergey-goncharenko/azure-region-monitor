@@ -15,6 +15,7 @@ DEFAULT_REGIONS = [
     "australiaeast",
 ]
 DEFAULT_AKS_KUBERNETES_VERSION_PREFIXES = ["1.32", "1.33", "1.34", "1.35"]
+DEFAULT_VM_SKUS = ["Standard_B2s", "Standard_D2s_v5", "Standard_D2as_v5", "Standard_E2s_v5"]
 
 
 @dataclass(frozen=True)
@@ -56,3 +57,13 @@ def parse_aks_kubernetes_version_prefixes(raw: str | None) -> list[str]:
     if not prefixes:
         raise ValueError("AKS Kubernetes version prefixes cannot be empty")
     return prefixes
+
+
+def parse_vm_skus(raw: str | None) -> list[str]:
+    if not raw:
+        return DEFAULT_VM_SKUS
+
+    skus = [item.strip() for item in raw.split(",") if item.strip()]
+    if not skus:
+        raise ValueError("VM SKUs cannot be empty")
+    return skus

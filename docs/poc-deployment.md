@@ -17,12 +17,18 @@ The PoC proves that synthetic checks can produce structured, region-by-region Az
   - `1.33`
   - `1.34`
   - `1.35`
+- Default VM SKUs:
+  - `Standard_B2s`
+  - `Standard_D2s_v5`
+  - `Standard_D2as_v5`
+  - `Standard_E2s_v5`
 - Output snapshot: `data/snapshots/latest.json`
 - Output diff: `data/diffs/latest.json`
 - Full dashboard automation: `.github/workflows/synthetic-tests.yml`
 - Manual modality test workflows:
   - `.github/workflows/aks-extension-tests.yml`
   - `.github/workflows/aks-version-tests.yml`
+  - `.github/workflows/vm-sku-tests.yml`
 - Shared runner workflow: `.github/workflows/regional-probe-run.yml`
 - Static host: Azure Static Web Apps
 - Current hostname: `gray-island-09dc9e703.7.azurestaticapps.net`
@@ -65,6 +71,13 @@ $env:AKS_KUBERNETES_VERSION_PREFIXES="1.32,1.33,1.34,1.35"
 azure-region-monitor run --probe aks-version-cli --output data/snapshots/latest.json
 ```
 
+To override VM SKUs:
+
+```powershell
+$env:AZURE_VM_SKUS="Standard_B2s,Standard_D2s_v5,Standard_D2as_v5,Standard_E2s_v5"
+azure-region-monitor run --probe vm-sku-cli --output data/snapshots/latest.json
+```
+
 ## GitHub Actions Setup
 
 Create a Microsoft Entra application or managed identity that can authenticate from GitHub Actions with OIDC. The workflow expects these repository secrets:
@@ -94,13 +107,15 @@ Run the workflow manually first:
 3. Use `Run workflow` when you want to run all current modalities and deploy the dashboard.
 4. Optionally enter comma-separated regions.
 5. Optionally enter comma-separated AKS Kubernetes minor version prefixes.
-6. Optionally enter a previous snapshot path, such as `data/snapshots/2026-05-08.json`, only when you intentionally want to compare against that checked-in file.
-7. Download the `azure-region-monitor-synthetic-data` artifact.
+6. Optionally enter comma-separated VM SKUs.
+7. Optionally enter a previous snapshot path, such as `data/snapshots/2026-05-08.json`, only when you intentionally want to compare against that checked-in file.
+8. Download the `azure-region-monitor-synthetic-data` artifact.
 
 For a faster modality-specific run, select one of the focused workflows instead:
 
 - `AKS extension regional tests` runs `aks-extension-cli` and `aks-extension-catalog-cli`.
 - `AKS Kubernetes version regional tests` runs `aks-version-cli` only.
+- `VM SKU regional tests` runs `vm-sku-cli` only.
 
 Focused workflows upload modality-specific artifacts and do not deploy the public dashboard by default. Use their `deploy_dashboard` input only when you intentionally want the Static Web Apps dashboard to show that single modality snapshot.
 

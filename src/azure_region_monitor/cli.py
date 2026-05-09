@@ -9,12 +9,14 @@ from azure_region_monitor.config import (
     DEFAULT_REGIONS,
     parse_aks_extension_features,
     parse_aks_kubernetes_version_prefixes,
+    parse_vm_skus,
 )
 from azure_region_monitor.diff import build_diff
 from azure_region_monitor.probes.aks_extension import AksExtensionCliProbe
 from azure_region_monitor.probes.aks_extension_catalog import AksExtensionCatalogCliProbe
 from azure_region_monitor.probes.aks_versions import AksKubernetesVersionCliProbe
 from azure_region_monitor.probes.sample import SampleAksExtensionProbe
+from azure_region_monitor.probes.vm_skus import VmSkuCliProbe
 from azure_region_monitor.runner import run_probes
 from azure_region_monitor.storage import load_snapshot, write_diff, write_snapshot
 from azure_region_monitor.static_site import build_static_site
@@ -34,6 +36,7 @@ def main() -> None:
             "aks-extension-cli",
             "aks-extension-catalog-cli",
             "aks-version-cli",
+            "vm-sku-cli",
         ],
         dest="probes",
         help="Synthetic probe implementation to run; repeat to run multiple probes",
@@ -111,6 +114,8 @@ def _build_probe(probe_name: str):
                 os.environ.get("AKS_KUBERNETES_VERSION_PREFIXES")
             )
         )
+    if probe_name == "vm-sku-cli":
+        return VmSkuCliProbe(skus=parse_vm_skus(os.environ.get("AZURE_VM_SKUS")))
     raise ValueError(f"Unsupported probe: {probe_name}")
 
 
