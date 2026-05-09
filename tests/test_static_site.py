@@ -100,3 +100,32 @@ def test_build_static_site_groups_modalities_by_feature_family(tmp_path):
     assert "AKS Kubernetes versions" in index_html
     assert "VM SKUs" in index_html
     assert "<td>None</td>" not in index_html
+
+
+def test_build_static_site_caps_heavy_tables(tmp_path):
+    snapshot_path = tmp_path / "snapshot.json"
+    output_dir = tmp_path / "public"
+    eastus_features = {}
+    westus_features = {}
+    for index in range(400):
+        feature = f"vmSkus.standard.test{index}"
+        eastus_features[feature] = {"status": "available"}
+        westus_features[feature] = {"status": "unavailable"}
+    snapshot = {
+        "timestamp": "2026-05-08T00:00:00Z",
+        "regions": {
+            "eastus": {"compute": eastus_features},
+            "westus": {"compute": westus_features},
+        },
+    }
+    snapshot_path.write_text(json.dumps(snapshot), encoding="utf-8")
+
+    build_static_site(
+        output_dir, snapshot_path=snapshot_path, diff_path=tmp_path / "missing-diff.json"
+    )
+
+    index_html = (output_dir / "index.html").read_text(encoding="utf-8")
+
+    assert "Showing 300 of 800 raw check rows" in index_html
+    assert "Showing 250 of 400 regional difference rows" in index_html
+    assert index_html.count('<tr data-status="') == 300

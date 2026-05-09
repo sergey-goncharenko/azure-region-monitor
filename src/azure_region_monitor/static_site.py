@@ -9,6 +9,10 @@ from pathlib import Path
 from azure_region_monitor.models import Snapshot
 from azure_region_monitor.storage import load_snapshot
 
+MAX_RAW_PREVIEW_ROWS = 300
+MAX_DIFFERENCE_ROWS = 250
+MAX_UNIFORM_EXTENSION_ROWS = 250
+
 
 def build_static_site(
     output_dir: Path,
@@ -37,7 +41,11 @@ def _render_index(snapshot: Snapshot) -> str:
     regions = sorted(snapshot.regions)
     unique_features = sorted({str(row["feature"]) for row in rows})
     categories = sorted({str(row["category"]) for row in rows})
-    table_rows = "\n".join(_render_raw_row(row) for row in rows)
+    raw_preview_rows = _raw_preview_rows(rows)
+    table_rows = "\n".join(_render_raw_row(row) for row in raw_preview_rows)
+    raw_preview_note = _render_limit_note(
+      "raw check rows", len(rows), len(raw_preview_rows), "api/latest.json"
+    )
     category_options = "\n".join(
         f'<option value="{html.escape(category, quote=True)}">{html.escape(category)}</option>'
         for category in categories
@@ -45,15 +53,24 @@ def _render_index(snapshot: Snapshot) -> str:
     modality_rows = "\n".join(_render_modality_row(row) for row in _modality_summaries(rows))
     region_rows = "\n".join(_render_region_row(row) for row in _region_summaries(rows))
     uniform_extensions = _uniform_extension_summaries(rows, regions)
+    visible_uniform_extensions = uniform_extensions[:MAX_UNIFORM_EXTENSION_ROWS]
     uniform_extension_rows = "\n".join(
-        _render_uniform_extension_row(row) for row in uniform_extensions
+      _render_uniform_extension_row(row) for row in visible_uniform_extensions
     )
     uniform_extension_label = "feature" if len(uniform_extensions) == 1 else "features"
+    uniform_extension_note = _render_limit_note(
+      "uniform extension rows", len(uniform_extensions), len(visible_uniform_extensions)
+    )
     uniform_extension_body = uniform_extension_rows or (
         '<tr><td colspan="4" class="empty">No extension features are available in every tested region.</td></tr>'
     )
+    differences = _difference_summaries(rows)
+    visible_differences = differences[:MAX_DIFFERENCE_ROWS]
     difference_rows = "\n".join(
-        _render_difference_row(row, regions) for row in _difference_summaries(rows)
+      _render_difference_row(row, regions) for row in visible_differences
+    )
+    difference_note = _render_limit_note(
+      "regional difference rows", len(differences), len(visible_differences), "api/latest.json"
     )
     difference_body = difference_rows or (
         f'<tr><td colspan="{len(regions) + 2}" class="empty">No regional status differences in this snapshot.</td></tr>'
@@ -238,6 +255,11 @@ def _render_index(snapshot: Snapshot) -> str:
       font-size: 13px;
     }}
     .legend-item {{ display: inline-flex; align-items: center; gap: 5px; }}
+    .note {{
+      padding: 10px 14px 0;
+      color: var(--muted);
+      font-size: 13px;
+    }}
     .toolbar {{
       display: grid;
       grid-template-columns: minmax(220px, 1fr) minmax(160px, 220px) minmax(200px, 260px);
@@ -347,6 +369,7 @@ def _render_index(snapshot: Snapshot) -> str:
         <h2>Uniform Extension Availability</h2>
         <div class="panel-subtitle">{len(uniform_extensions)} extension {uniform_extension_label} available in all {len(regions)} tested regions</div>
       </div>
+      {uniform_extension_note}
       <div class="table-wrap">
         <table>
           <thead>
@@ -364,7 +387,7 @@ def _render_index(snapshot: Snapshot) -> str:
     <section class="panel matrix" aria-label="Regional differences">
       <div class="panel-header">
         <h2>Regional Differences</h2>
-        <div class="panel-subtitle">Features with mixed status across tested regions</div>
+        <div class="panel-subtitle">{len(differences)} features with mixed status across tested regions</div>
       </div>
       <div class="legend" aria-label="Status legend">
         <span class="legend-item"><span class="status-dot status-available">A</span> Available</span>
@@ -372,6 +395,7 @@ def _render_index(snapshot: Snapshot) -> str:
         <span class="legend-item"><span class="status-dot status-partial">P</span> Partial</span>
         <span class="legend-item"><span class="status-dot status-unknown">?</span> Unknown</span>
       </div>
+      {difference_note}
       <div class="table-wrap">
         <table>
           <thead>
@@ -388,6 +412,7 @@ def _render_index(snapshot: Snapshot) -> str:
     <details>
       <summary>Raw Checks ({len(rows)})</summary>
       <section class="panel" aria-label="Raw regional availability checks">
+        {raw_preview_note}
         <div class="toolbar">
           <input id="raw-search" type="search" placeholder="Search region, feature, or message" aria-label="Search raw checks">
           <select id="raw-status" aria-label="Filter by status">
@@ -493,6 +518,31 @@ def _render_raw_row(row: dict[str, object]) -> str:
             <td>{html.escape(latency)}</td>
             <td>{html.escape(str(row["message"]))}</td>
           </tr>"""
+
+
+def _render_limit_note(
+    label: str, total: int, shown: int, full_data_href: str | None = None
+) -> str:
+    if shown >= total:
+        return ""
+    full_data = ""
+    if full_data_href:
+        escaped_href = html.escape(full_data_href, quote=True)
+        full_data = f' Full data is available in <a href="{escaped_href}">{escaped_href}</a>.'
+    return f'<div class="note">Showing {shown:,} of {total:,} {html.escape(label)} to keep the dashboard responsive.{full_data}</div>'
+
+
+def _raw_preview_rows(rows: list[dict[str, object]]) -> list[dict[str, object]]:
+    status_priority = {"unknown": 0, "partial": 1, "unavailable": 2, "available": 3}
+    return sorted(
+        rows,
+        key=lambda row: (
+            status_priority.get(str(row["status"]), 4),
+            str(row["category"]),
+            str(row["region"]),
+            str(row["feature"]),
+        ),
+    )[:MAX_RAW_PREVIEW_ROWS]
 
 
 def _feature_category(feature: str) -> str:
