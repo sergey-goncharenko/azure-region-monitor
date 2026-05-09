@@ -69,3 +69,34 @@ def test_build_static_site_shows_uniform_extension_availability(tmp_path):
     assert "extensionCatalog" in index_html
     assert "Curated AKS extensions" not in index_html
     assert "AKS extension catalog" not in index_html
+
+
+def test_build_static_site_groups_modalities_by_feature_family(tmp_path):
+    snapshot_path = tmp_path / "snapshot.json"
+    output_dir = tmp_path / "public"
+    snapshot = {
+        "timestamp": "2026-05-08T00:00:00Z",
+        "regions": {
+            "eastus": {
+                "aks": {
+                    "extensionTypes.microsoft.flux": {"status": "available"},
+                    "kubernetesVersions.1.34": {"status": "available"},
+                },
+                "compute": {
+                    "vmSkus.standard.b2s": {"status": "available"},
+                },
+            }
+        },
+    }
+    snapshot_path.write_text(json.dumps(snapshot), encoding="utf-8")
+
+    build_static_site(
+        output_dir, snapshot_path=snapshot_path, diff_path=tmp_path / "missing-diff.json"
+    )
+
+    index_html = (output_dir / "index.html").read_text(encoding="utf-8")
+
+    assert "AKS extensions" in index_html
+    assert "AKS Kubernetes versions" in index_html
+    assert "VM SKUs" in index_html
+    assert "<td>None</td>" not in index_html

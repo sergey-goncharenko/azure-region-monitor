@@ -16,6 +16,10 @@ on:
         required: false
         type: boolean
         default: false
+      azure_cli_timeout_seconds:
+        description: "Maximum seconds to wait for each Azure CLI extension catalog command"
+        required: false
+        default: "120"
 
 permissions:
   contents: read
@@ -28,6 +32,7 @@ jobs:
       probes: "aks-extension-catalog-cli"
       regions: ${{ inputs.regions || 'eastus,eastus2,westus3,westeurope,northeurope,swedencentral,uksouth,germanywestcentral,southeastasia,australiaeast' }}
       previous_snapshot: ${{ inputs.previous_snapshot || '' }}
+      azure_cli_timeout_seconds: ${{ inputs.azure_cli_timeout_seconds || '120' }}
       install_k8s_extension: true
       artifact_name: "azure-region-monitor-aks-extensions"
       deploy_dashboard: ${{ inputs.deploy_dashboard || false }}
