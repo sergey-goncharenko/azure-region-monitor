@@ -37,6 +37,7 @@ def test_run_probes_fills_catalog_failures_as_unknown_checks():
     assert broken_feature.status == "unknown"
     assert broken_feature.error_code == "AzureCliCommandFailed"
     assert broken_feature.message == "Catalog failed."
+    assert "extensionCatalog" not in snapshot.regions["broken"]["aks"]
 
 
 def test_run_probes_fills_missing_catalog_features_as_unavailable():

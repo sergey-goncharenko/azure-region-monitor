@@ -14,7 +14,7 @@ def run_probes(
 ) -> Snapshot:
     snapshot_regions: dict[str, dict[str, dict[str, object]]] = {}
     normalized_feature_keys: set[tuple[str, str]] = set()
-    blocked_normalized_regions: dict[tuple[str, str], FeatureResult] = {}
+    blocked_normalized_regions: dict[tuple[str, str], tuple[str, FeatureResult]] = {}
 
     for region in regions:
         services: dict[str, dict[str, object]] = {}
@@ -23,7 +23,10 @@ def run_probes(
                 _merge_probe_result(services, probe_result)
                 if getattr(probe, "normalize_missing_features", False):
                     if probe_result.result.status == "unknown":
-                        blocked_normalized_regions[(region, probe_result.service)] = probe_result.result
+                        blocked_normalized_regions[(region, probe_result.service)] = (
+                            probe_result.feature,
+                            probe_result.result,
+                        )
                     else:
                         normalized_feature_keys.add((probe_result.service, probe_result.feature))
         snapshot_regions[region] = services
@@ -48,13 +51,15 @@ def _merge_probe_result(services: dict[str, dict[str, object]], probe_result: Pr
 def _fill_missing_normalized_features(
     snapshot_regions: dict[str, dict[str, dict[str, object]]],
     normalized_feature_keys: set[tuple[str, str]],
-    blocked_normalized_regions: dict[tuple[str, str], FeatureResult],
+    blocked_normalized_regions: dict[tuple[str, str], tuple[str, FeatureResult]],
 ) -> None:
+    services_with_normalized_features = {service for service, _ in normalized_feature_keys}
     for region, services in snapshot_regions.items():
         for service, feature in normalized_feature_keys:
             service_features = services.setdefault(service, {})
-            blocked_result = blocked_normalized_regions.get((region, service))
-            if blocked_result:
+            blocked = blocked_normalized_regions.get((region, service))
+            if blocked:
+                _, blocked_result = blocked
                 service_features.setdefault(
                     feature,
                     FeatureResult(
@@ -71,3 +76,10 @@ def _fill_missing_normalized_features(
                         message="Feature was not listed in this region's catalog.",
                     ),
                 )
+
+        for service in services_with_normalized_features:
+            blocked = blocked_normalized_regions.get((region, service))
+            if not blocked:
+                continue
+            blocked_feature, _ = blocked
+            services.get(service, {}).pop(blocked_feature, None)

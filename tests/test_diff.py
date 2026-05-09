@@ -76,5 +76,5 @@ def test_run_probes_normalizes_unknown_catalog_region_as_unknown():
 
     snapshot = run_probes(["eastus", "westeurope"], [CatalogProbe()])
 
-    assert snapshot.regions["westeurope"]["aks"]["extensionCatalog"].status == "unknown"
+    assert "extensionCatalog" not in snapshot.regions["westeurope"]["aks"]
     assert snapshot.regions["westeurope"]["aks"]["extensionTypes.microsoft.flux"].status == "unknown"
