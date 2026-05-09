@@ -27,6 +27,11 @@ on:
         required: false
         type: string
         default: "Standard_B2s,Standard_D2s_v5,Standard_D2as_v5,Standard_E2s_v5"
+      azure_cli_timeout_seconds:
+        description: "Maximum seconds to wait for each Azure CLI probe command"
+        required: false
+        type: string
+        default: "45"
       install_k8s_extension:
         description: "Install or update the Azure k8s-extension CLI extension"
         required: false
@@ -55,6 +60,7 @@ jobs:
       SNAPSHOT_DATE: ${{ github.run_id }}
       AKS_KUBERNETES_VERSION_PREFIXES: ${{ inputs.aks_kubernetes_version_prefixes }}
       AZURE_VM_SKUS: ${{ inputs.vm_skus }}
+      AZURE_CLI_TIMEOUT_SECONDS: ${{ inputs.azure_cli_timeout_seconds }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4

@@ -45,10 +45,10 @@ azure-region-monitor run --probe aks-extension-cli --output data/snapshots/lates
 azure-region-monitor diff data/snapshots/2026-05-07.json data/snapshots/latest.json --output data/diffs/latest.json
 ```
 
-Run both read-only AKS probes locally:
+Run the full read-only regional probe set locally:
 
 ```powershell
-azure-region-monitor run --probe aks-extension-cli --probe aks-extension-catalog-cli --probe aks-version-cli --output data/snapshots/latest.json
+azure-region-monitor run --probe aks-extension-catalog-cli --probe aks-version-cli --probe vm-sku-cli --output data/snapshots/latest.json
 ```
 
 To override regions:
@@ -113,7 +113,7 @@ Run the workflow manually first:
 
 For a faster modality-specific run, select one of the focused workflows instead:
 
-- `AKS extension regional tests` runs `aks-extension-cli` and `aks-extension-catalog-cli`.
+- `AKS extension regional tests` runs `aks-extension-catalog-cli`.
 - `AKS Kubernetes version regional tests` runs `aks-version-cli` only.
 - `VM SKU regional tests` runs `vm-sku-cli` only.
 

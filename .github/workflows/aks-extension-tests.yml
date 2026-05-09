@@ -25,7 +25,7 @@ jobs:
   aks-extensions:
     uses: ./.github/workflows/regional-probe-run.yml
     with:
-      probes: "aks-extension-cli,aks-extension-catalog-cli"
+      probes: "aks-extension-catalog-cli"
       regions: ${{ inputs.regions || 'eastus,eastus2,westus3,westeurope,northeurope,swedencentral,uksouth,germanywestcentral,southeastasia,australiaeast' }}
       previous_snapshot: ${{ inputs.previous_snapshot || '' }}
       install_k8s_extension: true

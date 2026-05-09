@@ -73,10 +73,10 @@ az extension add --name k8s-extension --upgrade
 azure-region-monitor run --probe aks-extension-cli --output data/snapshots/latest.json
 ```
 
-Run both read-only AKS probes locally:
+Run the full read-only regional probe set locally:
 
 ```powershell
-azure-region-monitor run --probe aks-extension-cli --probe aks-extension-catalog-cli --probe aks-version-cli --output data/snapshots/latest.json
+azure-region-monitor run --probe aks-extension-catalog-cli --probe aks-version-cli --probe vm-sku-cli --output data/snapshots/latest.json
 ```
 
 Run the read-only VM SKU probe locally:
