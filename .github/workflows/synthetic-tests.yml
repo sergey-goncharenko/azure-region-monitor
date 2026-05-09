@@ -35,7 +35,7 @@ jobs:
       previous_snapshot: ${{ inputs.previous_snapshot || '' }}
       aks_kubernetes_version_prefixes: ${{ inputs.aks_kubernetes_version_prefixes || '1.32,1.33,1.34,1.35' }}
       vm_skus: ${{ inputs.vm_skus || 'Standard_B2s,Standard_D2s_v5,Standard_D2as_v5,Standard_E2s_v5' }}
-      azure_cli_timeout_seconds: "45"
+      azure_cli_timeout_seconds: "20"
       install_k8s_extension: true
       artifact_name: "azure-region-monitor-synthetic-data"
       deploy_dashboard: true

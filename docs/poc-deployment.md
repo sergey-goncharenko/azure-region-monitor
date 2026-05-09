@@ -119,6 +119,8 @@ For a faster modality-specific run, select one of the focused workflows instead:
 
 Focused workflows upload modality-specific artifacts and do not deploy the public dashboard by default. Use their `deploy_dashboard` input only when you intentionally want the Static Web Apps dashboard to show that single modality snapshot.
 
+The full dashboard workflow caps each Azure CLI probe command at 20 seconds. Slow calls are recorded as `unknown` in the snapshot instead of blocking the dashboard refresh.
+
 ## Success Criteria
 
 The PoC is successful when a run produces:
