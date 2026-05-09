@@ -30,6 +30,10 @@ def test_build_static_site_shows_uniform_extension_availability(tmp_path):
         "regions": {
             "eastus": {
                 "aks": {
+                    "extensionCatalog": {
+                        "status": "unknown",
+                        "message": "Catalog failed.",
+                    },
                     "extensions.gitops": {
                         "status": "available",
                         "message": "Checked AKS extension type 'microsoft.flux' in eastus.",
@@ -62,5 +66,6 @@ def test_build_static_site_shows_uniform_extension_availability(tmp_path):
     assert "AKS extensions" in index_html
     assert "microsoft.flux" in index_html
     assert "extensions.gitops" in index_html
+    assert "extensionCatalog" in index_html
     assert "Curated AKS extensions" not in index_html
     assert "AKS extension catalog" not in index_html

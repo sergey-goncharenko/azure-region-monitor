@@ -496,6 +496,8 @@ def _render_raw_row(row: dict[str, object]) -> str:
 
 
 def _feature_category(feature: str) -> str:
+  if feature == "extensionCatalog":
+    return "AKS extensions"
     if _is_extension_feature(feature):
         return "AKS extensions"
     if feature.startswith("kubernetesVersions."):
