@@ -112,6 +112,13 @@ $env:AZURE_VM_SKUS="Standard_B2s,Standard_D2s_v5,Standard_D2as_v5,Standard_E2s_v
 azure-region-monitor run --probe vm-sku-cli --output data/snapshots/latest.json
 ```
 
+Set `AZURE_VM_SKUS=all` to track every SKU returned by `az vm list-sizes` in each region:
+
+```powershell
+$env:AZURE_VM_SKUS="all"
+azure-region-monitor run --probe vm-sku-cli --output data/snapshots/latest.json
+```
+
 Generate a diff between two snapshots:
 
 ```powershell

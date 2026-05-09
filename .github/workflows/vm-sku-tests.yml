@@ -12,7 +12,7 @@ on:
         required: false
         default: ""
       vm_skus:
-        description: "Comma-separated Azure VM SKUs to check"
+        description: "Comma-separated Azure VM SKUs to check, or 'all' for every listed SKU"
         required: false
         default: "Standard_B2s,Standard_D2s_v5,Standard_D2as_v5,Standard_E2s_v5"
       deploy_dashboard:

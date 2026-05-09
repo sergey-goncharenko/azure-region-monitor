@@ -15,13 +15,17 @@ class VmSkuCliProbe:
     normalize_missing_features = True
 
     def __init__(self, skus: list[str] | None = None, cli_runner: CliRunner | None = None) -> None:
-        self._skus = skus or DEFAULT_VM_SKUS
+        self._skus = DEFAULT_VM_SKUS if skus is None else skus
         self._cli_runner = cli_runner or run_az
 
     def run(self, region: str):
         started = time.perf_counter()
         listed_skus, error = self._list_sizes(region)
         latency_ms = round((time.perf_counter() - started) * 1000)
+
+        if not self._skus:
+            yield from self._run_all_listed_skus(region, listed_skus, error, latency_ms)
+            return
 
         for sku in self._skus:
             feature = f"vmSkus.{_feature_slug(sku)}"
@@ -45,6 +49,37 @@ class VmSkuCliProbe:
                     status="available" if sku.lower() in listed_skus else "unavailable",
                     latency_ms=latency_ms,
                     message=_sku_message(region, sku, sku.lower() in listed_skus),
+                ),
+            )
+
+    def _run_all_listed_skus(
+        self,
+        region: str,
+        listed_skus: set[str],
+        error: AzureCliError | None,
+        latency_ms: int,
+    ):
+        if error:
+            yield ProbeResult(
+                service="compute",
+                feature="vmSkuCatalog",
+                result=FeatureResult(
+                    status="unknown",
+                    latency_ms=latency_ms,
+                    error_code=error.error_code,
+                    message=error.message,
+                ),
+            )
+            return
+
+        for sku in sorted(listed_skus):
+            yield ProbeResult(
+                service="compute",
+                feature=f"vmSkus.{_feature_slug(sku)}",
+                result=FeatureResult(
+                    status="available",
+                    latency_ms=latency_ms,
+                    message=f"VM SKU '{sku}' is listed by az vm list-sizes in {region}.",
                 ),
             )
 

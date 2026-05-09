@@ -63,6 +63,9 @@ def parse_vm_skus(raw: str | None) -> list[str]:
     if not raw:
         return DEFAULT_VM_SKUS
 
+    if raw.strip().lower() in {"*", "all"}:
+        return []
+
     skus = [item.strip() for item in raw.split(",") if item.strip()]
     if not skus:
         raise ValueError("VM SKUs cannot be empty")
