@@ -160,11 +160,16 @@ jobs:
       - name: Install dependencies
         run: python -m pip install ".[dev]"
 
+      - name: Prepare synthetic data directory
+        run: |
+          rm -rf data/snapshots data/diffs
+          mkdir -p data
+
       - name: Download synthetic data artifacts
         uses: actions/download-artifact@v4
         with:
           name: ${{ inputs.artifact_name }}
-          path: .
+          path: data
 
       - name: Merge existing dashboard snapshot
         if: inputs.existing_snapshot_url != ''
