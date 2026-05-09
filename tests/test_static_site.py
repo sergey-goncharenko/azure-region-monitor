@@ -137,15 +137,24 @@ def test_build_static_site_color_codes_regional_modality_groups(tmp_path):
 
     index_html = (output_dir / "index.html").read_text(encoding="utf-8")
 
-    assert "Grouped availability shown as available / total" in index_html
+    assert "Rows are modality groups; columns are regions" in index_html
+    assert "availability-matrix" in index_html
+    assert "<th>eastus</th>" in index_html
+    assert "<th>Modality</th>" in index_html
+    assert "<th>Group</th>" in index_html
     assert "availability-good" in index_html
     assert "availability-warn" in index_html
     assert "availability-caution" in index_html
     assert "availability-poor" in index_html
-    assert "azure</span><span class=\"availability-count\">1/1" in index_html
-    assert "microsoft</span><span class=\"availability-count\">1/2" in index_html
-    assert "D</span><span class=\"availability-count\">1/3" in index_html
-    assert "E</span><span class=\"availability-count\">0/3" in index_html
+    assert "<td>AKS extensions</td>" in index_html
+    assert "<td><code>azure</code></td>" in index_html
+    assert "<td><code>microsoft</code></td>" in index_html
+    assert "<td><code>D</code></td>" in index_html
+    assert "<td><code>E</code></td>" in index_html
+    assert "<span class=\"availability-count\">1/1</span>" in index_html
+    assert "<span class=\"availability-count\">1/2</span>" in index_html
+    assert "<span class=\"availability-count\">1/3</span>" in index_html
+    assert "<span class=\"availability-count\">0/3</span>" in index_html
 
 
 def test_build_static_site_uses_paged_detail_page_for_heavy_tables(tmp_path):

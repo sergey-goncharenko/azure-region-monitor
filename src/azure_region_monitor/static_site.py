@@ -38,8 +38,10 @@ def _render_index(snapshot: Snapshot) -> str:
     regions = sorted(snapshot.regions)
     unique_features = sorted({str(row["feature"]) for row in rows})
     modality_rows = "\n".join(_render_modality_row(row) for row in _modality_summaries(rows))
-    region_modality_rows = "\n".join(
-        _render_region_modality_row(row) for row in _region_modality_summaries(rows)
+    region_headers = "\n".join(_render_region_header(region) for region in regions)
+    region_modality_group_rows = "\n".join(
+      _render_region_modality_group_row(row, regions)
+      for row in _region_modality_group_summaries(rows)
     )
     group_rows = "\n".join(_render_group_row(row) for row in _feature_group_summaries(rows))
 
@@ -122,20 +124,18 @@ def _render_index(snapshot: Snapshot) -> str:
     <section class="panel" aria-label="Region modality availability">
       <div class="panel-header">
         <h2>Regional Availability By Modality</h2>
-        <div class="panel-subtitle">Grouped availability shown as available / total</div>
+        <div class="panel-subtitle">Rows are modality groups; columns are regions</div>
       </div>
-      <div class="table-wrap">
+      <div class="table-wrap availability-matrix">
         <table>
           <thead>
             <tr>
-              <th>Region</th>
-              <th class="number">AKS extensions</th>
-              <th class="number">AKS Kubernetes versions</th>
-              <th class="number">VM SKUs</th>
-              <th class="number">Unknown</th>
+              <th>Modality</th>
+              <th>Group</th>
+              {region_headers}
             </tr>
           </thead>
-          <tbody>{region_modality_rows}</tbody>
+          <tbody>{region_modality_group_rows}</tbody>
         </table>
       </div>
     </section>
@@ -308,8 +308,15 @@ def _style_block() -> str:
     .status-partial { background: var(--partial-bg); color: var(--partial-text); }
     .status-unknown { background: var(--unknown-bg); color: var(--unknown-text); }
     .status-dot { display: inline-flex; width: 22px; height: 22px; border-radius: 50%; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; line-height: 1; }
-    .availability-groups { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 5px; min-width: 220px; }
-    .availability-badge { display: inline-flex; gap: 5px; align-items: center; min-height: 24px; padding: 3px 7px; border-radius: 999px; border: 1px solid transparent; font-size: 12px; font-weight: 650; white-space: nowrap; }
+    .availability-matrix table { min-width: 1180px; }
+    .availability-matrix th, .availability-matrix td { text-align: center; }
+    .availability-matrix th:first-child, .availability-matrix td:first-child,
+    .availability-matrix th:nth-child(2), .availability-matrix td:nth-child(2) { text-align: left; }
+    .availability-matrix th { position: sticky; top: 0; z-index: 2; background: var(--panel); }
+    .availability-matrix th:first-child, .availability-matrix td:first-child { position: sticky; left: 0; z-index: 1; min-width: 180px; background: var(--panel); }
+    .availability-matrix th:nth-child(2), .availability-matrix td:nth-child(2) { position: sticky; left: 180px; z-index: 1; min-width: 120px; background: var(--panel); }
+    .availability-matrix th:first-child, .availability-matrix th:nth-child(2) { z-index: 3; }
+    .availability-badge { display: inline-flex; gap: 5px; align-items: center; justify-content: center; min-height: 24px; padding: 3px 7px; border-radius: 999px; border: 1px solid transparent; font-size: 12px; font-weight: 650; white-space: nowrap; }
     .availability-label { max-width: 96px; overflow: hidden; text-overflow: ellipsis; }
     .availability-count { font-variant-numeric: tabular-nums; opacity: 0.82; }
     .availability-good { background: #e5f6ee; border-color: #b6e4ca; color: #116339; }
@@ -424,57 +431,55 @@ def _render_modality_row(row: dict[str, object]) -> str:
               </tr>"""
 
 
-def _region_modality_summaries(rows: list[dict[str, object]]) -> list[dict[str, object]]:
-    summaries: dict[str, dict[str, object]] = {}
-    categories = ["AKS extensions", "AKS Kubernetes versions", "VM SKUs"]
+def _region_modality_group_summaries(rows: list[dict[str, object]]) -> list[dict[str, object]]:
+    summaries: dict[tuple[str, str], dict[str, object]] = {}
     for row in rows:
         region = str(row["region"])
         category = str(row["category"])
         group = str(row["group"])
-        summary = summaries.setdefault(region, {"region": region, "unknown": 0, "categories": {}})
-        if row["status"] == "unknown":
-            summary["unknown"] = int(summary["unknown"]) + 1
-        category_summary = summary["categories"].setdefault(category, {})
-        group_summary = category_summary.setdefault(group, {"available": 0, "total": 0})
-        group_summary["total"] += 1
+        summary = summaries.setdefault(
+            (category, group), {"category": category, "group": group, "regions": {}}
+        )
+        region_summary = summary["regions"].setdefault(region, {"available": 0, "total": 0})
+        region_summary["total"] += 1
         if row["status"] == "available":
-            group_summary["available"] += 1
+            region_summary["available"] += 1
+    return sorted(
+        summaries.values(),
+        key=lambda item: (str(item["category"]), str(item["group"])),
+    )
 
-    for summary in summaries.values():
-        for category in categories:
-            summary["categories"].setdefault(category, {})
-    return sorted(summaries.values(), key=lambda item: str(item["region"]))
+
+def _render_region_header(region: str) -> str:
+    return f"<th>{html.escape(region)}</th>"
 
 
-def _render_region_modality_row(row: dict[str, object]) -> str:
-    categories = row["categories"]
+def _render_region_modality_group_row(row: dict[str, object], regions: list[str]) -> str:
+    region_cells = "\n".join(
+        _render_availability_cell(row["regions"].get(region), region) for region in regions
+    )
     return f"""<tr>
-                <td><code>{html.escape(str(row["region"]))}</code></td>
-    <td>{_render_availability_groups(categories["AKS extensions"])}</td>
-    <td>{_render_availability_groups(categories["AKS Kubernetes versions"])}</td>
-    <td>{_render_availability_groups(categories["VM SKUs"])}</td>
-                <td class="number">{row["unknown"]}</td>
+                <td>{html.escape(str(row["category"]))}</td>
+                <td><code>{html.escape(str(row["group"]))}</code></td>
+                {region_cells}
               </tr>"""
 
 
-def _render_availability_groups(groups: dict[str, dict[str, int]]) -> str:
-    if not groups:
-        return '<span class="availability-badge availability-empty">No checks</span>'
-
-    badges = []
-    for group, summary in sorted(groups.items()):
+def _render_availability_cell(summary: dict[str, int] | None, region: str) -> str:
+    if summary is None:
+        badge = '<span class="availability-badge availability-empty">-</span>'
+    else:
         available = summary["available"]
         total = summary["total"]
         missing = total - available
         health_class = _availability_health_class(available, total)
-        title = f"{group}: {available:,} available, {missing:,} not available, {total:,} total"
-        badges.append(
+        title = f"{region}: {available:,} available, {missing:,} not available, {total:,} total"
+        badge = (
             f'<span class="availability-badge {health_class}" title="{html.escape(title)}">'
-            f'<span class="availability-label">{html.escape(group)}</span>'
             f'<span class="availability-count">{available:,}/{total:,}</span>'
             "</span>"
         )
-    return f'<div class="availability-groups">{"".join(badges)}</div>'
+    return f"<td>{badge}</td>"
 
 
 def _availability_health_class(available: int, total: int) -> str:
