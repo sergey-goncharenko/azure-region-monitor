@@ -117,7 +117,7 @@ For a faster modality-specific run, select one of the focused workflows instead:
 - `AKS Kubernetes version regional tests` runs `aks-version-cli` only.
 - `VM SKU regional tests` runs `vm-sku-cli` only.
 
-Focused workflows upload modality-specific artifacts and do not deploy the public dashboard by default. Use their `deploy_dashboard` input only when you intentionally want the Static Web Apps dashboard to show that single modality snapshot.
+Focused workflows upload modality-specific artifacts and do not deploy the public dashboard by default. VM SKU focused deployments merge the fresh SKU snapshot into the current live dashboard snapshot before publishing, so existing extension and Kubernetes version sections remain visible.
 
 The full dashboard workflow caps each Azure CLI probe command at 20 seconds. Slow calls are recorded as `unknown` in the snapshot instead of blocking the dashboard refresh.
 
