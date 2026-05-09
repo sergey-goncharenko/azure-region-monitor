@@ -9,10 +9,6 @@ from pathlib import Path
 from azure_region_monitor.models import Snapshot
 from azure_region_monitor.storage import load_snapshot
 
-MAX_RAW_PREVIEW_ROWS = 300
-MAX_DIFFERENCE_ROWS = 250
-MAX_UNIFORM_EXTENSION_ROWS = 250
-
 
 def build_static_site(
     output_dir: Path,
@@ -29,6 +25,7 @@ def build_static_site(
         shutil.copyfile(diff_path, api_dir / "diff.json")
 
     (output_dir / "index.html").write_text(_render_index(snapshot), encoding="utf-8")
+    (output_dir / "heatmap.html").write_text(_render_heatmap_page(snapshot), encoding="utf-8")
 
 
 def _render_index(snapshot: Snapshot) -> str:
@@ -40,41 +37,11 @@ def _render_index(snapshot: Snapshot) -> str:
     )
     regions = sorted(snapshot.regions)
     unique_features = sorted({str(row["feature"]) for row in rows})
-    categories = sorted({str(row["category"]) for row in rows})
-    raw_preview_rows = _raw_preview_rows(rows)
-    table_rows = "\n".join(_render_raw_row(row) for row in raw_preview_rows)
-    raw_preview_note = _render_limit_note(
-      "raw check rows", len(rows), len(raw_preview_rows), "api/latest.json"
-    )
-    category_options = "\n".join(
-        f'<option value="{html.escape(category, quote=True)}">{html.escape(category)}</option>'
-        for category in categories
-    )
     modality_rows = "\n".join(_render_modality_row(row) for row in _modality_summaries(rows))
-    region_rows = "\n".join(_render_region_row(row) for row in _region_summaries(rows))
-    uniform_extensions = _uniform_extension_summaries(rows, regions)
-    visible_uniform_extensions = uniform_extensions[:MAX_UNIFORM_EXTENSION_ROWS]
-    uniform_extension_rows = "\n".join(
-      _render_uniform_extension_row(row) for row in visible_uniform_extensions
+    region_modality_rows = "\n".join(
+        _render_region_modality_row(row) for row in _region_modality_summaries(rows)
     )
-    uniform_extension_label = "feature" if len(uniform_extensions) == 1 else "features"
-    uniform_extension_note = _render_limit_note(
-      "uniform extension rows", len(uniform_extensions), len(visible_uniform_extensions)
-    )
-    uniform_extension_body = uniform_extension_rows or (
-        '<tr><td colspan="4" class="empty">No extension features are available in every tested region.</td></tr>'
-    )
-    differences = _difference_summaries(rows)
-    visible_differences = differences[:MAX_DIFFERENCE_ROWS]
-    difference_rows = "\n".join(
-      _render_difference_row(row, regions) for row in visible_differences
-    )
-    difference_note = _render_limit_note(
-      "regional difference rows", len(differences), len(visible_differences), "api/latest.json"
-    )
-    difference_body = difference_rows or (
-        f'<tr><td colspan="{len(regions) + 2}" class="empty">No regional status differences in this snapshot.</td></tr>'
-    )
+    group_rows = "\n".join(_render_group_row(row) for row in _feature_group_summaries(rows))
 
     return f"""<!doctype html>
 <html lang="en">
@@ -82,222 +49,7 @@ def _render_index(snapshot: Snapshot) -> str:
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Azure Regional Feature Availability Monitor</title>
-  <style>
-    :root {{
-      color-scheme: light;
-      --bg: #f6f8fb;
-      --panel: #ffffff;
-      --text: #172033;
-      --muted: #607086;
-      --line: #dce3ec;
-      --line-strong: #c4cfdd;
-      --available-bg: #e5f6ee;
-      --available-text: #116339;
-      --unavailable-bg: #fdecec;
-      --unavailable-text: #9d1c20;
-      --partial-bg: #fff5d8;
-      --partial-text: #76520b;
-      --unknown-bg: #edf1f6;
-      --unknown-text: #4f5f73;
-    }}
-    * {{ box-sizing: border-box; }}
-    body {{
-      margin: 0;
-      font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-    }}
-    main {{
-      max-width: 1440px;
-      margin: 0 auto;
-      padding: 28px 18px 42px;
-    }}
-    header {{
-      display: flex;
-      justify-content: space-between;
-      gap: 18px;
-      align-items: flex-end;
-      margin-bottom: 18px;
-    }}
-    h1 {{
-      margin: 0 0 6px;
-      font-size: 28px;
-      line-height: 1.2;
-      font-weight: 650;
-      letter-spacing: 0;
-    }}
-    .timestamp {{ color: var(--muted); font-size: 14px; }}
-    a {{ color: #2759a5; }}
-    .metrics {{
-      display: grid;
-      grid-template-columns: repeat(4, minmax(130px, 1fr));
-      gap: 10px;
-      margin: 18px 0;
-    }}
-    .metric {{
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      padding: 12px;
-    }}
-    .metric-value {{ font-size: 24px; font-weight: 650; }}
-    .metric-label {{ color: var(--muted); font-size: 13px; margin-top: 2px; }}
-    .status-strip {{
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      margin: 0 0 18px;
-    }}
-    .layout {{
-      display: grid;
-      grid-template-columns: minmax(0, 1.1fr) minmax(360px, 0.9fr);
-      gap: 14px;
-      align-items: start;
-      margin-bottom: 14px;
-    }}
-    .panel {{
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      overflow: hidden;
-    }}
-    .panel-header {{
-      display: flex;
-      justify-content: space-between;
-      gap: 12px;
-      align-items: baseline;
-      padding: 14px 14px 0;
-    }}
-    h2 {{
-      margin: 0;
-      font-size: 16px;
-      line-height: 1.3;
-      font-weight: 650;
-      letter-spacing: 0;
-    }}
-    .panel-subtitle {{ color: var(--muted); font-size: 13px; }}
-    .table-wrap {{
-      overflow-x: auto;
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 8px;
-    }}
-    .panel .table-wrap {{ border: 0; border-radius: 0; }}
-    table {{ width: 100%; border-collapse: collapse; min-width: 760px; }}
-    th, td {{ padding: 11px 12px; border-bottom: 1px solid var(--line); text-align: left; }}
-    th {{ color: var(--muted); font-size: 12px; font-weight: 650; text-transform: uppercase; }}
-    tr:last-child td {{ border-bottom: 0; }}
-    .number {{ text-align: right; font-variant-numeric: tabular-nums; }}
-    .matrix table {{ min-width: 980px; }}
-    .uniform table {{ min-width: 760px; }}
-    .uniform .table-wrap {{ max-height: 420px; }}
-    .matrix th, .matrix td {{ text-align: center; }}
-    .matrix th:first-child, .matrix td:first-child,
-    .matrix th:nth-child(2), .matrix td:nth-child(2) {{ text-align: left; }}
-    .matrix .table-wrap {{ max-height: 560px; }}
-    .matrix th {{
-      position: sticky;
-      top: 0;
-      z-index: 2;
-      background: var(--panel);
-    }}
-    .matrix th:first-child,
-    .matrix td:first-child {{
-      position: sticky;
-      left: 0;
-      z-index: 1;
-      background: var(--panel);
-      min-width: 76px;
-    }}
-    .matrix th:nth-child(2),
-    .matrix td:nth-child(2) {{
-      position: sticky;
-      left: 76px;
-      z-index: 1;
-      background: var(--panel);
-      min-width: 280px;
-      max-width: 360px;
-    }}
-    .matrix th:first-child,
-    .matrix th:nth-child(2) {{ z-index: 3; }}
-    .empty {{ color: var(--muted); text-align: center; padding: 24px; }}
-    .status {{
-      display: inline-flex;
-      align-items: center;
-      min-height: 24px;
-      padding: 3px 8px;
-      border-radius: 999px;
-      font-size: 13px;
-      font-weight: 650;
-    }}
-    .status-available {{ background: var(--available-bg); color: var(--available-text); }}
-    .status-unavailable {{ background: var(--unavailable-bg); color: var(--unavailable-text); }}
-    .status-partial {{ background: var(--partial-bg); color: var(--partial-text); }}
-    .status-unknown {{ background: var(--unknown-bg); color: var(--unknown-text); }}
-    .status-dot {{
-      display: inline-flex;
-      width: 22px;
-      height: 22px;
-      border-radius: 50%;
-      align-items: center;
-      justify-content: center;
-      font-size: 12px;
-      font-weight: 700;
-      line-height: 1;
-    }}
-    .legend {{
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-      align-items: center;
-      padding: 10px 14px 0;
-      color: var(--muted);
-      font-size: 13px;
-    }}
-    .legend-item {{ display: inline-flex; align-items: center; gap: 5px; }}
-    .note {{
-      padding: 10px 14px 0;
-      color: var(--muted);
-      font-size: 13px;
-    }}
-    .toolbar {{
-      display: grid;
-      grid-template-columns: minmax(220px, 1fr) minmax(160px, 220px) minmax(200px, 260px);
-      gap: 10px;
-      padding: 14px;
-      border-bottom: 1px solid var(--line);
-    }}
-    input, select {{
-      width: 100%;
-      min-height: 36px;
-      border: 1px solid var(--line-strong);
-      border-radius: 6px;
-      padding: 6px 10px;
-      font: inherit;
-      color: var(--text);
-      background: #fff;
-    }}
-    details {{ margin-top: 14px; }}
-    summary {{
-      cursor: pointer;
-      padding: 14px;
-      font-weight: 650;
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 8px;
-    }}
-    details[open] summary {{ border-radius: 8px 8px 0 0; border-bottom: 0; }}
-    details .panel {{ border-radius: 0 0 8px 8px; }}
-    code {{ color: var(--text); }}
-    @media (max-width: 720px) {{
-      main {{ padding: 20px 12px 32px; }}
-      header {{ display: block; }}
-      h1 {{ font-size: 22px; }}
-      .metrics {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
-      .layout {{ grid-template-columns: 1fr; }}
-      .toolbar {{ grid-template-columns: 1fr; }}
-    }}
-  </style>
+  {_style_block()}
 </head>
 <body>
   <main>
@@ -306,7 +58,10 @@ def _render_index(snapshot: Snapshot) -> str:
         <h1>Azure Regional Feature Availability Monitor</h1>
         <div class="timestamp">Latest snapshot: {html.escape(snapshot.timestamp.isoformat())}</div>
       </div>
-      <a href="api/latest.json">api/latest.json</a>
+      <nav class="links" aria-label="Dashboard links">
+        <a href="heatmap.html">Detailed heatmap</a>
+        <a href="api/latest.json">api/latest.json</a>
+      </nav>
     </header>
     <section class="metrics" aria-label="Availability summary">
       {_render_metric("Regions", len(regions))}
@@ -324,7 +79,7 @@ def _render_index(snapshot: Snapshot) -> str:
       <div class="panel">
         <div class="panel-header">
           <h2>Modalities</h2>
-          <div class="panel-subtitle">Grouped by feature family</div>
+          <div class="panel-subtitle">Feature families across all regions</div>
         </div>
         <div class="table-wrap">
           <table>
@@ -345,131 +100,224 @@ def _render_index(snapshot: Snapshot) -> str:
       </div>
       <div class="panel">
         <div class="panel-header">
-          <h2>Regions</h2>
-          <div class="panel-subtitle">Availability by location</div>
+          <h2>Feature Groups</h2>
+          <div class="panel-subtitle">Publisher, version, and SKU-family aggregation</div>
         </div>
-        <div class="table-wrap">
+        <div class="table-wrap compact-table">
           <table>
             <thead>
               <tr>
-                <th>Region</th>
-                <th class="number">Checks</th>
-                <th class="number">Available</th>
-                <th class="number">Unavailable</th>
-                <th class="number">Unknown</th>
-              </tr>
-            </thead>
-            <tbody>{region_rows}</tbody>
-          </table>
-        </div>
-      </div>
-    </section>
-    <section class="panel uniform" aria-label="Uniform extension availability">
-      <div class="panel-header">
-        <h2>Uniform Extension Availability</h2>
-        <div class="panel-subtitle">{len(uniform_extensions)} extension {uniform_extension_label} available in all {len(regions)} tested regions</div>
-      </div>
-      {uniform_extension_note}
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Modality</th>
-              <th>Extension type</th>
-              <th>Feature</th>
-              <th class="number">Regions</th>
-            </tr>
-          </thead>
-          <tbody>{uniform_extension_body}</tbody>
-        </table>
-      </div>
-    </section>
-    <section class="panel matrix" aria-label="Regional differences">
-      <div class="panel-header">
-        <h2>Regional Differences</h2>
-        <div class="panel-subtitle">{len(differences)} features with mixed status across tested regions</div>
-      </div>
-      <div class="legend" aria-label="Status legend">
-        <span class="legend-item"><span class="status-dot status-available">A</span> Available</span>
-        <span class="legend-item"><span class="status-dot status-unavailable">U</span> Unavailable</span>
-        <span class="legend-item"><span class="status-dot status-partial">P</span> Partial</span>
-        <span class="legend-item"><span class="status-dot status-unknown">?</span> Unknown</span>
-      </div>
-      {difference_note}
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Service</th>
-              <th>Feature</th>
-              {_render_region_headers(regions)}
-            </tr>
-          </thead>
-          <tbody>{difference_body}</tbody>
-        </table>
-      </div>
-    </section>
-    <details>
-      <summary>Raw Checks ({len(rows)})</summary>
-      <section class="panel" aria-label="Raw regional availability checks">
-        {raw_preview_note}
-        <div class="toolbar">
-          <input id="raw-search" type="search" placeholder="Search region, feature, or message" aria-label="Search raw checks">
-          <select id="raw-status" aria-label="Filter by status">
-            <option value="">All statuses</option>
-            <option value="available">Available</option>
-            <option value="unavailable">Unavailable</option>
-            <option value="partial">Partial</option>
-            <option value="unknown">Unknown</option>
-          </select>
-          <select id="raw-category" aria-label="Filter by modality">
-            <option value="">All modalities</option>
-            {category_options}
-          </select>
-        </div>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Region</th>
-                <th>Service</th>
                 <th>Modality</th>
-                <th>Feature</th>
-                <th>Status</th>
-                <th>Latency</th>
-                <th>Message</th>
+                <th>Group</th>
+                <th class="number">Features</th>
+                <th class="number">Available</th>
+                <th class="number">Checks</th>
               </tr>
             </thead>
-            <tbody id="raw-rows">{table_rows}</tbody>
+            <tbody>{group_rows}</tbody>
           </table>
         </div>
-      </section>
-    </details>
+      </div>
+    </section>
+    <section class="panel" aria-label="Region modality availability">
+      <div class="panel-header">
+        <h2>Regional Availability By Modality</h2>
+        <div class="panel-subtitle">Available checks shown as available / total</div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Region</th>
+              <th class="number">AKS extensions</th>
+              <th class="number">AKS Kubernetes versions</th>
+              <th class="number">VM SKUs</th>
+              <th class="number">Unknown</th>
+            </tr>
+          </thead>
+          <tbody>{region_modality_rows}</tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
+"""
+
+
+def _render_heatmap_page(snapshot: Snapshot) -> str:
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Azure Regional Feature Heatmap</title>
+  {_style_block()}
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <h1>Azure Regional Feature Heatmap</h1>
+        <div class="timestamp">Latest snapshot: {html.escape(snapshot.timestamp.isoformat())}</div>
+      </div>
+      <nav class="links" aria-label="Dashboard links">
+        <a href="index.html">Summary</a>
+        <a href="api/latest.json">api/latest.json</a>
+      </nav>
+    </header>
+    <section class="panel" aria-label="Heatmap filters">
+      <div class="panel-header">
+        <h2>Filters</h2>
+        <div id="load-status" class="panel-subtitle">Loading snapshot...</div>
+      </div>
+      <div class="toolbar heatmap-toolbar">
+        <input id="search" type="search" placeholder="Search region, group, feature, or message" aria-label="Search checks">
+        <select id="modality" aria-label="Filter by modality"><option value="">All modalities</option></select>
+        <select id="group" aria-label="Filter by group"><option value="">All groups</option></select>
+        <select id="status" aria-label="Filter by status">
+          <option value="">All statuses</option>
+          <option value="available">Available</option>
+          <option value="unavailable">Unavailable</option>
+          <option value="partial">Partial</option>
+          <option value="unknown">Unknown</option>
+        </select>
+        <select id="page-size" aria-label="Rows per page">
+          <option value="50">50 rows</option>
+          <option value="100" selected>100 rows</option>
+          <option value="250">250 rows</option>
+          <option value="500">500 rows</option>
+        </select>
+      </div>
+    </section>
+    <section class="panel matrix" aria-label="Detailed regional heatmap">
+      <div class="panel-header">
+        <h2>Heatmap</h2>
+        <div id="heatmap-count" class="panel-subtitle"></div>
+      </div>
+      <div class="pager">
+        <button id="heatmap-prev" type="button">Previous</button>
+        <span id="heatmap-page"></span>
+        <button id="heatmap-next" type="button">Next</button>
+      </div>
+      <div class="table-wrap heatmap-wrap">
+        <table id="heatmap-table"></table>
+      </div>
+    </section>
+    <section class="panel" aria-label="Paged check details">
+      <div class="panel-header">
+        <h2>Check Details</h2>
+        <div id="detail-count" class="panel-subtitle"></div>
+      </div>
+      <div class="pager">
+        <button id="details-prev" type="button">Previous</button>
+        <span id="details-page"></span>
+        <button id="details-next" type="button">Next</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Region</th>
+              <th>Modality</th>
+              <th>Group</th>
+              <th>Feature</th>
+              <th>Status</th>
+              <th>Message</th>
+            </tr>
+          </thead>
+          <tbody id="details-rows"></tbody>
+        </table>
+      </div>
+    </section>
   </main>
   <script>
-    const rawRows = Array.from(document.querySelectorAll('#raw-rows tr'));
-    const searchInput = document.getElementById('raw-search');
-    const statusSelect = document.getElementById('raw-status');
-    const categorySelect = document.getElementById('raw-category');
-    function applyRawFilters() {{
-      const query = searchInput.value.trim().toLowerCase();
-      const status = statusSelect.value;
-      const category = categorySelect.value;
-      rawRows.forEach((row) => {{
-        const rowText = row.searchText || (row.searchText = row.textContent.toLowerCase());
-        const matchesQuery = !query || rowText.includes(query);
-        const matchesStatus = !status || row.dataset.status === status;
-        const matchesCategory = !category || row.dataset.category === category;
-        row.hidden = !(matchesQuery && matchesStatus && matchesCategory);
-      }});
-    }}
-    searchInput.addEventListener('input', applyRawFilters);
-    statusSelect.addEventListener('change', applyRawFilters);
-    categorySelect.addEventListener('change', applyRawFilters);
+{_heatmap_script()}
   </script>
 </body>
 </html>
 """
+
+
+def _style_block() -> str:
+    return """<style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f8fb;
+      --panel: #ffffff;
+      --text: #172033;
+      --muted: #607086;
+      --line: #dce3ec;
+      --line-strong: #c4cfdd;
+      --available-bg: #e5f6ee;
+      --available-text: #116339;
+      --unavailable-bg: #fdecec;
+      --unavailable-text: #9d1c20;
+      --partial-bg: #fff5d8;
+      --partial-text: #76520b;
+      --unknown-bg: #edf1f6;
+      --unknown-text: #4f5f73;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+    main { max-width: 1440px; margin: 0 auto; padding: 28px 18px 42px; }
+    header { display: flex; justify-content: space-between; gap: 18px; align-items: flex-end; margin-bottom: 18px; }
+    h1 { margin: 0 0 6px; font-size: 28px; line-height: 1.2; font-weight: 650; letter-spacing: 0; }
+    a { color: #2759a5; }
+    button { min-height: 34px; border: 1px solid var(--line-strong); border-radius: 6px; padding: 5px 10px; color: var(--text); background: #fff; font: inherit; cursor: pointer; }
+    button:disabled { cursor: not-allowed; opacity: 0.45; }
+    .links { display: flex; gap: 14px; flex-wrap: wrap; }
+    .timestamp, .panel-subtitle { color: var(--muted); font-size: 14px; }
+    .metrics { display: grid; grid-template-columns: repeat(4, minmax(130px, 1fr)); gap: 10px; margin: 18px 0; }
+    .metric { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
+    .metric-value { font-size: 24px; font-weight: 650; }
+    .metric-label { color: var(--muted); font-size: 13px; margin-top: 2px; }
+    .status-strip { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 18px; }
+    .layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(360px, 1fr); gap: 14px; align-items: start; margin-bottom: 14px; }
+    .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; margin-bottom: 14px; }
+    .panel-header { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; padding: 14px 14px 0; }
+    h2 { margin: 0; font-size: 16px; line-height: 1.3; font-weight: 650; letter-spacing: 0; }
+    .table-wrap { overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+    .panel .table-wrap { border: 0; border-radius: 0; }
+    table { width: 100%; border-collapse: collapse; min-width: 760px; }
+    th, td { padding: 10px 12px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+    th { color: var(--muted); font-size: 12px; font-weight: 650; text-transform: uppercase; }
+    tr:last-child td { border-bottom: 0; }
+    code { color: var(--text); }
+    .number { text-align: right; font-variant-numeric: tabular-nums; }
+    .compact-table { max-height: 460px; }
+    .toolbar { display: grid; grid-template-columns: repeat(5, minmax(140px, 1fr)); gap: 10px; padding: 14px; border-top: 1px solid var(--line); }
+    input, select { width: 100%; min-height: 36px; border: 1px solid var(--line-strong); border-radius: 6px; padding: 6px 10px; font: inherit; color: var(--text); background: #fff; }
+    .pager { display: flex; gap: 10px; align-items: center; padding: 10px 14px; color: var(--muted); font-size: 13px; }
+    .heatmap-wrap { max-height: 640px; }
+    .matrix table { min-width: 980px; }
+    .matrix th, .matrix td { text-align: center; }
+    .matrix th:first-child, .matrix td:first-child, .matrix th:nth-child(2), .matrix td:nth-child(2) { text-align: left; }
+    .matrix th { position: sticky; top: 0; z-index: 2; background: var(--panel); }
+    .matrix th:first-child, .matrix td:first-child { position: sticky; left: 0; z-index: 1; background: var(--panel); min-width: 110px; }
+    .matrix th:nth-child(2), .matrix td:nth-child(2) { position: sticky; left: 110px; z-index: 1; background: var(--panel); min-width: 260px; max-width: 360px; }
+    .matrix th:first-child, .matrix th:nth-child(2) { z-index: 3; }
+    .status { display: inline-flex; align-items: center; min-height: 24px; padding: 3px 8px; border-radius: 999px; font-size: 13px; font-weight: 650; }
+    .status-available { background: var(--available-bg); color: var(--available-text); }
+    .status-unavailable { background: var(--unavailable-bg); color: var(--unavailable-text); }
+    .status-partial { background: var(--partial-bg); color: var(--partial-text); }
+    .status-unknown { background: var(--unknown-bg); color: var(--unknown-text); }
+    .status-dot { display: inline-flex; width: 22px; height: 22px; border-radius: 50%; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; line-height: 1; }
+    .empty { color: var(--muted); text-align: center; padding: 24px; }
+    @media (max-width: 720px) {
+      main { padding: 20px 12px 32px; }
+      header { display: block; }
+      h1 { font-size: 22px; }
+      .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .layout { grid-template-columns: 1fr; }
+      .toolbar { grid-template-columns: 1fr; }
+    }
+  </style>"""
 
 
 def _flatten_snapshot(snapshot: Snapshot) -> list[dict[str, object]]:
@@ -482,6 +330,7 @@ def _flatten_snapshot(snapshot: Snapshot) -> list[dict[str, object]]:
                         "region": region,
                         "service": service,
                         "category": _feature_category(feature),
+                        "group": _feature_group(feature),
                         "feature": feature,
                         "status": result.status,
                         "latency_ms": result.latency_ms,
@@ -506,45 +355,6 @@ def _render_metric(label: str, value: int | str) -> str:
       </div>"""
 
 
-def _render_raw_row(row: dict[str, object]) -> str:
-    status = str(row["status"])
-    latency = "" if row["latency_ms"] is None else f"{row['latency_ms']} ms"
-    return f"""<tr data-status="{html.escape(status, quote=True)}" data-category="{html.escape(str(row["category"]), quote=True)}">
-            <td><code>{html.escape(str(row["region"]))}</code></td>
-            <td>{html.escape(str(row["service"]))}</td>
-            <td>{html.escape(str(row["category"]))}</td>
-            <td><code>{html.escape(str(row["feature"]))}</code></td>
-            <td><span class="status status-{html.escape(status)}">{html.escape(status)}</span></td>
-            <td>{html.escape(latency)}</td>
-            <td>{html.escape(str(row["message"]))}</td>
-          </tr>"""
-
-
-def _render_limit_note(
-    label: str, total: int, shown: int, full_data_href: str | None = None
-) -> str:
-    if shown >= total:
-        return ""
-    full_data = ""
-    if full_data_href:
-        escaped_href = html.escape(full_data_href, quote=True)
-        full_data = f' Full data is available in <a href="{escaped_href}">{escaped_href}</a>.'
-    return f'<div class="note">Showing {shown:,} of {total:,} {html.escape(label)} to keep the dashboard responsive.{full_data}</div>'
-
-
-def _raw_preview_rows(rows: list[dict[str, object]]) -> list[dict[str, object]]:
-    status_priority = {"unknown": 0, "partial": 1, "unavailable": 2, "available": 3}
-    return sorted(
-        rows,
-        key=lambda row: (
-            status_priority.get(str(row["status"]), 4),
-            str(row["category"]),
-            str(row["region"]),
-            str(row["feature"]),
-        ),
-    )[:MAX_RAW_PREVIEW_ROWS]
-
-
 def _feature_category(feature: str) -> str:
     if feature == "extensionCatalog":
         return "AKS extensions"
@@ -557,25 +367,38 @@ def _feature_category(feature: str) -> str:
     return feature.split(".", 1)[0]
 
 
+def _feature_group(feature: str) -> str:
+    if feature.startswith("extensionTypes."):
+        parts = feature.removeprefix("extensionTypes.").split(".")
+        return parts[0] if parts else "unknown"
+    if feature.startswith("extensions."):
+        return "curated"
+    if feature.startswith("kubernetesVersions."):
+        return feature.removeprefix("kubernetesVersions.")
+    if feature.startswith("vmSkus."):
+        return _vm_sku_family(feature)
+    return feature.split(".", 1)[0]
+
+
+def _vm_sku_family(feature: str) -> str:
+    sku = feature.removeprefix("vmSkus.").removeprefix("standard.")
+    match = re.match(r"([a-z]+)", sku)
+    return match.group(1).upper() if match else "Other"
+
+
 def _modality_summaries(rows: list[dict[str, object]]) -> list[dict[str, object]]:
     summaries: dict[str, dict[str, object]] = {}
     for row in rows:
         category = str(row["category"])
         summary = summaries.setdefault(
             category,
-            {
-                "category": category,
-                "features": set(),
-                "checks": 0,
-                "statuses": {},
-            },
+            {"category": category, "features": set(), "checks": 0, "statuses": {}},
         )
         summary["features"].add(str(row["feature"]))
         summary["checks"] = int(summary["checks"]) + 1
         statuses = summary["statuses"]
         status = str(row["status"])
         statuses[status] = statuses.get(status, 0) + 1
-
     return sorted(summaries.values(), key=lambda item: str(item["category"]))
 
 
@@ -592,73 +415,66 @@ def _render_modality_row(row: dict[str, object]) -> str:
               </tr>"""
 
 
-def _region_summaries(rows: list[dict[str, object]]) -> list[dict[str, object]]:
+def _region_modality_summaries(rows: list[dict[str, object]]) -> list[dict[str, object]]:
     summaries: dict[str, dict[str, object]] = {}
+    categories = ["AKS extensions", "AKS Kubernetes versions", "VM SKUs"]
     for row in rows:
         region = str(row["region"])
-        summary = summaries.setdefault(region, {"region": region, "checks": 0, "statuses": {}})
-        summary["checks"] = int(summary["checks"]) + 1
-        statuses = summary["statuses"]
-        status = str(row["status"])
-        statuses[status] = statuses.get(status, 0) + 1
+        category = str(row["category"])
+        summary = summaries.setdefault(region, {"region": region, "unknown": 0, "categories": {}})
+        if row["status"] == "unknown":
+            summary["unknown"] = int(summary["unknown"]) + 1
+        category_summary = summary["categories"].setdefault(category, {"available": 0, "total": 0})
+        category_summary["total"] += 1
+        if row["status"] == "available":
+            category_summary["available"] += 1
+
+    for summary in summaries.values():
+        for category in categories:
+            summary["categories"].setdefault(category, {"available": 0, "total": 0})
     return sorted(summaries.values(), key=lambda item: str(item["region"]))
 
 
-def _render_region_row(row: dict[str, object]) -> str:
-    statuses = row["statuses"]
+def _render_region_modality_row(row: dict[str, object]) -> str:
+    categories = row["categories"]
     return f"""<tr>
                 <td><code>{html.escape(str(row["region"]))}</code></td>
-                <td class="number">{row["checks"]}</td>
-                <td class="number">{statuses.get("available", 0)}</td>
-                <td class="number">{statuses.get("unavailable", 0)}</td>
-                <td class="number">{statuses.get("unknown", 0)}</td>
+                <td class="number">{_available_total(categories["AKS extensions"])}</td>
+                <td class="number">{_available_total(categories["AKS Kubernetes versions"])}</td>
+                <td class="number">{_available_total(categories["VM SKUs"])}</td>
+                <td class="number">{row["unknown"]}</td>
               </tr>"""
 
 
-def _uniform_extension_summaries(
-    rows: list[dict[str, object]],
-    regions: list[str],
-) -> list[dict[str, object]]:
-    extension_summaries: dict[tuple[str, str], dict[str, object]] = {}
+def _available_total(summary: dict[str, int]) -> str:
+    return f'{summary["available"]:,} / {summary["total"]:,}'
+
+
+def _feature_group_summaries(rows: list[dict[str, object]]) -> list[dict[str, object]]:
+    summaries: dict[tuple[str, str], dict[str, object]] = {}
     for row in rows:
-        feature = str(row["feature"])
-        if not _is_extension_feature(feature):
-            continue
-
-        extension_type = _extension_type_label(feature, str(row["message"]))
-        key = (str(row["service"]), extension_type)
-        summary = extension_summaries.setdefault(
+        key = (str(row["category"]), str(row["group"]))
+        summary = summaries.setdefault(
             key,
-            {
-                "service": key[0],
-                "features": set(),
-                "category": str(row["category"]),
-                "extension_type": extension_type,
-                "regions": {},
-            },
+            {"category": key[0], "group": key[1], "features": set(), "checks": 0, "available": 0},
         )
-        summary["features"].add(feature)
-        region_statuses = summary["regions"].setdefault(str(row["region"]), [])
-        region_statuses.append(str(row["status"]))
-
-    uniform = []
-    for summary in extension_summaries.values():
-        region_statuses = summary["regions"]
-        if len(region_statuses) == len(regions) and all(
-            status == "available" for statuses in region_statuses.values() for status in statuses
-        ):
-            uniform.append(summary)
-
-    return sorted(uniform, key=lambda item: str(item["extension_type"]))
+        summary["features"].add(str(row["feature"]))
+        summary["checks"] = int(summary["checks"]) + 1
+        if row["status"] == "available":
+            summary["available"] = int(summary["available"]) + 1
+    return sorted(
+        summaries.values(),
+        key=lambda item: (str(item["category"]), -int(item["checks"]), str(item["group"])),
+    )
 
 
-def _render_uniform_extension_row(row: dict[str, object]) -> str:
-    features = ", ".join(sorted(row["features"]))
+def _render_group_row(row: dict[str, object]) -> str:
     return f"""<tr>
                 <td>{html.escape(str(row["category"]))}</td>
-                <td><code>{html.escape(str(row["extension_type"]))}</code></td>
-                <td><code>{html.escape(features)}</code></td>
-                <td class="number">{len(row["regions"])}</td>
+                <td><code>{html.escape(str(row["group"]))}</code></td>
+                <td class="number">{len(row["features"]):,}</td>
+                <td class="number">{int(row["available"]):,}</td>
+                <td class="number">{int(row["checks"]):,}</td>
               </tr>"""
 
 
@@ -666,51 +482,186 @@ def _is_extension_feature(feature: str) -> bool:
     return feature.startswith("extensions.") or feature.startswith("extensionTypes.")
 
 
-def _extension_type_label(feature: str, message: str) -> str:
-    match = re.search(r"extension type '([^']+)'", message)
-    if match:
-        return match.group(1)
-    if feature.startswith("extensionTypes."):
-        return feature.removeprefix("extensionTypes.")
-    return feature
+def _heatmap_script() -> str:
+    return r"""
+    const state = {
+      rows: [],
+      regions: [],
+      filteredRows: [],
+      heatmapRows: [],
+      detailsPage: 1,
+      heatmapPage: 1,
+    };
+    const statusLabels = { available: 'A', unavailable: 'U', partial: 'P', unknown: '?', '': '-' };
+    const statusOrder = { unknown: 0, partial: 1, unavailable: 2, available: 3 };
+    const elements = {
+      loadStatus: document.getElementById('load-status'),
+      search: document.getElementById('search'),
+      modality: document.getElementById('modality'),
+      group: document.getElementById('group'),
+      status: document.getElementById('status'),
+      pageSize: document.getElementById('page-size'),
+      detailsRows: document.getElementById('details-rows'),
+      detailsCount: document.getElementById('detail-count'),
+      detailsPage: document.getElementById('details-page'),
+      detailsPrev: document.getElementById('details-prev'),
+      detailsNext: document.getElementById('details-next'),
+      heatmapTable: document.getElementById('heatmap-table'),
+      heatmapCount: document.getElementById('heatmap-count'),
+      heatmapPage: document.getElementById('heatmap-page'),
+      heatmapPrev: document.getElementById('heatmap-prev'),
+      heatmapNext: document.getElementById('heatmap-next'),
+    };
 
-
-def _difference_summaries(rows: list[dict[str, object]]) -> list[dict[str, object]]:
-    features: dict[tuple[str, str], dict[str, object]] = {}
-    for row in rows:
-        key = (str(row["service"]), str(row["feature"]))
-        summary = features.setdefault(
-            key,
-            {"service": key[0], "feature": key[1], "regions": {}},
-        )
-        summary["regions"][str(row["region"])] = str(row["status"])
-
-    differences = []
-    for summary in features.values():
-        statuses = set(summary["regions"].values())
-        if len(statuses) > 1:
-            differences.append(summary)
-    return sorted(differences, key=lambda item: (str(item["service"]), str(item["feature"])))
-
-
-def _render_region_headers(regions: list[str]) -> str:
-    return "\n".join(f"<th>{html.escape(region)}</th>" for region in regions)
-
-
-def _render_difference_row(row: dict[str, object], regions: list[str]) -> str:
-    cells = "\n".join(_render_status_dot(row["regions"].get(region, "")) for region in regions)
-    return f"""<tr>
-              <td>{html.escape(str(row["service"]))}</td>
-              <td><code>{html.escape(str(row["feature"]))}</code></td>
-              {cells}
-            </tr>"""
-
-
-def _render_status_dot(status: str) -> str:
-    labels = {"available": "A", "unavailable": "U", "partial": "P", "unknown": "?", "": "-"}
-    css_status = status or "unknown"
-    title = status or "not reported"
-    return f'<td><span class="status-dot status-{html.escape(css_status)}" title="{html.escape(title, quote=True)}">{html.escape(labels.get(status, "?"))}</span></td>'
+    function escapeHtml(value) {
+      return String(value ?? '').replace(/[&<>'"]/g, (char) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
+      }[char]));
+    }
+    function category(feature) {
+      if (feature === 'extensionCatalog') return 'AKS extensions';
+      if (feature.startsWith('extensions.') || feature.startsWith('extensionTypes.')) return 'AKS extensions';
+      if (feature.startsWith('kubernetesVersions.')) return 'AKS Kubernetes versions';
+      if (feature.startsWith('vmSkus.')) return 'VM SKUs';
+      return feature.split('.')[0];
+    }
+    function group(feature) {
+      if (feature.startsWith('extensionTypes.')) return feature.replace('extensionTypes.', '').split('.')[0] || 'unknown';
+      if (feature.startsWith('extensions.')) return 'curated';
+      if (feature.startsWith('kubernetesVersions.')) return feature.replace('kubernetesVersions.', '');
+      if (feature.startsWith('vmSkus.')) {
+        const sku = feature.replace('vmSkus.', '').replace('standard.', '');
+        const match = sku.match(/^([a-z]+)/i);
+        return match ? match[1].toUpperCase() : 'Other';
+      }
+      return feature.split('.')[0];
+    }
+    function flatten(snapshot) {
+      const rows = [];
+      for (const [region, services] of Object.entries(snapshot.regions || {})) {
+        for (const [service, features] of Object.entries(services || {})) {
+          for (const [feature, result] of Object.entries(features || {})) {
+            const row = {
+              region, service, feature,
+              category: category(feature),
+              group: group(feature),
+              status: result.status || 'unknown',
+              message: result.message || result.error_code || '',
+            };
+            row.searchText = `${row.region} ${row.service} ${row.category} ${row.group} ${row.feature} ${row.status} ${row.message}`.toLowerCase();
+            rows.push(row);
+          }
+        }
+      }
+      return rows.sort((a, b) => a.region.localeCompare(b.region) || a.category.localeCompare(b.category) || a.feature.localeCompare(b.feature));
+    }
+    function populateSelect(select, values) {
+      const label = select.options[0].textContent;
+      const current = select.value;
+      select.innerHTML = `<option value="">${escapeHtml(label)}</option>`;
+      values.forEach((value) => {
+        const option = document.createElement('option');
+        option.value = value;
+        option.textContent = value;
+        select.appendChild(option);
+      });
+      if (values.includes(current)) select.value = current;
+    }
+    function applyFilters() {
+      const query = elements.search.value.trim().toLowerCase();
+      const modality = elements.modality.value;
+      const selectedGroup = elements.group.value;
+      const status = elements.status.value;
+      state.filteredRows = state.rows.filter((row) => (
+        (!query || row.searchText.includes(query)) &&
+        (!modality || row.category === modality) &&
+        (!selectedGroup || row.group === selectedGroup) &&
+        (!status || row.status === status)
+      )).sort((a, b) => (statusOrder[a.status] ?? 4) - (statusOrder[b.status] ?? 4) || a.region.localeCompare(b.region) || a.feature.localeCompare(b.feature));
+      state.heatmapRows = buildHeatmapRows(state.filteredRows);
+      state.detailsPage = 1;
+      state.heatmapPage = 1;
+      renderDetails();
+      renderHeatmap();
+    }
+    function buildHeatmapRows(rows) {
+      const byFeature = new Map();
+      rows.forEach((row) => {
+        const key = `${row.category}|${row.group}|${row.feature}`;
+        if (!byFeature.has(key)) byFeature.set(key, { category: row.category, group: row.group, feature: row.feature, regions: {} });
+        byFeature.get(key).regions[row.region] = row.status;
+      });
+      return Array.from(byFeature.values()).sort((a, b) => a.category.localeCompare(b.category) || a.group.localeCompare(b.group) || a.feature.localeCompare(b.feature));
+    }
+    function pageBounds(total, page) {
+      const size = Number(elements.pageSize.value);
+      const pages = Math.max(1, Math.ceil(total / size));
+      const safePage = Math.min(Math.max(1, page), pages);
+      return { size, pages, page: safePage, start: (safePage - 1) * size, end: safePage * size };
+    }
+    function renderDetails() {
+      const bounds = pageBounds(state.filteredRows.length, state.detailsPage);
+      state.detailsPage = bounds.page;
+      const visible = state.filteredRows.slice(bounds.start, bounds.end);
+      elements.detailsRows.innerHTML = visible.map((row) => `
+        <tr>
+          <td><code>${escapeHtml(row.region)}</code></td>
+          <td>${escapeHtml(row.category)}</td>
+          <td><code>${escapeHtml(row.group)}</code></td>
+          <td><code>${escapeHtml(row.feature)}</code></td>
+          <td><span class="status status-${escapeHtml(row.status)}">${escapeHtml(row.status)}</span></td>
+          <td>${escapeHtml(row.message)}</td>
+        </tr>`).join('') || '<tr><td colspan="6" class="empty">No checks match the current filters.</td></tr>';
+      elements.detailsCount.textContent = `${state.filteredRows.length.toLocaleString()} checks`;
+      elements.detailsPage.textContent = `Page ${bounds.page} of ${bounds.pages}`;
+      elements.detailsPrev.disabled = bounds.page <= 1;
+      elements.detailsNext.disabled = bounds.page >= bounds.pages;
+    }
+    function renderHeatmap() {
+      const bounds = pageBounds(state.heatmapRows.length, state.heatmapPage);
+      state.heatmapPage = bounds.page;
+      const visible = state.heatmapRows.slice(bounds.start, bounds.end);
+      const header = `<thead><tr><th>Group</th><th>Feature</th>${state.regions.map((region) => `<th>${escapeHtml(region)}</th>`).join('')}</tr></thead>`;
+      const body = visible.map((row) => `<tr>
+        <td><code>${escapeHtml(row.group)}</code></td>
+        <td><code>${escapeHtml(row.feature)}</code></td>
+        ${state.regions.map((region) => {
+          const value = row.regions[region] || '';
+          const css = value || 'unknown';
+          return `<td><span class="status-dot status-${escapeHtml(css)}" title="${escapeHtml(value || 'not reported')}">${escapeHtml(statusLabels[value] || '?')}</span></td>`;
+        }).join('')}
+      </tr>`).join('') || `<tr><td colspan="${state.regions.length + 2}" class="empty">No features match the current filters.</td></tr>`;
+      elements.heatmapTable.innerHTML = header + `<tbody>${body}</tbody>`;
+      elements.heatmapCount.textContent = `${state.heatmapRows.length.toLocaleString()} feature rows`;
+      elements.heatmapPage.textContent = `Page ${bounds.page} of ${bounds.pages}`;
+      elements.heatmapPrev.disabled = bounds.page <= 1;
+      elements.heatmapNext.disabled = bounds.page >= bounds.pages;
+    }
+    async function loadSnapshot() {
+      const response = await fetch('api/latest.json', { cache: 'no-store' });
+      const snapshot = await response.json();
+      state.regions = Object.keys(snapshot.regions || {}).sort();
+      state.rows = flatten(snapshot);
+      populateSelect(elements.modality, [...new Set(state.rows.map((row) => row.category))].sort());
+      populateSelect(elements.group, [...new Set(state.rows.map((row) => row.group))].sort());
+      elements.loadStatus.textContent = `${state.rows.length.toLocaleString()} checks loaded from latest.json`;
+      applyFilters();
+    }
+    elements.search.addEventListener('input', applyFilters);
+    elements.modality.addEventListener('change', () => {
+      const groups = [...new Set(state.rows.filter((row) => !elements.modality.value || row.category === elements.modality.value).map((row) => row.group))].sort();
+      populateSelect(elements.group, groups);
+      applyFilters();
+    });
+    elements.group.addEventListener('change', applyFilters);
+    elements.status.addEventListener('change', applyFilters);
+    elements.pageSize.addEventListener('change', applyFilters);
+    elements.detailsPrev.addEventListener('click', () => { state.detailsPage -= 1; renderDetails(); });
+    elements.detailsNext.addEventListener('click', () => { state.detailsPage += 1; renderDetails(); });
+    elements.heatmapPrev.addEventListener('click', () => { state.heatmapPage -= 1; renderHeatmap(); });
+    elements.heatmapNext.addEventListener('click', () => { state.heatmapPage += 1; renderHeatmap(); });
+    loadSnapshot().catch((error) => { elements.loadStatus.textContent = `Could not load latest.json: ${error}`; });
+"""
 
 
 def write_static_summary(output_dir: Path) -> str:
