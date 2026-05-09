@@ -176,37 +176,10 @@ jobs:
         env:
           EXISTING_SNAPSHOT_URL: ${{ inputs.existing_snapshot_url }}
         run: |
-          python - <<'PY'
-          import json
-          import os
-          import sys
-          import urllib.request
-          from pathlib import Path
-
-          latest_path = Path("data/snapshots/latest.json")
-          overlay = json.loads(latest_path.read_text())
-
-          try:
-              with urllib.request.urlopen(os.environ["EXISTING_SNAPSHOT_URL"], timeout=30) as response:
-                  base = json.load(response)
-          except Exception as error:
-              print(f"Could not fetch existing snapshot; deploying current snapshot only: {error}")
-              sys.exit(0)
-
-          base_regions = base.setdefault("regions", {})
-          for region, services in overlay.get("regions", {}).items():
-              if not isinstance(services, dict):
-                  continue
-              base_services = base_regions.setdefault(region, {})
-              if not isinstance(base_services, dict):
-                  base_regions[region] = services
-                  continue
-              for service, features in services.items():
-                  base_services[service] = features
-
-          base["timestamp"] = overlay.get("timestamp", base.get("timestamp"))
-          latest_path.write_text(json.dumps(base, indent=2, sort_keys=True) + "\n")
-          PY
+          azure-region-monitor merge-snapshot \
+            --base-url "$EXISTING_SNAPSHOT_URL" \
+            --overlay data/snapshots/latest.json \
+            --output data/snapshots/latest.json
 
       - name: Build static site
         run: azure-region-monitor build-static --output public

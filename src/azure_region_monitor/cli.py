@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import urllib.request
 from datetime import datetime
 from pathlib import Path
 
@@ -18,6 +19,7 @@ from azure_region_monitor.probes.aks_versions import AksKubernetesVersionCliProb
 from azure_region_monitor.probes.sample import SampleAksExtensionProbe
 from azure_region_monitor.probes.vm_skus import VmSkuCliProbe
 from azure_region_monitor.runner import run_probes
+from azure_region_monitor.snapshot_merge import merge_snapshot_overlay
 from azure_region_monitor.storage import load_snapshot, write_diff, write_snapshot
 from azure_region_monitor.static_site import build_static_site
 
@@ -63,6 +65,14 @@ def main() -> None:
     static_parser.add_argument("--diff", type=Path, default=Path("data/diffs/latest.json"))
     static_parser.set_defaults(handler=_build_static)
 
+    merge_parser = subparsers.add_parser(
+        "merge-snapshot", help="Merge a focused modality snapshot into an existing snapshot"
+    )
+    merge_parser.add_argument("--base-url", required=True)
+    merge_parser.add_argument("--overlay", type=Path, default=Path("data/snapshots/latest.json"))
+    merge_parser.add_argument("--output", type=Path, default=Path("data/snapshots/latest.json"))
+    merge_parser.set_defaults(handler=_merge_snapshot)
+
     args = parser.parse_args()
     args.handler(args)
 
@@ -89,6 +99,20 @@ def _serve(args: argparse.Namespace) -> None:
 def _build_static(args: argparse.Namespace) -> None:
     build_static_site(args.output, snapshot_path=args.snapshot, diff_path=args.diff)
     print(f"Built static site in {args.output}")
+
+
+def _merge_snapshot(args: argparse.Namespace) -> None:
+    with urllib.request.urlopen(args.base_url, timeout=30) as response:
+        base = load_snapshot_from_text(response.read().decode("utf-8"))
+    overlay = load_snapshot(args.overlay)
+    write_snapshot(args.output, merge_snapshot_overlay(base, overlay))
+    print(f"Merged focused snapshot into {args.output}")
+
+
+def load_snapshot_from_text(raw: str):
+    from azure_region_monitor.models import Snapshot
+
+    return Snapshot.model_validate_json(raw)
 
 
 def _parse_timestamp(raw: str) -> datetime:

@@ -31,4 +31,5 @@ jobs:
       install_k8s_extension: true
       artifact_name: "azure-region-monitor-aks-extensions"
       deploy_dashboard: ${{ inputs.deploy_dashboard || false }}
+      existing_snapshot_url: ${{ inputs.deploy_dashboard && 'https://gray-island-09dc9e703.7.azurestaticapps.net/api/latest.json' || '' }}
     secrets: inherit

@@ -56,7 +56,7 @@ def test_run_probes_can_normalize_missing_catalog_features():
     assert snapshot.regions["westeurope"]["aks"]["extensionTypes.microsoft.flux"].status == "unavailable"
 
 
-def test_run_probes_does_not_normalize_unknown_catalog_region():
+def test_run_probes_normalizes_unknown_catalog_region_as_unknown():
     class CatalogProbe:
         normalize_missing_features = True
 
@@ -77,4 +77,4 @@ def test_run_probes_does_not_normalize_unknown_catalog_region():
     snapshot = run_probes(["eastus", "westeurope"], [CatalogProbe()])
 
     assert snapshot.regions["westeurope"]["aks"]["extensionCatalog"].status == "unknown"
-    assert "extensionTypes.microsoft.flux" not in snapshot.regions["westeurope"]["aks"]
+    assert snapshot.regions["westeurope"]["aks"]["extensionTypes.microsoft.flux"].status == "unknown"

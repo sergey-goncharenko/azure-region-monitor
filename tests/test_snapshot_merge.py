@@ -1,0 +1,67 @@
+from datetime import datetime, timezone
+
+from azure_region_monitor.models import FeatureResult, Snapshot
+from azure_region_monitor.snapshot_merge import merge_snapshot_overlay
+
+
+def test_merge_snapshot_overlay_replaces_only_matching_modality_features():
+    base = Snapshot(
+        timestamp=datetime(2026, 5, 8, tzinfo=timezone.utc),
+        regions={
+            "eastus": {
+                "aks": {
+                    "extensionTypes.old": FeatureResult(status="available"),
+                    "kubernetesVersions.1.33": FeatureResult(status="available"),
+                },
+                "compute": {
+                    "vmSkus.standard.b2s": FeatureResult(status="available"),
+                },
+            }
+        },
+    )
+    overlay = Snapshot(
+        timestamp=datetime(2026, 5, 9, tzinfo=timezone.utc),
+        regions={
+            "eastus": {
+                "aks": {
+                    "extensionTypes.new": FeatureResult(status="available"),
+                }
+            }
+        },
+    )
+
+    merged = merge_snapshot_overlay(base, overlay)
+
+    assert "extensionTypes.old" not in merged.regions["eastus"]["aks"]
+    assert merged.regions["eastus"]["aks"]["extensionTypes.new"].status == "available"
+    assert merged.regions["eastus"]["aks"]["kubernetesVersions.1.33"].status == "available"
+    assert merged.regions["eastus"]["compute"]["vmSkus.standard.b2s"].status == "available"
+    assert merged.timestamp == overlay.timestamp
+
+
+def test_merge_snapshot_overlay_replaces_only_vm_sku_features():
+    base = Snapshot(
+        regions={
+            "eastus": {
+                "compute": {
+                    "vmSkus.standard.b2s": FeatureResult(status="available"),
+                    "otherCompute.signal": FeatureResult(status="unknown"),
+                }
+            }
+        },
+    )
+    overlay = Snapshot(
+        regions={
+            "eastus": {
+                "compute": {
+                    "vmSkus.standard.d2s.v5": FeatureResult(status="available"),
+                }
+            }
+        },
+    )
+
+    merged = merge_snapshot_overlay(base, overlay)
+
+    assert "vmSkus.standard.b2s" not in merged.regions["eastus"]["compute"]
+    assert merged.regions["eastus"]["compute"]["vmSkus.standard.d2s.v5"].status == "available"
+    assert merged.regions["eastus"]["compute"]["otherCompute.signal"].status == "unknown"
