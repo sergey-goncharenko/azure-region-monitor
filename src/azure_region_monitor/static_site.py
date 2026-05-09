@@ -122,7 +122,7 @@ def _render_index(snapshot: Snapshot) -> str:
     <section class="panel" aria-label="Region modality availability">
       <div class="panel-header">
         <h2>Regional Availability By Modality</h2>
-        <div class="panel-subtitle">Available checks shown as available / total</div>
+        <div class="panel-subtitle">Grouped availability shown as available / total</div>
       </div>
       <div class="table-wrap">
         <table>
@@ -308,6 +308,15 @@ def _style_block() -> str:
     .status-partial { background: var(--partial-bg); color: var(--partial-text); }
     .status-unknown { background: var(--unknown-bg); color: var(--unknown-text); }
     .status-dot { display: inline-flex; width: 22px; height: 22px; border-radius: 50%; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; line-height: 1; }
+    .availability-groups { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 5px; min-width: 220px; }
+    .availability-badge { display: inline-flex; gap: 5px; align-items: center; min-height: 24px; padding: 3px 7px; border-radius: 999px; border: 1px solid transparent; font-size: 12px; font-weight: 650; white-space: nowrap; }
+    .availability-label { max-width: 96px; overflow: hidden; text-overflow: ellipsis; }
+    .availability-count { font-variant-numeric: tabular-nums; opacity: 0.82; }
+    .availability-good { background: #e5f6ee; border-color: #b6e4ca; color: #116339; }
+    .availability-warn { background: #fff7ce; border-color: #ecd56b; color: #6e5500; }
+    .availability-caution { background: #ffefd8; border-color: #f2bd72; color: #8a4a05; }
+    .availability-poor { background: #fdecec; border-color: #efb8ba; color: #9d1c20; }
+    .availability-empty { background: #edf1f6; border-color: #d0d8e3; color: #4f5f73; }
     .empty { color: var(--muted); text-align: center; padding: 24px; }
     @media (max-width: 720px) {
       main { padding: 20px 12px 32px; }
@@ -421,17 +430,19 @@ def _region_modality_summaries(rows: list[dict[str, object]]) -> list[dict[str, 
     for row in rows:
         region = str(row["region"])
         category = str(row["category"])
+        group = str(row["group"])
         summary = summaries.setdefault(region, {"region": region, "unknown": 0, "categories": {}})
         if row["status"] == "unknown":
             summary["unknown"] = int(summary["unknown"]) + 1
-        category_summary = summary["categories"].setdefault(category, {"available": 0, "total": 0})
-        category_summary["total"] += 1
+        category_summary = summary["categories"].setdefault(category, {})
+        group_summary = category_summary.setdefault(group, {"available": 0, "total": 0})
+        group_summary["total"] += 1
         if row["status"] == "available":
-            category_summary["available"] += 1
+            group_summary["available"] += 1
 
     for summary in summaries.values():
         for category in categories:
-            summary["categories"].setdefault(category, {"available": 0, "total": 0})
+            summary["categories"].setdefault(category, {})
     return sorted(summaries.values(), key=lambda item: str(item["region"]))
 
 
@@ -439,15 +450,44 @@ def _render_region_modality_row(row: dict[str, object]) -> str:
     categories = row["categories"]
     return f"""<tr>
                 <td><code>{html.escape(str(row["region"]))}</code></td>
-                <td class="number">{_available_total(categories["AKS extensions"])}</td>
-                <td class="number">{_available_total(categories["AKS Kubernetes versions"])}</td>
-                <td class="number">{_available_total(categories["VM SKUs"])}</td>
+    <td>{_render_availability_groups(categories["AKS extensions"])}</td>
+    <td>{_render_availability_groups(categories["AKS Kubernetes versions"])}</td>
+    <td>{_render_availability_groups(categories["VM SKUs"])}</td>
                 <td class="number">{row["unknown"]}</td>
               </tr>"""
 
 
-def _available_total(summary: dict[str, int]) -> str:
-    return f'{summary["available"]:,} / {summary["total"]:,}'
+def _render_availability_groups(groups: dict[str, dict[str, int]]) -> str:
+    if not groups:
+        return '<span class="availability-badge availability-empty">No checks</span>'
+
+    badges = []
+    for group, summary in sorted(groups.items()):
+        available = summary["available"]
+        total = summary["total"]
+        missing = total - available
+        health_class = _availability_health_class(available, total)
+        title = f"{group}: {available:,} available, {missing:,} not available, {total:,} total"
+        badges.append(
+            f'<span class="availability-badge {health_class}" title="{html.escape(title)}">'
+            f'<span class="availability-label">{html.escape(group)}</span>'
+            f'<span class="availability-count">{available:,}/{total:,}</span>'
+            "</span>"
+        )
+    return f'<div class="availability-groups">{"".join(badges)}</div>'
+
+
+def _availability_health_class(available: int, total: int) -> str:
+    if total == 0:
+        return "availability-empty"
+    missing = total - available
+    if missing == 0:
+        return "availability-good"
+    if missing == 1:
+        return "availability-warn"
+    if missing == 2:
+        return "availability-caution"
+    return "availability-poor"
 
 
 def _feature_group_summaries(rows: list[dict[str, object]]) -> list[dict[str, object]]:

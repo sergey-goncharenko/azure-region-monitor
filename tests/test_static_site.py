@@ -103,6 +103,51 @@ def test_build_static_site_groups_modalities_by_feature_family(tmp_path):
     assert "<td>None</td>" not in index_html
 
 
+def test_build_static_site_color_codes_regional_modality_groups(tmp_path):
+    snapshot_path = tmp_path / "snapshot.json"
+    output_dir = tmp_path / "public"
+    snapshot = {
+        "timestamp": "2026-05-08T00:00:00Z",
+        "regions": {
+            "eastus": {
+                "aks": {
+                    "extensionTypes.microsoft.flux": {"status": "available"},
+                    "extensionTypes.microsoft.dapr": {"status": "unavailable"},
+                    "extensionTypes.azure.policy": {"status": "available"},
+                    "kubernetesVersions.1.34": {"status": "available"},
+                },
+                "compute": {
+                    "vmSkus.standard.b2s": {"status": "available"},
+                    "vmSkus.standard.b2ms": {"status": "unavailable"},
+                    "vmSkus.standard.d2s.v5": {"status": "available"},
+                    "vmSkus.standard.d4s.v5": {"status": "unavailable"},
+                    "vmSkus.standard.d8s.v5": {"status": "unavailable"},
+                    "vmSkus.standard.e2s.v5": {"status": "unavailable"},
+                    "vmSkus.standard.e4s.v5": {"status": "unavailable"},
+                    "vmSkus.standard.e8s.v5": {"status": "unavailable"},
+                },
+            }
+        },
+    }
+    snapshot_path.write_text(json.dumps(snapshot), encoding="utf-8")
+
+    build_static_site(
+        output_dir, snapshot_path=snapshot_path, diff_path=tmp_path / "missing-diff.json"
+    )
+
+    index_html = (output_dir / "index.html").read_text(encoding="utf-8")
+
+    assert "Grouped availability shown as available / total" in index_html
+    assert "availability-good" in index_html
+    assert "availability-warn" in index_html
+    assert "availability-caution" in index_html
+    assert "availability-poor" in index_html
+    assert "azure</span><span class=\"availability-count\">1/1" in index_html
+    assert "microsoft</span><span class=\"availability-count\">1/2" in index_html
+    assert "D</span><span class=\"availability-count\">1/3" in index_html
+    assert "E</span><span class=\"availability-count\">0/3" in index_html
+
+
 def test_build_static_site_uses_paged_detail_page_for_heavy_tables(tmp_path):
     snapshot_path = tmp_path / "snapshot.json"
     output_dir = tmp_path / "public"
