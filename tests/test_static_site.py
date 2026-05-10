@@ -18,9 +18,32 @@ def test_build_static_site_writes_dashboard_and_latest_json(tmp_path):
 
     assert "Azure Regional Feature Availability Monitor" in index_html
     assert (output_dir / "heatmap.html").exists()
+    assert (output_dir / "methodology.html").exists()
+    assert "Status meanings" in index_html
     assert "swedencentral" in index_html
     assert "extensions.gitops" in latest_json
     assert not (output_dir / "api" / "diff.json").exists()
+
+
+def test_build_static_site_writes_status_methodology_page(tmp_path):
+    output_dir = tmp_path / "public"
+
+    build_static_site(
+        output_dir,
+        snapshot_path=Path("data/snapshots/2026-05-08.json"),
+        diff_path=tmp_path / "missing-diff.json",
+    )
+
+    methodology_html = (output_dir / "methodology.html").read_text(encoding="utf-8")
+    heatmap_html = (output_dir / "heatmap.html").read_text(encoding="utf-8")
+
+    assert "Plain-language guide" in methodology_html
+    assert "not a quota result" in methodology_html
+    assert "az functionapp list-flexconsumption-locations --output json" in methodology_html
+    assert "Quota is separate" in methodology_html
+    assert "AKS extensions" in methodology_html
+    assert "VM SKUs" in methodology_html
+    assert "methodology.html" in heatmap_html
 
 
 def test_build_static_site_copies_history_and_renders_recent_changes(tmp_path):

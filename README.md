@@ -16,6 +16,8 @@ PoC dashboard: <https://gray-island-09dc9e703.7.azurestaticapps.net/>
 
 Latest JSON snapshot: <https://gray-island-09dc9e703.7.azurestaticapps.net/api/latest.json>
 
+Status meanings and methodology: <https://gray-island-09dc9e703.7.azurestaticapps.net/methodology.html>
+
 ## Current Starter
 
 The first implementation slice is a Python service with:
@@ -29,6 +31,7 @@ The first implementation slice is a Python service with:
 - An Azure CLI-backed VM SKU probe for compute SKU regional availability
 - JSON snapshot and diff storage helpers
 - Daily static snapshot history and compact recent-change summaries
+- A human-readable methodology page explaining what each status means
 - A diff engine that classifies new availability and regressions
 - A FastAPI read-only API matching the initial API spec
 - A GitHub Actions workflow for manual or scheduled PoC runs
@@ -172,11 +175,23 @@ Useful endpoints:
 - `GET /api/history/snapshots/{date}.json`
 - `GET /api/history/changes/{date}.json`
 
+## Status Semantics
+
+Most checks are read-only catalog or listing probes. They are designed to answer "does Azure advertise this feature for this region right now?" rather than "will my deployment certainly succeed?"
+
+- `available`: the feature was listed or matched by the probe for that region.
+- `unavailable`: the probe completed successfully, but the feature was absent from the command output or catalog used by that probe.
+- `unknown`: the monitor did not get trustworthy evidence, usually because the Azure CLI command failed, timed out, returned invalid JSON, or hit a provider/control-plane issue.
+- `partial`: reserved for future multi-condition probes where only some required sub-checks pass.
+
+For Azure Functions Flex Consumption, `unavailable` means the region was absent from `az functionapp list-flexconsumption-locations --output json`. Azure CLI describes that command as listing available locations for running function apps on the Flex Consumption plan. Absence from that list is not a quota result; quota, regional capacity, policy, provider registration, and create-time failures require separate signals.
+
 ## Next Engineering Steps
 
-1. Inspect the Azure Static Web Apps deployment from `.github/workflows/synthetic-tests.yml`.
-2. Confirm whether the AKS extension catalog, Kubernetes version prefixes, or VM SKU availability expose regional differences across more regions.
-3. Add a controlled AKS lifecycle probe if read-only checks stay identical.
-4. Add alert delivery once the daily diff flow is stable.
+1. Add the next read-only modality, likely Container Apps or Azure OpenAI model listings.
+2. Add quota/capacity-specific probes where Azure exposes safe read APIs; do not overload `unavailable` to mean quota failure.
+3. Add controlled create/delete lifecycle probes only where read-only evidence is not enough and cleanup can be guaranteed.
+4. Add alert delivery once daily recent-change summaries are stable enough for subscriptions.
+5. Move any remaining heavy dashboard detail sections to on-demand fetches if browser performance degrades again.
 
 See [docs/poc-deployment.md](docs/poc-deployment.md) for the PoC deployment/runbook.

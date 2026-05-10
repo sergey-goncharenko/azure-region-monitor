@@ -2,14 +2,15 @@
 
 ## Goal
 
-The PoC proves that synthetic checks can produce structured, region-by-region Azure availability evidence. The first real check uses Azure CLI to list AKS extension types by location and records whether configured extension types appear in each target region.
+The PoC proves that synthetic checks can produce structured, region-by-region Azure availability evidence. The current implementation uses read-only Azure CLI catalog/listing probes for AKS extension types, AKS Kubernetes versions, Azure Functions Flex Consumption locations and runtimes, and VM SKU regional size listings.
 
 ## Current PoC Shape
 
-- Probe: `aks-extension-cli`
+- Current probes: `aks-extension-catalog-cli`, `aks-version-cli`, `function-flex-cli`, and `vm-sku-cli`
 - Original PoC regions: `westeurope`, `swedencentral`, `eastus`
 - Default workflow regions: `eastus`, `eastus2`, `westus3`, `westeurope`, `northeurope`, `swedencentral`, `uksouth`, `germanywestcentral`, `southeastasia`, `australiaeast`
-- Default features:
+- Latest full run scope: 62 Azure physical locations from the live snapshot
+- Legacy curated AKS extension defaults for `aks-extension-cli`:
   - `extensions.gitops=microsoft.flux`
   - `extensions.monitor=microsoft.azuremonitor.containers`
 - Default AKS Kubernetes version prefixes:
@@ -33,6 +34,7 @@ The PoC proves that synthetic checks can produce structured, region-by-region Az
 - Shared runner workflow: `.github/workflows/regional-probe-run.yml`
 - Static host: Azure Static Web Apps
 - Current hostname: `gray-island-09dc9e703.7.azurestaticapps.net`
+- Methodology page: `https://gray-island-09dc9e703.7.azurestaticapps.net/methodology.html`
 
 ## Local Run
 
@@ -128,18 +130,29 @@ For a faster modality-specific run, select one of the focused workflows instead:
 - `Azure Functions Flex regional tests` runs `function-flex-cli` only.
 - `VM SKU regional tests` runs `vm-sku-cli` only.
 
-Focused workflows upload modality-specific artifacts and do not deploy the public dashboard by default. VM SKU focused deployments merge the fresh SKU snapshot into the current live dashboard snapshot before publishing, so existing extension and Kubernetes version sections remain visible.
+Focused workflows upload modality-specific artifacts and do not deploy the public dashboard by default. When `deploy_dashboard` is enabled, focused deployments merge the fresh modality snapshot into the current live dashboard snapshot before publishing, so other modality sections remain visible.
 
-The full dashboard workflow caps each Azure CLI probe command at 20 seconds. Slow calls are recorded as `unknown` in the snapshot instead of blocking the dashboard refresh.
+The reusable runner caps each Azure CLI probe command with `AZURE_CLI_TIMEOUT_SECONDS`. The reusable default is 45 seconds; the full synthetic workflow currently defaults to 120 seconds. Slow calls are recorded as `unknown` in the snapshot instead of blocking the dashboard refresh.
+
+## Status Semantics
+
+Current probes are read-only listing probes. They provide rollout evidence, not a complete deployment guarantee.
+
+- `available`: Azure listed the feature in the command output used by the probe.
+- `unavailable`: the command completed successfully, but the feature was absent from the output.
+- `unknown`: the command failed, timed out, returned invalid JSON, or did not provide trustworthy evidence.
+- `partial`: reserved for future probes with multiple required sub-checks.
+
+For Azure Functions Flex Consumption, `unavailable` means `az functionapp list-flexconsumption-locations --output json` did not return the region. The CLI help says this command lists available locations for running function apps on Flex Consumption. It does not test subscription quota, regional capacity, policy, provider registration, or a real create/deploy path.
 
 ## Success Criteria
 
 The PoC is successful when a run produces:
 
 - a valid snapshot for at least 3 regions;
-- clear `available`, `unavailable`, or `unknown` statuses for each configured AKS extension feature;
+- clear `available`, `unavailable`, or `unknown` statuses for each checked feature;
 - captured error codes/messages when Azure CLI cannot determine availability;
-- at least one confirmed regional difference, or enough evidence to choose a more discriminating AKS feature probe.
+- at least one confirmed regional difference, or enough evidence to choose a more discriminating modality or lifecycle probe.
 
 ## Next Decision
 

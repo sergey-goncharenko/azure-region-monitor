@@ -77,6 +77,7 @@ def build_static_site(
         _render_index(snapshot, recent_changes=recent_changes), encoding="utf-8"
     )
     (output_dir / "heatmap.html").write_text(_render_heatmap_page(snapshot), encoding="utf-8")
+    (output_dir / "methodology.html").write_text(_render_methodology_page(snapshot), encoding="utf-8")
 
 
 def _render_index(snapshot: Snapshot, recent_changes: dict[str, Any] | None = None) -> str:
@@ -110,6 +111,7 @@ def _render_index(snapshot: Snapshot, recent_changes: dict[str, Any] | None = No
         <div class="timestamp">Latest snapshot: {html.escape(snapshot.timestamp.isoformat())}</div>
       </div>
       <nav class="links" aria-label="Dashboard links">
+        <a href="methodology.html">Status meanings</a>
         <a href="heatmap.html">Detailed heatmap</a>
         <a href="api/latest.json">api/latest.json</a>
       </nav>
@@ -206,6 +208,7 @@ def _render_heatmap_page(snapshot: Snapshot) -> str:
       </div>
       <nav class="links" aria-label="Dashboard links">
         <a href="index.html">Summary</a>
+        <a href="methodology.html">Status meanings</a>
         <a href="api/latest.json">api/latest.json</a>
       </nav>
     </header>
@@ -277,6 +280,67 @@ def _render_heatmap_page(snapshot: Snapshot) -> str:
   <script>
 {_heatmap_script()}
   </script>
+</body>
+</html>
+"""
+
+
+def _render_methodology_page(snapshot: Snapshot) -> str:
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Azure Regional Feature Monitor Status Meanings</title>
+  {_style_block()}
+</head>
+<body>
+  <main class="content-page">
+    <header>
+      <div>
+        <h1>Status Meanings</h1>
+        <div class="timestamp">Latest snapshot: {html.escape(snapshot.timestamp.isoformat())}</div>
+      </div>
+      <nav class="links" aria-label="Dashboard links">
+        <a href="index.html">Summary</a>
+        <a href="heatmap.html">Detailed heatmap</a>
+        <a href="api/latest.json">api/latest.json</a>
+      </nav>
+    </header>
+    <section class="panel prose" aria-label="Plain-language status guide">
+      <div class="panel-header">
+        <h2>Plain-language guide</h2>
+        <div class="panel-subtitle">What the dashboard can and cannot prove</div>
+      </div>
+      <div class="prose-body">
+        <p>This dashboard is a regional rollout monitor. Most checks are read-only catalog checks: they ask Azure which locations, versions, SKUs, or extension types are advertised by Azure control-plane APIs or Azure CLI commands. They are fast and cheap, but they are not the same thing as a full deployment test.</p>
+        <h3>Overall statuses</h3>
+        <table>
+          <thead><tr><th>Status</th><th>Meaning</th><th>What it does not prove</th></tr></thead>
+          <tbody>
+            <tr><td><span class="status status-available">available</span></td><td>The feature was listed or matched by the read-only probe for that region.</td><td>It does not guarantee that a later deployment will pass quota, capacity, policy, identity, or provider-registration checks.</td></tr>
+            <tr><td><span class="status status-unavailable">unavailable</span></td><td>The probe completed successfully, but the feature was absent from the catalog or location list used by that probe.</td><td>It does not necessarily mean the service is impossible forever, globally blocked, or failing because of quota.</td></tr>
+            <tr><td><span class="status status-partial">partial</span></td><td>Reserved for checks where some required sub-conditions pass and others fail.</td><td>Current read-only probes rarely emit this because they usually test one listed item at a time.</td></tr>
+            <tr><td><span class="status status-unknown">unknown</span></td><td>The probe could not produce reliable evidence, usually because Azure CLI failed, timed out, returned invalid JSON, or the provider endpoint was not available.</td><td>It should not be treated as unavailable. It means the monitor did not get a trustworthy answer.</td></tr>
+          </tbody>
+        </table>
+        <h3>Azure Functions Flex Consumption</h3>
+        <p>The <code>hostingPlans.flexConsumption</code> row comes from <code>az functionapp list-flexconsumption-locations --output json</code>. Azure CLI describes this command as listing available locations for running function apps on the Flex Consumption plan.</p>
+        <p>If a region is absent from that list, the dashboard marks Flex Consumption as <span class="status status-unavailable">unavailable</span>. In plain language, that means Azure did not advertise that region as a Flex Consumption location to this command at scan time. It is not a quota result.</p>
+        <p>The runtime rows, such as <code>runtimes.python.3.14</code> or <code>runtimes.node.24</code>, are tied to the Flex location signal. If Flex is not listed for a region, every Functions runtime row is marked unavailable for that region because there is no Flex hosting target in the read-only evidence. If Flex is listed, runtime availability is checked against <code>az functionapp list-runtimes --os linux --output json</code>.</p>
+        <div class="note"><strong>Quota is separate.</strong> A region can be listed as available here and still fail a real deployment because of subscription quota, regional capacity, Azure Policy, provider registration, RBAC, or service-specific constraints. A quota or capacity signal needs a separate probe, probably using usage APIs and eventually a controlled create/delete deployment check.</div>
+        <h3>Other modalities</h3>
+        <table>
+          <thead><tr><th>Modality</th><th>Available means</th><th>Unavailable means</th></tr></thead>
+          <tbody>
+            <tr><td>AKS extensions</td><td>The extension type was listed by the AKS extension catalog for the region.</td><td>The catalog call succeeded but did not list that extension type in the region.</td></tr>
+            <tr><td>AKS Kubernetes versions</td><td><code>az aks get-versions</code> listed a Kubernetes version matching the configured prefix.</td><td>The version listing succeeded, but no matching version prefix was present.</td></tr>
+            <tr><td>VM SKUs</td><td><code>az vm list-sizes</code> listed the SKU in the region.</td><td>The size listing succeeded, but the SKU was not present in that regional size list.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
 </body>
 </html>
 """
@@ -385,6 +449,14 @@ def _style_block() -> str:
     .availability-poor { background: #fdecec; border-color: #efb8ba; color: #9d1c20; }
     .availability-empty { background: #edf1f6; border-color: #d0d8e3; color: #4f5f73; }
     .empty { color: var(--muted); text-align: center; padding: 24px; }
+    .content-page { max-width: 980px; }
+    .prose .panel-header { padding-bottom: 10px; }
+    .prose-body { padding: 0 14px 16px; }
+    .prose-body p { color: var(--text); line-height: 1.55; max-width: 860px; }
+    .prose-body h3 { margin: 22px 0 8px; font-size: 15px; line-height: 1.3; }
+    .prose-body table { min-width: 0; margin: 10px 0 16px; }
+    .prose-body th, .prose-body td { text-align: left; }
+    .note { margin: 14px 0; padding: 12px 14px; border: 1px solid #b9d6f2; border-radius: 8px; background: #edf6ff; color: #17365d; line-height: 1.5; }
     @media (max-width: 720px) {
       main { padding: 20px 12px 32px; }
       header { display: block; }
