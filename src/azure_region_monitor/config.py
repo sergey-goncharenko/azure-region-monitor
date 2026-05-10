@@ -30,6 +30,12 @@ class ContainerAppsResourceFeature:
     resource_type: str
 
 
+@dataclass(frozen=True)
+class AiModelFeature:
+    feature: str
+    model: str
+
+
 DEFAULT_FUNCTION_RUNTIME_FEATURES = [
     FunctionRuntimeFeature(feature="runtimes.dotnet-isolated.10", runtime="DOTNET-ISOLATED|10"),
     FunctionRuntimeFeature(feature="runtimes.dotnet-isolated.9", runtime="DOTNET-ISOLATED|9"),
@@ -166,5 +172,21 @@ def parse_container_apps_resource_features(raw: str | None) -> list[ContainerApp
                 "'feature=resourceType' pairs separated by commas"
             )
         features.append(ContainerAppsResourceFeature(feature=feature, resource_type=resource_type))
+
+    return features
+
+
+def parse_ai_model_features(raw: str | None) -> list[AiModelFeature]:
+    if not raw or raw.strip().lower() in {"*", "all"}:
+        return []
+
+    features: list[AiModelFeature] = []
+    for item in raw.split(","):
+        feature, separator, model = item.strip().partition("=")
+        if not separator or not feature or not model:
+            raise ValueError(
+                "AI model features must use 'feature=model[@version]' pairs separated by commas"
+            )
+        features.append(AiModelFeature(feature=feature, model=model))
 
     return features

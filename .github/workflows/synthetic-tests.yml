@@ -23,6 +23,10 @@ on:
         description: "Comma-separated Azure Functions feature=runtime pairs to check"
         required: false
         default: ""
+      ai_model_features:
+        description: "Comma-separated Azure AI feature=model[@version] pairs, or 'all'"
+        required: false
+        default: "all"
       container_apps_resource_features:
         description: "Comma-separated Container Apps feature=resourceType pairs to check"
         required: false
@@ -42,11 +46,12 @@ jobs:
   all-modalities:
     uses: ./.github/workflows/regional-probe-run.yml
     with:
-      probes: "aks-extension-catalog-cli,aks-version-cli,function-flex-cli,container-apps-provider-cli,vm-sku-cli"
+      probes: "aks-extension-catalog-cli,aks-version-cli,function-flex-cli,ai-model-catalog-cli,container-apps-provider-cli,vm-sku-cli"
       regions: ${{ inputs.regions || 'eastus,eastus2,westus3,westeurope,northeurope,swedencentral,uksouth,germanywestcentral,southeastasia,australiaeast' }}
       previous_snapshot: ${{ inputs.previous_snapshot || '' }}
       aks_kubernetes_version_prefixes: ${{ inputs.aks_kubernetes_version_prefixes || '1.32,1.33,1.34,1.35' }}
       function_runtime_features: ${{ inputs.function_runtime_features || '' }}
+      ai_model_features: ${{ inputs.ai_model_features || 'all' }}
       container_apps_resource_features: ${{ inputs.container_apps_resource_features || '' }}
       vm_skus: ${{ inputs.vm_skus || 'Standard_B2s,Standard_D2s_v5,Standard_D2as_v5,Standard_E2s_v5' }}
       azure_cli_timeout_seconds: ${{ inputs.azure_cli_timeout_seconds || '120' }}

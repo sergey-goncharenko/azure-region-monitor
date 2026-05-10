@@ -10,6 +10,7 @@ from azure_region_monitor.config import (
     DEFAULT_REGIONS,
     parse_aks_extension_features,
     parse_aks_kubernetes_version_prefixes,
+    parse_ai_model_features,
     parse_container_apps_resource_features,
     parse_function_runtime_features,
     parse_vm_skus,
@@ -19,6 +20,7 @@ from azure_region_monitor.history import fetch_history, update_history
 from azure_region_monitor.probes.aks_extension import AksExtensionCliProbe
 from azure_region_monitor.probes.aks_extension_catalog import AksExtensionCatalogCliProbe
 from azure_region_monitor.probes.aks_versions import AksKubernetesVersionCliProbe
+from azure_region_monitor.probes.ai_models import AiModelCatalogCliProbe
 from azure_region_monitor.probes.container_apps import ContainerAppsProviderCliProbe
 from azure_region_monitor.probes.functions import FunctionsFlexConsumptionCliProbe
 from azure_region_monitor.probes.sample import SampleAksExtensionProbe
@@ -43,6 +45,7 @@ def main() -> None:
             "aks-extension-cli",
             "aks-extension-catalog-cli",
             "aks-version-cli",
+            "ai-model-catalog-cli",
             "container-apps-provider-cli",
             "function-flex-cli",
             "vm-sku-cli",
@@ -182,6 +185,10 @@ def _build_probe(probe_name: str):
             version_prefixes=parse_aks_kubernetes_version_prefixes(
                 os.environ.get("AKS_KUBERNETES_VERSION_PREFIXES")
             )
+        )
+    if probe_name == "ai-model-catalog-cli":
+        return AiModelCatalogCliProbe(
+            model_features=parse_ai_model_features(os.environ.get("AI_MODEL_FEATURES"))
         )
     if probe_name == "container-apps-provider-cli":
         return ContainerAppsProviderCliProbe(

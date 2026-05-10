@@ -39,6 +39,14 @@ The current production workflow prioritizes low-cost read-only evidence. These c
 - `unknown`: command failed, timed out, or returned invalid JSON.
 - This does not create a Container Apps environment or test quota, regional capacity, Dapr runtime behavior, policy, provider registration, or deployment success.
 
+## Azure AI Model Catalog Tests
+- Command: `az cognitiveservices model list --location <region> --output json`
+- Default scope: all model/version records returned by the regional catalog command.
+- `available`: model/version is listed in the region's model catalog.
+- `unavailable`: command succeeded but the model/version is absent from that region's catalog.
+- `unknown`: command failed, timed out, or returned invalid JSON.
+- This does not test quota, provisioned throughput, content filtering, account approval, deployment creation, or inference success.
+
 ## Future Lifecycle Tests
 
 Lifecycle tests should be added only when the read-only signal is not enough. These tests cost more and need cleanup safeguards.
@@ -54,6 +62,6 @@ Lifecycle tests should be added only when the read-only signal is not enough. Th
 - Test logs
 
 ## OpenAI Tests
-- List models
+- List models. Implemented as the Azure AI model catalog probe.
 - Invoke model
 - Check quotas

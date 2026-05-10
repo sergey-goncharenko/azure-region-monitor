@@ -1,0 +1,39 @@
+name: Azure AI model regional tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      regions:
+        description: "Comma-separated Azure regions to test"
+        required: false
+        default: "eastus,eastus2,westus3,westeurope,northeurope,swedencentral,uksouth,germanywestcentral,southeastasia,australiaeast"
+      previous_snapshot:
+        description: "Optional path to a previous snapshot in the repository for diff generation"
+        required: false
+        default: ""
+      ai_model_features:
+        description: "Comma-separated feature=model[@version] pairs, or 'all' for every listed model"
+        required: false
+        default: "all"
+      deploy_dashboard:
+        description: "Deploy this modality snapshot to Azure Static Web Apps"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  ai-models:
+    uses: ./.github/workflows/regional-probe-run.yml
+    with:
+      probes: "ai-model-catalog-cli"
+      regions: ${{ inputs.regions || 'eastus,eastus2,westus3,westeurope,northeurope,swedencentral,uksouth,germanywestcentral,southeastasia,australiaeast' }}
+      previous_snapshot: ${{ inputs.previous_snapshot || '' }}
+      ai_model_features: ${{ inputs.ai_model_features || 'all' }}
+      artifact_name: "azure-region-monitor-ai-models"
+      deploy_dashboard: ${{ inputs.deploy_dashboard || false }}
+      existing_snapshot_url: ${{ inputs.deploy_dashboard && 'https://gray-island-09dc9e703.7.azurestaticapps.net/api/latest.json' || '' }}
+    secrets: inherit

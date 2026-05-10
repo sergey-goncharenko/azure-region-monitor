@@ -2,11 +2,11 @@
 
 ## Goal
 
-The PoC proves that synthetic checks can produce structured, region-by-region Azure availability evidence. The current implementation uses read-only Azure CLI catalog/listing probes for AKS extension types, AKS Kubernetes versions, Azure Functions Flex Consumption locations and runtimes, Container Apps provider resource type locations, and VM SKU regional size listings.
+The PoC proves that synthetic checks can produce structured, region-by-region Azure availability evidence. The current implementation uses read-only Azure CLI catalog/listing probes for AKS extension types, AKS Kubernetes versions, Azure Functions Flex Consumption locations and runtimes, Azure AI model catalog listings, Container Apps provider resource type locations, and VM SKU regional size listings.
 
 ## Current PoC Shape
 
-- Current probes: `aks-extension-catalog-cli`, `aks-version-cli`, `function-flex-cli`, `container-apps-provider-cli`, and `vm-sku-cli`
+- Current probes: `aks-extension-catalog-cli`, `aks-version-cli`, `function-flex-cli`, `ai-model-catalog-cli`, `container-apps-provider-cli`, and `vm-sku-cli`
 - Original PoC regions: `westeurope`, `swedencentral`, `eastus`
 - Default workflow regions: `eastus`, `eastus2`, `westus3`, `westeurope`, `northeurope`, `swedencentral`, `uksouth`, `germanywestcentral`, `southeastasia`, `australiaeast`
 - Latest full run scope: 62 Azure physical locations from the live snapshot
@@ -29,6 +29,7 @@ The PoC proves that synthetic checks can produce structured, region-by-region Az
   - `containerApps.jobs=jobs`
   - `containerApps.daprComponents=managedEnvironments/daprComponents`
   - `containerApps.connectedEnvironments=connectedEnvironments`
+- Default Azure AI model checks: all models returned by `az cognitiveservices model list --location <region> --output json`
 - Output snapshot: `data/snapshots/latest.json`
 - Output diff: `data/diffs/latest.json`
 - Full dashboard automation: `.github/workflows/synthetic-tests.yml`
@@ -36,6 +37,7 @@ The PoC proves that synthetic checks can produce structured, region-by-region Az
   - `.github/workflows/aks-extension-tests.yml`
   - `.github/workflows/aks-version-tests.yml`
   - `.github/workflows/function-flex-tests.yml`
+  - `.github/workflows/ai-model-tests.yml`
   - `.github/workflows/container-apps-tests.yml`
   - `.github/workflows/vm-sku-tests.yml`
 - Shared runner workflow: `.github/workflows/regional-probe-run.yml`
@@ -58,7 +60,7 @@ azure-region-monitor diff data/snapshots/2026-05-07.json data/snapshots/latest.j
 Run the full read-only regional probe set locally:
 
 ```powershell
-azure-region-monitor run --probe aks-extension-catalog-cli --probe aks-version-cli --probe function-flex-cli --probe container-apps-provider-cli --probe vm-sku-cli --output data/snapshots/latest.json
+azure-region-monitor run --probe aks-extension-catalog-cli --probe aks-version-cli --probe function-flex-cli --probe ai-model-catalog-cli --probe container-apps-provider-cli --probe vm-sku-cli --output data/snapshots/latest.json
 ```
 
 To override regions:
@@ -96,6 +98,20 @@ azure-region-monitor run --probe function-flex-cli --output data/snapshots/lates
 ```
 
 The default Functions runtime set tracks every versioned Linux runtime listed by Azure CLI and excludes the unversioned custom runtime entry.
+
+To run or override Azure AI model catalog checks:
+
+```powershell
+$env:AI_MODEL_FEATURES="all"
+azure-region-monitor run --probe ai-model-catalog-cli --output data/snapshots/latest.json
+```
+
+For selected models, use comma-separated `feature=model@version` pairs:
+
+```powershell
+$env:AI_MODEL_FEATURES="aiModels.openai.gpt-4o.2024-08-06=gpt-4o@2024-08-06"
+azure-region-monitor run --probe ai-model-catalog-cli --output data/snapshots/latest.json
+```
 
 To override Container Apps resource type checks:
 
@@ -142,6 +158,7 @@ For a faster modality-specific run, select one of the focused workflows instead:
 - `AKS extension regional tests` runs `aks-extension-catalog-cli`.
 - `AKS Kubernetes version regional tests` runs `aks-version-cli` only.
 - `Azure Functions Flex regional tests` runs `function-flex-cli` only.
+- `Azure AI model regional tests` runs `ai-model-catalog-cli` only.
 - `Container Apps regional tests` runs `container-apps-provider-cli` only.
 - `VM SKU regional tests` runs `vm-sku-cli` only.
 
@@ -159,6 +176,8 @@ Current probes are read-only listing probes. They provide rollout evidence, not 
 - `partial`: reserved for future probes with multiple required sub-checks.
 
 For Azure Functions Flex Consumption, `unavailable` means `az functionapp list-flexconsumption-locations --output json` did not return the region. The CLI help says this command lists available locations for running function apps on Flex Consumption. It does not test subscription quota, regional capacity, policy, provider registration, or a real create/deploy path.
+
+For Azure AI models, `unavailable` means `az cognitiveservices model list --location <region> --output json` completed successfully, but the model/version was absent from the region's model catalog. It does not test quota, provisioned throughput, content filtering, account approval, deployment creation, or inference success.
 
 For Container Apps, `unavailable` means `az provider show --namespace Microsoft.App --expand resourceTypes/locations --output json` completed successfully, but the configured Microsoft.App resource type did not advertise the region in its `locations` metadata. It does not test a real Container Apps environment or app deployment, Dapr runtime behavior, quota, capacity, policy, or provider registration for the subscription.
 

@@ -335,6 +335,7 @@ def _render_methodology_page(snapshot: Snapshot) -> str:
           <tbody>
             <tr><td>AKS extensions</td><td>The extension type was listed by the AKS extension catalog for the region.</td><td>The catalog call succeeded but did not list that extension type in the region.</td></tr>
             <tr><td>AKS Kubernetes versions</td><td><code>az aks get-versions</code> listed a Kubernetes version matching the configured prefix.</td><td>The version listing succeeded, but no matching version prefix was present.</td></tr>
+            <tr><td>Azure AI models</td><td><code>az cognitiveservices model list --location &lt;region&gt;</code> listed the model/version in the region.</td><td>The model catalog call succeeded, but that model/version was not present in the regional catalog.</td></tr>
             <tr><td>Container Apps</td><td><code>az provider show --namespace Microsoft.App --expand resourceTypes/locations</code> advertised the resource type in the region.</td><td>The provider metadata call succeeded, but the resource type was not advertised in that region.</td></tr>
             <tr><td>VM SKUs</td><td><code>az vm list-sizes</code> listed the SKU in the region.</td><td>The size listing succeeded, but the SKU was not present in that regional size list.</td></tr>
           </tbody>
@@ -604,6 +605,8 @@ def _compact_feature_label(feature: str, group: str) -> str:
         return feature.removeprefix("hostingPlans.")
     if feature.startswith("runtimes."):
         return feature.removeprefix("runtimes.")
+    if feature.startswith("aiModels."):
+      return feature.removeprefix("aiModels.")
     if feature.startswith("vmSkus."):
         return feature.removeprefix("vmSkus.")
     return feature
@@ -618,6 +621,8 @@ def _feature_category(feature: str) -> str:
         return "AKS Kubernetes versions"
     if feature.startswith("hostingPlans.") or feature.startswith("runtimes."):
       return "Azure Functions"
+    if feature.startswith("aiModels."):
+      return "Azure AI models"
     if feature.startswith("containerApps."):
         return "Container Apps"
     if feature.startswith("vmSkus."):
@@ -638,6 +643,9 @@ def _feature_group(feature: str) -> str:
     if feature.startswith("runtimes."):
         parts = feature.removeprefix("runtimes.").split(".")
         return parts[0] if parts else "runtime"
+    if feature.startswith("aiModels."):
+      parts = feature.removeprefix("aiModels.").split(".")
+      return parts[0] if parts else "unknown"
     if feature.startswith("containerApps."):
       if feature.endswith("daprComponents"):
         return "dapr"
@@ -720,6 +728,7 @@ def _sorted_modalities(summaries_by_modality: dict[str, list[dict[str, object]]]
         "AKS extensions",
         "AKS Kubernetes versions",
         "Azure Functions",
+        "Azure AI models",
         "Container Apps",
         "VM SKUs",
     ]
@@ -1229,6 +1238,7 @@ def _heatmap_script() -> str:
       if (feature.startsWith('extensions.') || feature.startsWith('extensionTypes.')) return 'AKS extensions';
       if (feature.startsWith('kubernetesVersions.')) return 'AKS Kubernetes versions';
       if (feature.startsWith('hostingPlans.') || feature.startsWith('runtimes.')) return 'Azure Functions';
+      if (feature.startsWith('aiModels.')) return 'Azure AI models';
       if (feature.startsWith('containerApps.')) return 'Container Apps';
       if (feature.startsWith('vmSkus.')) return 'VM SKUs';
       return feature.split('.')[0];
@@ -1239,6 +1249,7 @@ def _heatmap_script() -> str:
       if (feature.startsWith('kubernetesVersions.')) return feature.replace('kubernetesVersions.', '');
       if (feature.startsWith('hostingPlans.')) return 'hosting plans';
       if (feature.startsWith('runtimes.')) return feature.replace('runtimes.', '').split('.')[0] || 'runtime';
+      if (feature.startsWith('aiModels.')) return feature.replace('aiModels.', '').split('.')[0] || 'unknown';
       if (feature.startsWith('containerApps.')) {
         if (feature.endsWith('daprComponents')) return 'dapr';
         if (feature.endsWith('connectedEnvironments')) return 'connected environments';

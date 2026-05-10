@@ -125,3 +125,33 @@ def test_merge_snapshot_overlay_replaces_container_apps_features_as_one_modality
     assert "containerApps.daprComponents" not in merged.regions["eastus"]["containerApps"]
     assert merged.regions["eastus"]["containerApps"]["containerApps.apps"].status == "available"
     assert merged.regions["eastus"]["containerApps"]["otherContainerApps.signal"].status == "unknown"
+
+
+def test_merge_snapshot_overlay_replaces_ai_model_features_as_one_modality():
+    base = Snapshot(
+        regions={
+            "eastus": {
+                "ai": {
+                    "aiModels.openai.gpt-4o.2024-08-06": FeatureResult(status="available"),
+                    "aiModels.openai.gpt-4o-mini.2024-07-18": FeatureResult(status="available"),
+                    "otherAi.signal": FeatureResult(status="unknown"),
+                }
+            }
+        },
+    )
+    overlay = Snapshot(
+        regions={
+            "eastus": {
+                "ai": {
+                    "aiModels.openai.gpt-5.2025-08-07": FeatureResult(status="available"),
+                }
+            }
+        },
+    )
+
+    merged = merge_snapshot_overlay(base, overlay)
+
+    assert "aiModels.openai.gpt-4o.2024-08-06" not in merged.regions["eastus"]["ai"]
+    assert "aiModels.openai.gpt-4o-mini.2024-07-18" not in merged.regions["eastus"]["ai"]
+    assert merged.regions["eastus"]["ai"]["aiModels.openai.gpt-5.2025-08-07"].status == "available"
+    assert merged.regions["eastus"]["ai"]["otherAi.signal"].status == "unknown"
