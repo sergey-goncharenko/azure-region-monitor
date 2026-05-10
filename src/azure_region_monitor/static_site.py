@@ -54,6 +54,32 @@ _COUNTRY_NAMES = {
 
 _LARGE_EXTENSION_GROUP_THRESHOLD = 10
 _PRIMARY_EXTENSION_GROUPS = {"microsoft"}
+_CONTENT_SECURITY_POLICY = (
+    "default-src 'self'; "
+    "base-uri 'self'; "
+    "object-src 'none'; "
+    "frame-ancestors 'none'; "
+    "form-action 'none'; "
+    "img-src 'self' data:; "
+    "script-src 'self' 'unsafe-inline'; "
+    "style-src 'self' 'unsafe-inline'; "
+    "connect-src 'self'; "
+    "upgrade-insecure-requests"
+)
+_SECURITY_HEADERS = {
+    "Content-Security-Policy": _CONTENT_SECURITY_POLICY,
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "Permissions-Policy": "accelerometer=(), camera=(), geolocation=(), gyroscope=(), "
+    "magnetometer=(), microphone=(), payment=(), usb=()",
+}
+_API_HEADERS = {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+    "Access-Control-Allow-Headers": "*",
+    "Cache-Control": "public, must-revalidate, max-age=60",
+}
 
 
 def build_static_site(
@@ -78,6 +104,25 @@ def build_static_site(
     )
     (output_dir / "heatmap.html").write_text(_render_heatmap_page(snapshot), encoding="utf-8")
     (output_dir / "methodology.html").write_text(_render_methodology_page(snapshot), encoding="utf-8")
+    _write_static_web_app_config(output_dir)
+
+
+def _write_static_web_app_config(output_dir: Path) -> None:
+    config = {
+        "globalHeaders": _SECURITY_HEADERS,
+        "routes": [
+            {
+                "route": "/api/*",
+                "headers": _API_HEADERS,
+            }
+        ],
+        "mimeTypes": {
+            ".json": "application/json",
+        },
+    }
+    (output_dir / "staticwebapp.config.json").write_text(
+        json.dumps(config, indent=2) + "\n", encoding="utf-8"
+    )
 
 
 def _render_index(snapshot: Snapshot, recent_changes: dict[str, Any] | None = None) -> str:
@@ -913,12 +958,13 @@ def _extension_feature_label(feature: str, group: str) -> str:
 
 
 def _region_flag(country_code: str) -> str:
-    if country_code == "UN":
-        return '<span class="region-flag-fallback" aria-hidden="true">?</span>'
-    code = country_code.lower()
+    label = (
+        "Unknown country" if country_code == "UN" else _COUNTRY_NAMES.get(country_code, country_code)
+    )
+    display = "?" if country_code == "UN" else country_code
     return (
-        f'<img class="region-flag" src="https://hatscripts.github.io/circle-flags/flags/{code}.svg" '
-        f'alt="{html.escape(country_code)} flag" loading="lazy">'
+        f'<span class="region-flag-fallback" title="{html.escape(label)}" '
+        f'aria-label="{html.escape(label)}">{html.escape(display)}</span>'
     )
 
 

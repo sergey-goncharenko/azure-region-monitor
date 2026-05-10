@@ -19,10 +19,33 @@ def test_build_static_site_writes_dashboard_and_latest_json(tmp_path):
     assert "Azure Regional Feature Availability Monitor" in index_html
     assert (output_dir / "heatmap.html").exists()
     assert (output_dir / "methodology.html").exists()
+    assert (output_dir / "staticwebapp.config.json").exists()
     assert "Status meanings" in index_html
     assert "swedencentral" in index_html
     assert "extensions.gitops" in latest_json
     assert not (output_dir / "api" / "diff.json").exists()
+
+
+def test_build_static_site_writes_security_config(tmp_path):
+    output_dir = tmp_path / "public"
+
+    build_static_site(
+        output_dir,
+        snapshot_path=Path("data/snapshots/2026-05-08.json"),
+        diff_path=tmp_path / "missing-diff.json",
+    )
+
+    config = json.loads((output_dir / "staticwebapp.config.json").read_text(encoding="utf-8"))
+    index_html = (output_dir / "index.html").read_text(encoding="utf-8")
+
+    assert "Content-Security-Policy" in config["globalHeaders"]
+    assert "frame-ancestors 'none'" in config["globalHeaders"]["Content-Security-Policy"]
+    assert config["globalHeaders"]["X-Content-Type-Options"] == "nosniff"
+    assert config["globalHeaders"]["X-Frame-Options"] == "DENY"
+    assert config["globalHeaders"]["Permissions-Policy"]
+    assert config["routes"][0]["route"] == "/api/*"
+    assert config["routes"][0]["headers"]["Access-Control-Allow-Origin"] == "*"
+    assert "hatscripts.github.io" not in index_html
 
 
 def test_build_static_site_writes_status_methodology_page(tmp_path):
@@ -305,12 +328,10 @@ def test_build_static_site_color_codes_regional_modality_groups(tmp_path):
     assert index_html.index('title="France - francecentral"') < index_html.index(
         'title="United States - eastus"'
     )
-    assert 'alt="AU flag"' in index_html
-    assert 'alt="FR flag"' in index_html
-    assert 'alt="US flag"' in index_html
-    assert "circle-flags/flags/au.svg" in index_html
-    assert "circle-flags/flags/fr.svg" in index_html
-    assert "circle-flags/flags/us.svg" in index_html
+    assert 'aria-label="Australia">AU</span>' in index_html
+    assert 'aria-label="France">FR</span>' in index_html
+    assert 'aria-label="United States">US</span>' in index_html
+    assert "circle-flags" not in index_html
     assert 'title="United States - eastus"' in index_html
     assert "\U0001f1fa\U0001f1f8" not in index_html
     assert '<span class="region-label">east</span>' in index_html
