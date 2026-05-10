@@ -247,3 +247,46 @@ def test_build_static_site_uses_paged_detail_page_for_heavy_tables(tmp_path):
     assert "details-next" in heatmap_html
     assert "fetch('api/latest.json'" in heatmap_html
     assert index_html.count("vmSkus.standard.test") == 0
+
+
+def test_build_static_site_splits_large_extension_groups_into_detail_tables(tmp_path):
+    snapshot_path = tmp_path / "snapshot.json"
+    output_dir = tmp_path / "public"
+    eastus_features = {}
+    westus_features = {}
+    for index in range(11):
+        feature = f"extensionTypes.microsoft.extension{index}"
+        eastus_features[feature] = {"status": "available"}
+        westus_features[feature] = {"status": "unavailable"}
+    for index in range(10):
+        feature = f"extensionTypes.boutique.extension{index}"
+        eastus_features[feature] = {"status": "available"}
+        westus_features[feature] = {"status": "available"}
+    snapshot = {
+        "timestamp": "2026-05-08T00:00:00Z",
+        "regions": {
+            "eastus": {"aks": eastus_features},
+            "westus": {"aks": westus_features},
+        },
+    }
+    snapshot_path.write_text(json.dumps(snapshot), encoding="utf-8")
+
+    build_static_site(
+        output_dir, snapshot_path=snapshot_path, diff_path=tmp_path / "missing-diff.json"
+    )
+
+    index_html = (output_dir / "index.html").read_text(encoding="utf-8")
+
+    assert "Large AKS Extension Groups" in index_html
+    assert "Extension groups with more than 10 extensions" in index_html
+    assert ">AKS extensions: microsoft</h2>" in index_html
+    assert "11 extensions by country, then Azure region" in index_html
+    assert ">AKS extensions: boutique</h2>" not in index_html
+    assert "<th>Extension</th>" in index_html
+    assert "<td><code>extension0</code></td>" in index_html
+    assert "extensionTypes.microsoft.extension0" not in index_html
+    assert 'title="eastus: available"' in index_html
+    assert 'title="westus: unavailable"' in index_html
+    assert index_html.index("Regional Availability By Modality") < index_html.index(
+        "Large AKS Extension Groups"
+    )

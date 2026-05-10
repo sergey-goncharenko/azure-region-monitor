@@ -50,6 +50,8 @@ _COUNTRY_NAMES = {
   "ZA": "South Africa",
 }
 
+_LARGE_EXTENSION_GROUP_THRESHOLD = 10
+
 
 def build_static_site(
     output_dir: Path,
@@ -80,6 +82,7 @@ def _render_index(snapshot: Snapshot) -> str:
     unique_features = sorted({str(row["feature"]) for row in rows})
     modality_rows = "\n".join(_render_modality_row(row) for row in _modality_summaries(rows))
     regional_availability_tables = _render_regional_availability_tables(rows, regions)
+    large_extension_group_tables = _render_large_extension_group_tables(rows, regions)
     group_rows = "\n".join(_render_group_row(row) for row in _feature_group_summaries(rows))
 
     return f"""<!doctype html>
@@ -165,6 +168,7 @@ def _render_index(snapshot: Snapshot) -> str:
       </div>
     </section>
     {regional_availability_tables}
+    {large_extension_group_tables}
   </main>
   <script>
 {_index_script()}
@@ -347,6 +351,8 @@ def _style_block() -> str:
     .availability-matrix th { position: sticky; top: 0; z-index: 2; background: var(--panel); }
     .availability-matrix th:first-child, .availability-matrix td:first-child { position: sticky; left: 0; z-index: 1; min-width: 120px; background: var(--panel); }
     .availability-matrix th:first-child { z-index: 3; }
+    .extension-feature-matrix th:first-child, .extension-feature-matrix td:first-child { min-width: 260px; max-width: 360px; }
+    .extension-feature-matrix td:first-child code { white-space: normal; word-break: break-word; }
     .region-header { min-width: 52px; width: 52px; padding-left: 6px; padding-right: 6px; }
     .region-heading { display: inline-grid; justify-items: center; gap: 2px; line-height: 1.05; text-transform: none; }
     .region-flag { width: 18px; height: 18px; object-fit: cover; border-radius: 50%; box-shadow: 0 0 0 1px rgba(23, 32, 51, 0.12); }
@@ -549,6 +555,107 @@ def _render_region_group_row(row: dict[str, object], regions: list[str]) -> str:
                 <td><code>{html.escape(str(row["group"]))}</code></td>
                 {region_cells}
               </tr>"""
+
+
+def _render_large_extension_group_tables(rows: list[dict[str, object]], regions: list[str]) -> str:
+    summaries = _large_extension_group_summaries(rows)
+    if not summaries:
+        return ""
+
+    tables = "\n".join(_render_large_extension_group_table(summary, regions) for summary in summaries)
+    return f"""<section class="availability-stack" aria-label="Large AKS extension group availability">
+      <div class="section-heading">
+        <h2>Large AKS Extension Groups</h2>
+        <div class="panel-subtitle">Extension groups with more than {_LARGE_EXTENSION_GROUP_THRESHOLD} extensions</div>
+      </div>
+    </section>
+    {tables}"""
+
+
+def _large_extension_group_summaries(rows: list[dict[str, object]]) -> list[dict[str, object]]:
+    summaries: dict[str, dict[str, object]] = {}
+    for row in rows:
+        feature = str(row["feature"])
+        if str(row["category"]) != "AKS extensions" or not feature.startswith("extensionTypes."):
+            continue
+
+        group = str(row["group"])
+        summary = summaries.setdefault(group, {"group": group, "features": {}})
+        feature_summary = summary["features"].setdefault(
+            feature,
+            {
+                "feature": feature,
+                "label": _extension_feature_label(feature, group),
+                "regions": {},
+            },
+        )
+        feature_summary["regions"][str(row["region"])] = str(row["status"])
+
+    large_summaries = [
+        summary
+        for summary in summaries.values()
+        if len(summary["features"]) > _LARGE_EXTENSION_GROUP_THRESHOLD
+    ]
+    return sorted(large_summaries, key=lambda item: (str(item["group"]), len(item["features"])))
+
+
+def _render_large_extension_group_table(summary: dict[str, object], regions: list[str]) -> str:
+    group = str(summary["group"])
+    features = sorted(
+        summary["features"].values(),
+        key=lambda item: str(item["label"]),
+    )
+    region_headers = "\n".join(_render_region_header(region) for region in regions)
+    feature_rows = "\n".join(_render_extension_feature_row(feature, regions) for feature in features)
+    return f"""<section class="panel availability-section extension-group-section" aria-label="AKS extension group {html.escape(group)} regional availability">
+          <div class="panel-header">
+            <h2>AKS extensions: {html.escape(group)}</h2>
+            <div class="panel-subtitle">{len(features):,} extensions by country, then Azure region</div>
+          </div>
+          <div class="matrix-scroll-top" aria-hidden="true"><div></div></div>
+          <div class="table-wrap availability-matrix extension-feature-matrix">
+            <table>
+              <thead>
+                <tr>
+                  <th>Extension</th>
+                  {region_headers}
+                </tr>
+              </thead>
+              <tbody>{feature_rows}</tbody>
+            </table>
+          </div>
+        </section>"""
+
+
+def _render_extension_feature_row(feature: dict[str, object], regions: list[str]) -> str:
+    region_cells = "\n".join(
+        _render_status_cell(feature["regions"].get(region), region) for region in regions
+    )
+    return f"""<tr>
+                <td><code>{html.escape(str(feature["label"]))}</code></td>
+                {region_cells}
+              </tr>"""
+
+
+def _render_status_cell(status: str | None, region: str) -> str:
+    label_by_status = {"available": "A", "unavailable": "U", "partial": "P", "unknown": "?"}
+    if status is None:
+        return '<td><span class="status-dot status-unknown" title="not reported">-</span></td>'
+
+    css_status = status if status in label_by_status else "unknown"
+    title = f"{region}: {status}"
+    return (
+        f'<td><span class="status-dot status-{html.escape(css_status)}" title="{html.escape(title)}">'
+        f'{html.escape(label_by_status.get(status, "?"))}</span></td>'
+    )
+
+
+def _extension_feature_label(feature: str, group: str) -> str:
+    label = feature.removeprefix("extensionTypes.")
+    group_prefix = f"{group}."
+    if label.startswith(group_prefix):
+        return label.removeprefix(group_prefix)
+    return label
 
 
 def _region_flag(country_code: str) -> str:
