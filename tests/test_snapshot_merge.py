@@ -65,3 +65,33 @@ def test_merge_snapshot_overlay_replaces_only_vm_sku_features():
     assert "vmSkus.standard.b2s" not in merged.regions["eastus"]["compute"]
     assert merged.regions["eastus"]["compute"]["vmSkus.standard.d2s.v5"].status == "available"
     assert merged.regions["eastus"]["compute"]["otherCompute.signal"].status == "unknown"
+
+
+def test_merge_snapshot_overlay_replaces_functions_features_as_one_modality():
+    base = Snapshot(
+        regions={
+            "eastus": {
+                "functions": {
+                    "hostingPlans.flexConsumption": FeatureResult(status="available"),
+                    "runtimes.python.3.11": FeatureResult(status="available"),
+                    "otherFunctions.signal": FeatureResult(status="unknown"),
+                }
+            }
+        },
+    )
+    overlay = Snapshot(
+        regions={
+            "eastus": {
+                "functions": {
+                    "runtimes.python.3.12": FeatureResult(status="available"),
+                }
+            }
+        },
+    )
+
+    merged = merge_snapshot_overlay(base, overlay)
+
+    assert "hostingPlans.flexConsumption" not in merged.regions["eastus"]["functions"]
+    assert "runtimes.python.3.11" not in merged.regions["eastus"]["functions"]
+    assert merged.regions["eastus"]["functions"]["runtimes.python.3.12"].status == "available"
+    assert merged.regions["eastus"]["functions"]["otherFunctions.signal"].status == "unknown"

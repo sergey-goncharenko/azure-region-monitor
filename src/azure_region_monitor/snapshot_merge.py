@@ -29,6 +29,8 @@ def _feature_category(feature: str) -> str:
         return "aksExtensions"
     if feature.startswith("kubernetesVersions."):
         return "aksKubernetesVersions"
+    if feature.startswith("hostingPlans.") or feature.startswith("runtimes."):
+        return "functions"
     if feature.startswith("vmSkus."):
         return "vmSkus"
     return feature.split(".", 1)[0]
