@@ -2,11 +2,11 @@
 
 ## Goal
 
-The PoC proves that synthetic checks can produce structured, region-by-region Azure availability evidence. The current implementation uses read-only Azure CLI catalog/listing probes for AKS extension types, AKS Kubernetes versions, Azure Functions Flex Consumption locations and runtimes, and VM SKU regional size listings.
+The PoC proves that synthetic checks can produce structured, region-by-region Azure availability evidence. The current implementation uses read-only Azure CLI catalog/listing probes for AKS extension types, AKS Kubernetes versions, Azure Functions Flex Consumption locations and runtimes, Container Apps provider resource type locations, and VM SKU regional size listings.
 
 ## Current PoC Shape
 
-- Current probes: `aks-extension-catalog-cli`, `aks-version-cli`, `function-flex-cli`, and `vm-sku-cli`
+- Current probes: `aks-extension-catalog-cli`, `aks-version-cli`, `function-flex-cli`, `container-apps-provider-cli`, and `vm-sku-cli`
 - Original PoC regions: `westeurope`, `swedencentral`, `eastus`
 - Default workflow regions: `eastus`, `eastus2`, `westus3`, `westeurope`, `northeurope`, `swedencentral`, `uksouth`, `germanywestcentral`, `southeastasia`, `australiaeast`
 - Latest full run scope: 62 Azure physical locations from the live snapshot
@@ -23,6 +23,12 @@ The PoC proves that synthetic checks can produce structured, region-by-region Az
   - `Standard_D2s_v5`
   - `Standard_D2as_v5`
   - `Standard_E2s_v5`
+- Default Container Apps resource type checks:
+  - `containerApps.managedEnvironments=managedEnvironments`
+  - `containerApps.apps=containerApps`
+  - `containerApps.jobs=jobs`
+  - `containerApps.daprComponents=managedEnvironments/daprComponents`
+  - `containerApps.connectedEnvironments=connectedEnvironments`
 - Output snapshot: `data/snapshots/latest.json`
 - Output diff: `data/diffs/latest.json`
 - Full dashboard automation: `.github/workflows/synthetic-tests.yml`
@@ -30,6 +36,7 @@ The PoC proves that synthetic checks can produce structured, region-by-region Az
   - `.github/workflows/aks-extension-tests.yml`
   - `.github/workflows/aks-version-tests.yml`
   - `.github/workflows/function-flex-tests.yml`
+  - `.github/workflows/container-apps-tests.yml`
   - `.github/workflows/vm-sku-tests.yml`
 - Shared runner workflow: `.github/workflows/regional-probe-run.yml`
 - Static host: Azure Static Web Apps
@@ -51,7 +58,7 @@ azure-region-monitor diff data/snapshots/2026-05-07.json data/snapshots/latest.j
 Run the full read-only regional probe set locally:
 
 ```powershell
-azure-region-monitor run --probe aks-extension-catalog-cli --probe aks-version-cli --probe function-flex-cli --probe vm-sku-cli --output data/snapshots/latest.json
+azure-region-monitor run --probe aks-extension-catalog-cli --probe aks-version-cli --probe function-flex-cli --probe container-apps-provider-cli --probe vm-sku-cli --output data/snapshots/latest.json
 ```
 
 To override regions:
@@ -89,6 +96,13 @@ azure-region-monitor run --probe function-flex-cli --output data/snapshots/lates
 ```
 
 The default Functions runtime set tracks every versioned Linux runtime listed by Azure CLI and excludes the unversioned custom runtime entry.
+
+To override Container Apps resource type checks:
+
+```powershell
+$env:CONTAINER_APPS_RESOURCE_FEATURES="containerApps.apps=containerApps,containerApps.daprComponents=managedEnvironments/daprComponents"
+azure-region-monitor run --probe container-apps-provider-cli --output data/snapshots/latest.json
+```
 
 ## GitHub Actions Setup
 
@@ -128,6 +142,7 @@ For a faster modality-specific run, select one of the focused workflows instead:
 - `AKS extension regional tests` runs `aks-extension-catalog-cli`.
 - `AKS Kubernetes version regional tests` runs `aks-version-cli` only.
 - `Azure Functions Flex regional tests` runs `function-flex-cli` only.
+- `Container Apps regional tests` runs `container-apps-provider-cli` only.
 - `VM SKU regional tests` runs `vm-sku-cli` only.
 
 Focused workflows upload modality-specific artifacts and do not deploy the public dashboard by default. When `deploy_dashboard` is enabled, focused deployments merge the fresh modality snapshot into the current live dashboard snapshot before publishing, so other modality sections remain visible.
@@ -144,6 +159,8 @@ Current probes are read-only listing probes. They provide rollout evidence, not 
 - `partial`: reserved for future probes with multiple required sub-checks.
 
 For Azure Functions Flex Consumption, `unavailable` means `az functionapp list-flexconsumption-locations --output json` did not return the region. The CLI help says this command lists available locations for running function apps on Flex Consumption. It does not test subscription quota, regional capacity, policy, provider registration, or a real create/deploy path.
+
+For Container Apps, `unavailable` means `az provider show --namespace Microsoft.App --expand resourceTypes/locations --output json` completed successfully, but the configured Microsoft.App resource type did not advertise the region in its `locations` metadata. It does not test a real Container Apps environment or app deployment, Dapr runtime behavior, quota, capacity, policy, or provider registration for the subscription.
 
 ## Success Criteria
 

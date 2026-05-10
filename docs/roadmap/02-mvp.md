@@ -4,7 +4,7 @@
 Publish a public dashboard with daily diffs.
 
 ## Deliverables
-- Synthetic test runner for current modalities: AKS extension catalog, AKS Kubernetes versions, Azure Functions Flex, and VM SKUs
+- Synthetic test runner for current modalities: AKS extension catalog, AKS Kubernetes versions, Azure Functions Flex, Container Apps provider metadata, and VM SKUs
 - Static dashboard hosted by Azure Static Web Apps
 - Public JSON endpoints under `/api`
 - Daily static history and compact recent-change summaries

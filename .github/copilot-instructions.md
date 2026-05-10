@@ -9,6 +9,7 @@ Current implemented modalities:
 - AKS extension catalog: `aks-extension-catalog-cli`
 - AKS Kubernetes versions: `aks-version-cli`
 - Azure Functions Flex Consumption locations and Linux runtimes: `function-flex-cli`
+- Container Apps provider metadata: `container-apps-provider-cli`
 - VM SKU regional size listings: `vm-sku-cli`
 
 The dashboard is deployed to Azure Static Web Apps. Focused modality workflows can merge fresh modality snapshots into the current live snapshot before deployment.
@@ -32,6 +33,8 @@ The dashboard is deployed to Azure Static Web Apps. Focused modality workflows c
 Do not describe `unavailable` as a quota failure unless a dedicated quota or create/delete probe produced that evidence.
 
 For Azure Functions Flex Consumption, `unavailable` means the region was not returned by `az functionapp list-flexconsumption-locations --output json`. The Azure CLI help describes that command as listing available locations for running function apps on Flex Consumption. Absence from that list is regional listing evidence, not proof of quota exhaustion or deployment failure.
+
+For Container Apps, `unavailable` means Microsoft.App provider metadata was retrieved but the configured resource type did not advertise the region in its `locations` list. It is not a quota, capacity, Dapr runtime, or deployment result.
 
 ## Dashboard Lessons
 

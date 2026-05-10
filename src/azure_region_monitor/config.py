@@ -24,6 +24,12 @@ class FunctionRuntimeFeature:
     runtime: str
 
 
+@dataclass(frozen=True)
+class ContainerAppsResourceFeature:
+    feature: str
+    resource_type: str
+
+
 DEFAULT_FUNCTION_RUNTIME_FEATURES = [
     FunctionRuntimeFeature(feature="runtimes.dotnet-isolated.10", runtime="DOTNET-ISOLATED|10"),
     FunctionRuntimeFeature(feature="runtimes.dotnet-isolated.9", runtime="DOTNET-ISOLATED|9"),
@@ -51,6 +57,29 @@ DEFAULT_FUNCTION_RUNTIME_FEATURES = [
     FunctionRuntimeFeature(feature="runtimes.java.8", runtime="JAVA|8"),
     FunctionRuntimeFeature(feature="runtimes.powershell.7.4", runtime="POWERSHELL|7.4"),
     FunctionRuntimeFeature(feature="runtimes.powershell.7.2", runtime="POWERSHELL|7.2"),
+]
+
+DEFAULT_CONTAINER_APPS_RESOURCE_FEATURES = [
+    ContainerAppsResourceFeature(
+        feature="containerApps.managedEnvironments",
+        resource_type="managedEnvironments",
+    ),
+    ContainerAppsResourceFeature(
+        feature="containerApps.apps",
+        resource_type="containerApps",
+    ),
+    ContainerAppsResourceFeature(
+        feature="containerApps.jobs",
+        resource_type="jobs",
+    ),
+    ContainerAppsResourceFeature(
+        feature="containerApps.daprComponents",
+        resource_type="managedEnvironments/daprComponents",
+    ),
+    ContainerAppsResourceFeature(
+        feature="containerApps.connectedEnvironments",
+        resource_type="connectedEnvironments",
+    ),
 ]
 
 
@@ -120,5 +149,22 @@ def parse_function_runtime_features(raw: str | None) -> list[FunctionRuntimeFeat
                 "Function runtime features must use 'feature=runtime' pairs separated by commas"
             )
         features.append(FunctionRuntimeFeature(feature=feature, runtime=runtime))
+
+    return features
+
+
+def parse_container_apps_resource_features(raw: str | None) -> list[ContainerAppsResourceFeature]:
+    if not raw:
+        return DEFAULT_CONTAINER_APPS_RESOURCE_FEATURES
+
+    features: list[ContainerAppsResourceFeature] = []
+    for item in raw.split(","):
+        feature, separator, resource_type = item.strip().partition("=")
+        if not separator or not feature or not resource_type:
+            raise ValueError(
+                "Container Apps resource features must use "
+                "'feature=resourceType' pairs separated by commas"
+            )
+        features.append(ContainerAppsResourceFeature(feature=feature, resource_type=resource_type))
 
     return features

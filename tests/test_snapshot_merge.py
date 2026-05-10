@@ -95,3 +95,33 @@ def test_merge_snapshot_overlay_replaces_functions_features_as_one_modality():
     assert "runtimes.python.3.11" not in merged.regions["eastus"]["functions"]
     assert merged.regions["eastus"]["functions"]["runtimes.python.3.12"].status == "available"
     assert merged.regions["eastus"]["functions"]["otherFunctions.signal"].status == "unknown"
+
+
+def test_merge_snapshot_overlay_replaces_container_apps_features_as_one_modality():
+    base = Snapshot(
+        regions={
+            "eastus": {
+                "containerApps": {
+                    "containerApps.managedEnvironments": FeatureResult(status="available"),
+                    "containerApps.daprComponents": FeatureResult(status="available"),
+                    "otherContainerApps.signal": FeatureResult(status="unknown"),
+                }
+            }
+        },
+    )
+    overlay = Snapshot(
+        regions={
+            "eastus": {
+                "containerApps": {
+                    "containerApps.apps": FeatureResult(status="available"),
+                }
+            }
+        },
+    )
+
+    merged = merge_snapshot_overlay(base, overlay)
+
+    assert "containerApps.managedEnvironments" not in merged.regions["eastus"]["containerApps"]
+    assert "containerApps.daprComponents" not in merged.regions["eastus"]["containerApps"]
+    assert merged.regions["eastus"]["containerApps"]["containerApps.apps"].status == "available"
+    assert merged.regions["eastus"]["containerApps"]["otherContainerApps.signal"].status == "unknown"

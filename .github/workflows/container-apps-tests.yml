@@ -1,0 +1,39 @@
+name: Container Apps regional tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      regions:
+        description: "Comma-separated Azure regions to test"
+        required: false
+        default: "eastus,eastus2,westus3,westeurope,northeurope,swedencentral,uksouth,germanywestcentral,southeastasia,australiaeast"
+      previous_snapshot:
+        description: "Optional path to a previous snapshot in the repository for diff generation"
+        required: false
+        default: ""
+      container_apps_resource_features:
+        description: "Comma-separated feature=resourceType pairs, for example containerApps.apps=containerApps"
+        required: false
+        default: ""
+      deploy_dashboard:
+        description: "Deploy this modality snapshot to Azure Static Web Apps"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  container-apps:
+    uses: ./.github/workflows/regional-probe-run.yml
+    with:
+      probes: "container-apps-provider-cli"
+      regions: ${{ inputs.regions || 'eastus,eastus2,westus3,westeurope,northeurope,swedencentral,uksouth,germanywestcentral,southeastasia,australiaeast' }}
+      previous_snapshot: ${{ inputs.previous_snapshot || '' }}
+      container_apps_resource_features: ${{ inputs.container_apps_resource_features || '' }}
+      artifact_name: "azure-region-monitor-container-apps"
+      deploy_dashboard: ${{ inputs.deploy_dashboard || false }}
+      existing_snapshot_url: ${{ inputs.deploy_dashboard && 'https://gray-island-09dc9e703.7.azurestaticapps.net/api/latest.json' || '' }}
+    secrets: inherit

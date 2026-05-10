@@ -42,6 +42,7 @@ def test_build_static_site_writes_status_methodology_page(tmp_path):
     assert "az functionapp list-flexconsumption-locations --output json" in methodology_html
     assert "Quota is separate" in methodology_html
     assert "AKS extensions" in methodology_html
+    assert "Container Apps" in methodology_html
     assert "VM SKUs" in methodology_html
     assert "methodology.html" in heatmap_html
 
@@ -190,6 +191,11 @@ def test_build_static_site_groups_modalities_by_feature_family(tmp_path):
                     "hostingPlans.flexConsumption": {"status": "available"},
                     "runtimes.python.3.12": {"status": "available"},
                 },
+                "containerApps": {
+                    "containerApps.managedEnvironments": {"status": "available"},
+                    "containerApps.daprComponents": {"status": "unavailable"},
+                    "containerApps.connectedEnvironments": {"status": "unavailable"},
+                },
             }
         },
     }
@@ -204,6 +210,7 @@ def test_build_static_site_groups_modalities_by_feature_family(tmp_path):
     assert "AKS extensions" in index_html
     assert "AKS Kubernetes versions" in index_html
     assert "Azure Functions" in index_html
+    assert "Container Apps" in index_html
     assert "VM SKUs" in index_html
     assert "<td>None</td>" not in index_html
 
@@ -252,6 +259,13 @@ def test_build_static_site_color_codes_regional_modality_groups(tmp_path):
                     "runtimes.python.3.12": {"status": "available"},
                     "runtimes.node.22": {"status": "unavailable"},
                 },
+                "containerApps": {
+                    "containerApps.managedEnvironments": {"status": "available"},
+                    "containerApps.apps": {"status": "available"},
+                    "containerApps.jobs": {"status": "available"},
+                    "containerApps.daprComponents": {"status": "unavailable"},
+                    "containerApps.connectedEnvironments": {"status": "unavailable"},
+                },
             }
         },
     }
@@ -265,11 +279,12 @@ def test_build_static_site_color_codes_regional_modality_groups(tmp_path):
 
     assert "Each modality has its own group / region matrix" in index_html
     assert "availability-matrix" in index_html
-    assert index_html.count('<section class="panel availability-section"') == 4
+    assert index_html.count('<section class="panel availability-section"') == 5
     assert "matrix-scroll-top" in index_html
     assert ">AKS extensions</h2>" in index_html
     assert ">AKS Kubernetes versions</h2>" in index_html
     assert ">Azure Functions</h2>" in index_html
+    assert ">Container Apps</h2>" in index_html
     assert ">VM SKUs</h2>" in index_html
     assert "Groups by country, then Azure region" in index_html
     assert index_html.index('title="Australia - australiaeast"') < index_html.index(
@@ -297,6 +312,9 @@ def test_build_static_site_color_codes_regional_modality_groups(tmp_path):
     assert "<td><code>hosting plans</code></td>" in index_html
     assert "<td><code>python</code></td>" in index_html
     assert "<td><code>node</code></td>" in index_html
+    assert "<td><code>core</code></td>" in index_html
+    assert "<td><code>dapr</code></td>" in index_html
+    assert "<td><code>connected environments</code></td>" in index_html
     assert "<td><code>D</code></td>" in index_html
     assert "<td><code>E</code></td>" in index_html
     assert "<span class=\"availability-count\">1/1</span>" in index_html

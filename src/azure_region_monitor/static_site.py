@@ -335,6 +335,7 @@ def _render_methodology_page(snapshot: Snapshot) -> str:
           <tbody>
             <tr><td>AKS extensions</td><td>The extension type was listed by the AKS extension catalog for the region.</td><td>The catalog call succeeded but did not list that extension type in the region.</td></tr>
             <tr><td>AKS Kubernetes versions</td><td><code>az aks get-versions</code> listed a Kubernetes version matching the configured prefix.</td><td>The version listing succeeded, but no matching version prefix was present.</td></tr>
+            <tr><td>Container Apps</td><td><code>az provider show --namespace Microsoft.App --expand resourceTypes/locations</code> advertised the resource type in the region.</td><td>The provider metadata call succeeded, but the resource type was not advertised in that region.</td></tr>
             <tr><td>VM SKUs</td><td><code>az vm list-sizes</code> listed the SKU in the region.</td><td>The size listing succeeded, but the SKU was not present in that regional size list.</td></tr>
           </tbody>
         </table>
@@ -617,6 +618,8 @@ def _feature_category(feature: str) -> str:
         return "AKS Kubernetes versions"
     if feature.startswith("hostingPlans.") or feature.startswith("runtimes."):
       return "Azure Functions"
+    if feature.startswith("containerApps."):
+        return "Container Apps"
     if feature.startswith("vmSkus."):
         return "VM SKUs"
     return feature.split(".", 1)[0]
@@ -635,6 +638,12 @@ def _feature_group(feature: str) -> str:
     if feature.startswith("runtimes."):
         parts = feature.removeprefix("runtimes.").split(".")
         return parts[0] if parts else "runtime"
+    if feature.startswith("containerApps."):
+      if feature.endswith("daprComponents"):
+        return "dapr"
+      if feature.endswith("connectedEnvironments"):
+        return "connected environments"
+      return "core"
     if feature.startswith("vmSkus."):
         return _vm_sku_family(feature)
     return feature.split(".", 1)[0]
@@ -707,7 +716,13 @@ def _render_regional_availability_tables(rows: list[dict[str, object]], regions:
 
 
 def _sorted_modalities(summaries_by_modality: dict[str, list[dict[str, object]]]) -> list[str]:
-    preferred_order = ["AKS extensions", "AKS Kubernetes versions", "Azure Functions", "VM SKUs"]
+    preferred_order = [
+        "AKS extensions",
+        "AKS Kubernetes versions",
+        "Azure Functions",
+        "Container Apps",
+        "VM SKUs",
+    ]
     ordered = [modality for modality in preferred_order if modality in summaries_by_modality]
     ordered.extend(sorted(set(summaries_by_modality) - set(preferred_order)))
     return ordered
@@ -1214,6 +1229,7 @@ def _heatmap_script() -> str:
       if (feature.startsWith('extensions.') || feature.startsWith('extensionTypes.')) return 'AKS extensions';
       if (feature.startsWith('kubernetesVersions.')) return 'AKS Kubernetes versions';
       if (feature.startsWith('hostingPlans.') || feature.startsWith('runtimes.')) return 'Azure Functions';
+      if (feature.startsWith('containerApps.')) return 'Container Apps';
       if (feature.startsWith('vmSkus.')) return 'VM SKUs';
       return feature.split('.')[0];
     }
@@ -1223,6 +1239,11 @@ def _heatmap_script() -> str:
       if (feature.startsWith('kubernetesVersions.')) return feature.replace('kubernetesVersions.', '');
       if (feature.startsWith('hostingPlans.')) return 'hosting plans';
       if (feature.startsWith('runtimes.')) return feature.replace('runtimes.', '').split('.')[0] || 'runtime';
+      if (feature.startsWith('containerApps.')) {
+        if (feature.endsWith('daprComponents')) return 'dapr';
+        if (feature.endsWith('connectedEnvironments')) return 'connected environments';
+        return 'core';
+      }
       if (feature.startsWith('vmSkus.')) {
         const sku = feature.replace('vmSkus.', '').replace('standard.', '');
         const match = sku.match(/^([a-z]+)/i);

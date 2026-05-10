@@ -31,6 +31,14 @@ The current production workflow prioritizes low-cost read-only evidence. These c
 - `unavailable`: command succeeded but SKU is absent from the region list.
 - `unknown`: command failed, timed out, or returned invalid JSON.
 
+## Container Apps Provider Metadata Tests
+- Command: `az provider show --namespace Microsoft.App --expand resourceTypes/locations --output json`
+- Default resource types: `managedEnvironments`, `containerApps`, `jobs`, `managedEnvironments/daprComponents`, and `connectedEnvironments`.
+- `available`: the Microsoft.App resource type advertises the region in provider metadata.
+- `unavailable`: provider metadata was retrieved, but the resource type did not advertise that region.
+- `unknown`: command failed, timed out, or returned invalid JSON.
+- This does not create a Container Apps environment or test quota, regional capacity, Dapr runtime behavior, policy, provider registration, or deployment success.
+
 ## Future Lifecycle Tests
 
 Lifecycle tests should be added only when the read-only signal is not enough. These tests cost more and need cleanup safeguards.
@@ -40,7 +48,7 @@ Lifecycle tests should be added only when the read-only signal is not enough. Th
 - Enable extension
 - Capture error codes
 
-## Container Apps Tests
+## Container Apps Lifecycle Tests
 - Deploy app
 - Enable Dapr
 - Test logs

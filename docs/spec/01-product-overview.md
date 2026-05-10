@@ -19,4 +19,4 @@ This project fills that gap by providing:
 - Alerts when features become available or regress
 - APIs for SaaS companies to automate region expansion
 
-Current implemented signals are read-only listings for AKS extension types, AKS Kubernetes versions, Azure Functions Flex Consumption locations and Linux runtimes, and VM SKUs. These signals show advertised regional rollout evidence; they do not by themselves prove quota, capacity, or deployment success.
+Current implemented signals are read-only listings for AKS extension types, AKS Kubernetes versions, Azure Functions Flex Consumption locations and Linux runtimes, Container Apps Microsoft.App provider resource type locations, and VM SKUs. These signals show advertised regional rollout evidence; they do not by themselves prove quota, capacity, or deployment success.

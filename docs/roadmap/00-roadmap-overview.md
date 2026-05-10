@@ -8,4 +8,4 @@ This roadmap defines the staged delivery of the Azure Regional Feature Availabil
 - v2: Advanced analytics + timelines
 - v3: Full SaaS integration + SDKs
 
-Current implemented modalities: AKS extension catalog, AKS Kubernetes versions, Azure Functions Flex Consumption locations and Linux runtimes, and VM SKU listings.
+Current implemented modalities: AKS extension catalog, AKS Kubernetes versions, Azure Functions Flex Consumption locations and Linux runtimes, Container Apps provider metadata, and VM SKU listings.

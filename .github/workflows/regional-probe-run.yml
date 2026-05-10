@@ -32,6 +32,11 @@ on:
         required: false
         type: string
         default: ""
+      container_apps_resource_features:
+        description: "Comma-separated Container Apps feature=resourceType pairs to check"
+        required: false
+        type: string
+        default: ""
       azure_cli_timeout_seconds:
         description: "Maximum seconds to wait for each Azure CLI probe command"
         required: false
@@ -76,6 +81,7 @@ jobs:
       AKS_KUBERNETES_VERSION_PREFIXES: ${{ inputs.aks_kubernetes_version_prefixes }}
       AZURE_VM_SKUS: ${{ inputs.vm_skus }}
       FUNCTION_RUNTIME_FEATURES: ${{ inputs.function_runtime_features }}
+      CONTAINER_APPS_RESOURCE_FEATURES: ${{ inputs.container_apps_resource_features }}
       AZURE_CLI_TIMEOUT_SECONDS: ${{ inputs.azure_cli_timeout_seconds }}
     steps:
       - name: Checkout
