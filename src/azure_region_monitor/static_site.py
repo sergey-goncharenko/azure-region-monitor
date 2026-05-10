@@ -10,6 +10,47 @@ from azure_region_monitor.models import Snapshot
 from azure_region_monitor.storage import load_snapshot
 
 
+_COUNTRY_NAMES = {
+  "AE": "United Arab Emirates",
+  "AT": "Austria",
+  "AU": "Australia",
+  "BE": "Belgium",
+  "BR": "Brazil",
+  "CA": "Canada",
+  "CH": "Switzerland",
+  "CL": "Chile",
+  "CN": "China",
+  "DE": "Germany",
+  "DK": "Denmark",
+  "ES": "Spain",
+  "FI": "Finland",
+  "FR": "France",
+  "GB": "United Kingdom",
+  "GR": "Greece",
+  "HK": "Hong Kong",
+  "ID": "Indonesia",
+  "IE": "Ireland",
+  "IL": "Israel",
+  "IN": "India",
+  "IT": "Italy",
+  "JP": "Japan",
+  "KR": "Korea",
+  "MX": "Mexico",
+  "MY": "Malaysia",
+  "NL": "Netherlands",
+  "NO": "Norway",
+  "NZ": "New Zealand",
+  "PL": "Poland",
+  "PT": "Portugal",
+  "QA": "Qatar",
+  "SE": "Sweden",
+  "SG": "Singapore",
+  "TW": "Taiwan",
+  "US": "United States",
+  "ZA": "South Africa",
+}
+
+
 def build_static_site(
     output_dir: Path,
     snapshot_path: Path = Path("data/snapshots/latest.json"),
@@ -35,7 +76,7 @@ def _render_index(snapshot: Snapshot) -> str:
     available_percent = (
         round((status_counts.get("available", 0) / status_total) * 100, 1) if status_total else 0
     )
-    regions = sorted(snapshot.regions)
+    regions = _sort_regions(snapshot.regions)
     unique_features = sorted({str(row["feature"]) for row in rows})
     modality_rows = "\n".join(_render_modality_row(row) for row in _modality_summaries(rows))
     regional_availability_tables = _render_regional_availability_tables(rows, regions)
@@ -308,8 +349,8 @@ def _style_block() -> str:
     .availability-matrix th:first-child { z-index: 3; }
     .region-header { min-width: 52px; width: 52px; padding-left: 6px; padding-right: 6px; }
     .region-heading { display: inline-grid; justify-items: center; gap: 2px; line-height: 1.05; text-transform: none; }
-    .region-flag { width: 20px; height: 15px; object-fit: cover; border-radius: 2px; box-shadow: 0 0 0 1px rgba(23, 32, 51, 0.12); }
-    .region-flag-fallback { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 15px; border-radius: 2px; background: var(--unknown-bg); color: var(--unknown-text); font-size: 10px; font-weight: 700; }
+    .region-flag { width: 18px; height: 18px; object-fit: cover; border-radius: 50%; box-shadow: 0 0 0 1px rgba(23, 32, 51, 0.12); }
+    .region-flag-fallback { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%; background: var(--unknown-bg); color: var(--unknown-text); font-size: 10px; font-weight: 700; }
     .region-label { max-width: 48px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; color: var(--muted); }
     .availability-badge { display: inline-flex; gap: 5px; align-items: center; justify-content: center; min-height: 24px; padding: 3px 7px; border-radius: 999px; border: 1px solid transparent; font-size: 12px; font-weight: 650; white-space: nowrap; }
     .availability-label { max-width: 96px; overflow: hidden; text-overflow: ellipsis; }
@@ -472,7 +513,7 @@ def _render_modality_availability_table(
     return f"""<section class="panel availability-section" aria-label="{html.escape(modality)} regional availability">
           <div class="panel-header">
             <h2>{html.escape(modality)}</h2>
-            <div class="panel-subtitle">Groups by region, sorted by Azure region name</div>
+            <div class="panel-subtitle">Groups by country, then Azure region</div>
           </div>
           <div class="matrix-scroll-top" aria-hidden="true"><div></div></div>
           <div class="table-wrap availability-matrix">
@@ -491,9 +532,11 @@ def _render_modality_availability_table(
 
 def _render_region_header(region: str) -> str:
     country_code = _region_country_code(region)
+    country_name = _region_country_name(region)
     flag = _region_flag(country_code)
     label = _region_short_label(region)
-    return f"""<th class="region-header" title="{html.escape(region)}">
+    title = f"{country_name} - {region}"
+    return f"""<th class="region-header" title="{html.escape(title)}">
                     <span class="region-heading">{flag}<span class="region-label">{html.escape(label)}</span></span>
             </th>"""
 
@@ -509,13 +552,24 @@ def _render_region_group_row(row: dict[str, object], regions: list[str]) -> str:
 
 
 def _region_flag(country_code: str) -> str:
-  if country_code == "UN":
-    return '<span class="region-flag-fallback" aria-hidden="true">?</span>'
-  code = country_code.lower()
-  return (
-    f'<img class="region-flag" src="https://flagcdn.com/20x15/{code}.png" '
-    f'alt="{html.escape(country_code)} flag" loading="lazy">'
+    if country_code == "UN":
+        return '<span class="region-flag-fallback" aria-hidden="true">?</span>'
+    code = country_code.lower()
+    return (
+        f'<img class="region-flag" src="https://hatscripts.github.io/circle-flags/flags/{code}.svg" '
+        f'alt="{html.escape(country_code)} flag" loading="lazy">'
+    )
+
+
+def _sort_regions(regions: dict[str, object]) -> list[str]:
+  return sorted(
+    regions,
+    key=lambda region: (_region_country_name(region), _region_short_label(region), region),
   )
+
+
+def _region_country_name(region: str) -> str:
+    return _COUNTRY_NAMES.get(_region_country_code(region), "Unknown")
 
 
 def _region_country_code(region: str) -> str:

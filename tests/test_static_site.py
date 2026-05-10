@@ -37,6 +37,14 @@ def test_build_static_site_shows_uniform_extension_availability(tmp_path):
                     "vmSkus.standard.b2s": {"status": "available"},
                 },
             },
+            "francecentral": {
+                "aks": {
+                    "extensionTypes.azure.policy": {"status": "available"},
+                },
+                "compute": {
+                    "vmSkus.standard.b2s": {"status": "available"},
+                },
+            },
             "eastus": {
                 "aks": {
                     "extensionCatalog": {
@@ -133,6 +141,14 @@ def test_build_static_site_color_codes_regional_modality_groups(tmp_path):
                     "vmSkus.standard.b2s": {"status": "available"},
                 },
             },
+            "francecentral": {
+                "aks": {
+                    "extensionTypes.azure.policy": {"status": "available"},
+                },
+                "compute": {
+                    "vmSkus.standard.b2s": {"status": "available"},
+                },
+            },
             "eastus": {
                 "aks": {
                     "extensionTypes.microsoft.flux": {"status": "available"},
@@ -168,12 +184,20 @@ def test_build_static_site_color_codes_regional_modality_groups(tmp_path):
     assert ">AKS extensions</h2>" in index_html
     assert ">AKS Kubernetes versions</h2>" in index_html
     assert ">VM SKUs</h2>" in index_html
-    assert index_html.index('title="australiaeast"') < index_html.index('title="eastus"')
+    assert "Groups by country, then Azure region" in index_html
+    assert index_html.index('title="Australia - australiaeast"') < index_html.index(
+        'title="France - francecentral"'
+    )
+    assert index_html.index('title="France - francecentral"') < index_html.index(
+        'title="United States - eastus"'
+    )
     assert 'alt="AU flag"' in index_html
+    assert 'alt="FR flag"' in index_html
     assert 'alt="US flag"' in index_html
-    assert "flagcdn.com/20x15/au.png" in index_html
-    assert "flagcdn.com/20x15/us.png" in index_html
-    assert 'title="eastus"' in index_html
+    assert "circle-flags/flags/au.svg" in index_html
+    assert "circle-flags/flags/fr.svg" in index_html
+    assert "circle-flags/flags/us.svg" in index_html
+    assert 'title="United States - eastus"' in index_html
     assert "\U0001f1fa\U0001f1f8" not in index_html
     assert '<span class="region-label">east</span>' in index_html
     assert "<th>Group</th>" in index_html
