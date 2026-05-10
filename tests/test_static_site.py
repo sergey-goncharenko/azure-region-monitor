@@ -311,6 +311,10 @@ def test_build_static_site_splits_large_extension_groups_into_detail_tables(tmp_
         feature = f"extensionTypes.microsoft.extension{index}"
         eastus_features[feature] = {"status": "available"}
         westus_features[feature] = {"status": "unavailable"}
+    for index in range(11):
+        feature = f"extensionTypes.contoso.extension{index}"
+        eastus_features[feature] = {"status": "available"}
+        westus_features[feature] = {"status": "unavailable"}
     for index in range(10):
         feature = f"extensionTypes.boutique.extension{index}"
         eastus_features[feature] = {"status": "available"}
@@ -334,12 +338,19 @@ def test_build_static_site_splits_large_extension_groups_into_detail_tables(tmp_
     assert "Extension groups with more than 10 extensions" in index_html
     assert ">AKS extensions: microsoft</h2>" in index_html
     assert "11 extensions by country, then Azure region" in index_html
+    assert ">AKS extensions: contoso</h2>" in index_html
+    assert "extension-group-collapsed" in index_html
+    assert "Open to load this extension matrix." in index_html
+    assert "<template>" in index_html
     assert ">AKS extensions: boutique</h2>" not in index_html
     assert "<th>Extension</th>" in index_html
     assert "<td><code>extension0</code></td>" in index_html
     assert "extensionTypes.microsoft.extension0" not in index_html
     assert 'title="eastus: available"' in index_html
     assert 'title="westus: unavailable"' in index_html
+    assert index_html.index(">AKS extensions: microsoft</h2>") < index_html.index(
+        ">AKS extensions: contoso</h2>"
+    )
     assert index_html.index("Regional Availability By Modality") < index_html.index(
         "Large AKS Extension Groups"
     )

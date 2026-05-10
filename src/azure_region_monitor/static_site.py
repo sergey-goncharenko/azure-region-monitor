@@ -53,6 +53,7 @@ _COUNTRY_NAMES = {
 }
 
 _LARGE_EXTENSION_GROUP_THRESHOLD = 10
+_PRIMARY_EXTENSION_GROUPS = {"microsoft"}
 
 
 def build_static_site(
@@ -365,6 +366,11 @@ def _style_block() -> str:
     .availability-matrix th:first-child { z-index: 3; }
     .extension-feature-matrix th:first-child, .extension-feature-matrix td:first-child { min-width: 260px; max-width: 360px; }
     .extension-feature-matrix td:first-child code { white-space: normal; word-break: break-word; }
+    .extension-group-summary { cursor: pointer; list-style: none; padding-bottom: 10px; }
+    .extension-group-summary::-webkit-details-marker { display: none; }
+    .extension-group-summary h2::before { content: ">"; display: inline-block; width: 16px; color: var(--muted); }
+    details[open] > .extension-group-summary h2::before { content: "v"; }
+    .lazy-matrix-placeholder { padding: 16px 14px; color: var(--muted); border-top: 1px solid var(--line); }
     .region-header { min-width: 52px; width: 52px; padding-left: 6px; padding-right: 6px; }
     .region-heading { display: inline-grid; justify-items: center; gap: 2px; line-height: 1.05; text-transform: none; }
     .region-flag { width: 18px; height: 18px; object-fit: cover; border-radius: 50%; box-shadow: 0 0 0 1px rgba(23, 32, 51, 0.12); }
@@ -709,7 +715,14 @@ def _large_extension_group_summaries(rows: list[dict[str, object]]) -> list[dict
         for summary in summaries.values()
         if len(summary["features"]) > _LARGE_EXTENSION_GROUP_THRESHOLD
     ]
-    return sorted(large_summaries, key=lambda item: (str(item["group"]), len(item["features"])))
+    return sorted(
+        large_summaries,
+        key=lambda item: (
+            not _is_primary_extension_group(str(item["group"])),
+            str(item["group"]),
+            len(item["features"]),
+        ),
+    )
 
 
 def _render_large_extension_group_table(summary: dict[str, object], regions: list[str]) -> str:
@@ -718,14 +731,32 @@ def _render_large_extension_group_table(summary: dict[str, object], regions: lis
         summary["features"].values(),
         key=lambda item: str(item["label"]),
     )
-    region_headers = "\n".join(_render_region_header(region) for region in regions)
-    feature_rows = "\n".join(_render_extension_feature_row(feature, regions) for feature in features)
+    table = _render_extension_feature_table(features, regions)
+    heading = f"AKS extensions: {html.escape(group)}"
+    subtitle = f"{len(features):,} extensions by country, then Azure region"
+    if not _is_primary_extension_group(group):
+        return f"""<details class="panel availability-section extension-group-section extension-group-collapsed" aria-label="AKS extension group {html.escape(group)} regional availability">
+          <summary class="panel-header extension-group-summary">
+            <h2>{heading}</h2>
+            <div class="panel-subtitle">{subtitle}</div>
+          </summary>
+          <div class="lazy-matrix-placeholder">Open to load this extension matrix.</div>
+          <template>{table}</template>
+        </details>"""
+
     return f"""<section class="panel availability-section extension-group-section" aria-label="AKS extension group {html.escape(group)} regional availability">
           <div class="panel-header">
-            <h2>AKS extensions: {html.escape(group)}</h2>
-            <div class="panel-subtitle">{len(features):,} extensions by country, then Azure region</div>
+            <h2>{heading}</h2>
+            <div class="panel-subtitle">{subtitle}</div>
           </div>
-          <div class="matrix-scroll-top" aria-hidden="true"><div></div></div>
+          {table}
+        </section>"""
+
+
+def _render_extension_feature_table(features: list[dict[str, object]], regions: list[str]) -> str:
+    region_headers = "\n".join(_render_region_header(region) for region in regions)
+    feature_rows = "\n".join(_render_extension_feature_row(feature, regions) for feature in features)
+    return f"""<div class="matrix-scroll-top" aria-hidden="true"><div></div></div>
           <div class="table-wrap availability-matrix extension-feature-matrix">
             <table>
               <thead>
@@ -736,8 +767,11 @@ def _render_large_extension_group_table(summary: dict[str, object], regions: lis
               </thead>
               <tbody>{feature_rows}</tbody>
             </table>
-          </div>
-        </section>"""
+          </div>"""
+
+
+def _is_primary_extension_group(group: str) -> bool:
+    return group in _PRIMARY_EXTENSION_GROUPS
 
 
 def _render_extension_feature_row(feature: dict[str, object], regions: list[str]) -> str:
@@ -961,6 +995,8 @@ def _index_script() -> str:
         const spacer = top ? top.firstElementChild : null;
         if (!top || !body || !spacer) return;
         spacer.style.width = `${body.scrollWidth}px`;
+        if (section.dataset.scrollSynced === 'true') return;
+        section.dataset.scrollSynced = 'true';
         let syncing = false;
         const sync = (source, target) => {
           if (syncing) return;
@@ -972,7 +1008,22 @@ def _index_script() -> str:
         body.addEventListener('scroll', () => sync(body, top));
       });
     }
+    function initializeLazyExtensionGroups() {
+      document.querySelectorAll('.extension-group-collapsed').forEach((section) => {
+        section.addEventListener('toggle', () => {
+          if (!section.open || section.dataset.loaded === 'true') return;
+          const template = section.querySelector('template');
+          const placeholder = section.querySelector('.lazy-matrix-placeholder');
+          if (!template || !placeholder) return;
+          placeholder.replaceWith(template.content.cloneNode(true));
+          section.dataset.loaded = 'true';
+          template.remove();
+          syncAvailabilityScrollbars();
+        });
+      });
+    }
     window.addEventListener('load', syncAvailabilityScrollbars);
+    window.addEventListener('load', initializeLazyExtensionGroups);
     window.addEventListener('resize', syncAvailabilityScrollbars);
 """
 
