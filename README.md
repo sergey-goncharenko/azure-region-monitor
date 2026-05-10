@@ -10,7 +10,28 @@ A public service that continuously tests Azure regions for real-world feature av
 
 This project aims to become the canonical source of truth for Azure regional rollout behavior.
 
+## Public Alpha
+
+Azure Region Monitor is preparing for a public alpha release. The current alpha surface is a read-only regional availability dashboard and JSON API backed by Azure CLI/catalog evidence.
+
+Alpha scope:
+
+- Public dashboard and static JSON APIs
+- Daily snapshot history and recent change summaries
+- Focused workflows per modality
+- Explicit methodology for status semantics and evidence limits
+
+Alpha limits:
+
+- Results are catalog/listing evidence, not deployment guarantees.
+- The project does not publish tenant IDs, subscription IDs, private resource names, credentials, or customer data.
+- Alerts, signed webhooks, SDKs, and durable external snapshot storage are future roadmap items.
+
 See `/docs/spec` for full product specification and `/docs/roadmap` for the engineering plan.
+
+See [docs/release/public-alpha.md](docs/release/public-alpha.md) for the public alpha release checklist.
+
+License: [MIT](LICENSE)
 
 PoC dashboard: <https://gray-island-09dc9e703.7.azurestaticapps.net/>
 
