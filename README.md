@@ -27,6 +27,7 @@ The first implementation slice is a Python service with:
 - An Azure CLI-backed AKS Kubernetes version probe for minor-version rollout checks
 - An Azure CLI-backed VM SKU probe for compute SKU regional availability
 - JSON snapshot and diff storage helpers
+- Daily static snapshot history and compact recent-change summaries
 - A diff engine that classifies new availability and regressions
 - A FastAPI read-only API matching the initial API spec
 - A GitHub Actions workflow for manual or scheduled PoC runs
@@ -125,6 +126,12 @@ Generate a diff between two snapshots:
 azure-region-monitor diff data/snapshots/2026-05-07.json data/snapshots/latest.json --output data/diffs/latest.json
 ```
 
+Update the static dashboard history after a run:
+
+```powershell
+azure-region-monitor update-history --snapshot data/snapshots/latest.json --history-dir data/history
+```
+
 Run the local API:
 
 ```powershell
@@ -144,6 +151,10 @@ Useful endpoints:
 - `GET /api/regions/{region}`
 - `GET /api/services/{service}`
 - `GET /api/history/{date}`
+- `GET /api/history/index.json`
+- `GET /api/history/recent-changes.json`
+- `GET /api/history/snapshots/{date}.json`
+- `GET /api/history/changes/{date}.json`
 
 ## Next Engineering Steps
 

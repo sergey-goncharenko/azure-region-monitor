@@ -52,6 +52,11 @@ on:
         required: false
         type: string
         default: ""
+      history_base_url:
+        description: "Existing dashboard history API URL to preserve before deploying"
+        required: false
+        type: string
+        default: "https://gray-island-09dc9e703.7.azurestaticapps.net/api/history"
 
 permissions:
   contents: read
@@ -180,6 +185,15 @@ jobs:
             --base-url "$EXISTING_SNAPSHOT_URL" \
             --overlay data/snapshots/latest.json \
             --output data/snapshots/latest.json
+
+      - name: Update snapshot history
+        env:
+          HISTORY_BASE_URL: ${{ inputs.history_base_url }}
+        run: |
+          azure-region-monitor update-history \
+            --snapshot data/snapshots/latest.json \
+            --history-dir data/history \
+            --base-url "$HISTORY_BASE_URL"
 
       - name: Build static site
         run: azure-region-monitor build-static --output public

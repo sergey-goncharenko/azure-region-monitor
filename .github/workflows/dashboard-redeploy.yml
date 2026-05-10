@@ -7,6 +7,15 @@ on:
         description: "Snapshot JSON URL to render"
         required: false
         default: "https://gray-island-09dc9e703.7.azurestaticapps.net/api/latest.json"
+      history_base_url:
+        description: "Existing dashboard history API URL to preserve"
+        required: false
+        default: "https://gray-island-09dc9e703.7.azurestaticapps.net/api/history"
+      update_history:
+        description: "Store the fetched snapshot as today's history entry"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -43,6 +52,22 @@ jobs:
               target.write_bytes(response.read())
           print(f"Fetched {url} to {target}")
           PY
+
+      - name: Fetch existing history
+        if: ${{ !inputs.update_history }}
+        env:
+          HISTORY_BASE_URL: ${{ inputs.history_base_url }}
+        run: azure-region-monitor fetch-history --base-url "$HISTORY_BASE_URL" --output data/history
+
+      - name: Update snapshot history
+        if: ${{ inputs.update_history }}
+        env:
+          HISTORY_BASE_URL: ${{ inputs.history_base_url }}
+        run: |
+          azure-region-monitor update-history \
+            --snapshot data/snapshots/latest.json \
+            --history-dir data/history \
+            --base-url "$HISTORY_BASE_URL"
 
       - name: Build static site
         run: azure-region-monitor build-static --output public

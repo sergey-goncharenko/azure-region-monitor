@@ -5,7 +5,9 @@ import json
 import re
 import shutil
 from pathlib import Path
+from typing import Any
 
+from azure_region_monitor.history import copy_history_to_api
 from azure_region_monitor.models import Snapshot
 from azure_region_monitor.storage import load_snapshot
 
@@ -57,6 +59,7 @@ def build_static_site(
     output_dir: Path,
     snapshot_path: Path = Path("data/snapshots/latest.json"),
     diff_path: Path = Path("data/diffs/latest.json"),
+    history_path: Path = Path("data/history"),
 ) -> None:
     snapshot = load_snapshot(snapshot_path)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -66,12 +69,16 @@ def build_static_site(
     shutil.copyfile(snapshot_path, api_dir / "latest.json")
     if diff_path.exists():
         shutil.copyfile(diff_path, api_dir / "diff.json")
+    copy_history_to_api(history_path, api_dir / "history")
 
-    (output_dir / "index.html").write_text(_render_index(snapshot), encoding="utf-8")
+    recent_changes = _load_recent_changes(history_path)
+    (output_dir / "index.html").write_text(
+        _render_index(snapshot, recent_changes=recent_changes), encoding="utf-8"
+    )
     (output_dir / "heatmap.html").write_text(_render_heatmap_page(snapshot), encoding="utf-8")
 
 
-def _render_index(snapshot: Snapshot) -> str:
+def _render_index(snapshot: Snapshot, recent_changes: dict[str, Any] | None = None) -> str:
     rows = _flatten_snapshot(snapshot)
     status_counts = _status_counts(rows)
     status_total = sum(status_counts.values())
@@ -83,6 +90,7 @@ def _render_index(snapshot: Snapshot) -> str:
     modality_rows = "\n".join(_render_modality_row(row) for row in _modality_summaries(rows))
     regional_availability_tables = _render_regional_availability_tables(rows, regions)
     large_extension_group_tables = _render_large_extension_group_tables(rows, regions)
+    recent_changes_panel = _render_recent_changes_panel(recent_changes)
     group_rows = "\n".join(_render_group_row(row) for row in _feature_group_summaries(rows))
 
     return f"""<!doctype html>
@@ -117,6 +125,7 @@ def _render_index(snapshot: Snapshot) -> str:
       {_render_metric("Partial", status_counts.get("partial", 0))}
       {_render_metric("Unknown", status_counts.get("unknown", 0))}
     </section>
+    {recent_changes_panel}
     <section class="layout" aria-label="Coverage overview">
       <div class="panel">
         <div class="panel-header">
@@ -341,6 +350,9 @@ def _style_block() -> str:
     .status-unavailable { background: var(--unavailable-bg); color: var(--unavailable-text); }
     .status-partial { background: var(--partial-bg); color: var(--partial-text); }
     .status-unknown { background: var(--unknown-bg); color: var(--unknown-text); }
+    .change-highlights { max-width: 460px; color: var(--muted); font-size: 12px; line-height: 1.45; }
+    .change-highlight { display: inline; }
+    .change-highlight + .change-highlight::before { content: "; "; }
     .status-dot { display: inline-flex; width: 22px; height: 22px; border-radius: 50%; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; line-height: 1; }
     .availability-section .panel-header { padding-bottom: 10px; }
     .matrix-scroll-top { overflow-x: auto; overflow-y: hidden; height: 16px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: #f9fbfd; }
@@ -411,6 +423,107 @@ def _render_metric(label: str, value: int | str) -> str:
           <div class="metric-value">{html.escape(str(value))}</div>
         <div class="metric-label">{html.escape(label)}</div>
       </div>"""
+
+
+def _load_recent_changes(history_path: Path) -> dict[str, Any] | None:
+    recent_path = history_path / "recent-changes.json"
+    if not recent_path.exists():
+        return None
+    try:
+        return json.loads(recent_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
+
+
+def _render_recent_changes_panel(recent_changes: dict[str, Any] | None) -> str:
+    if not recent_changes:
+        return ""
+
+    days = [day for day in recent_changes.get("days", []) if isinstance(day, dict)]
+    if not days:
+        return ""
+
+    rows = "\n".join(_render_recent_change_row(day) for day in days[:10])
+    return f"""<section class="panel" aria-label="Recent availability changes">
+      <div class="panel-header">
+        <h2>Recent Changes</h2>
+        <div class="panel-subtitle">Today plus previous change days</div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th class="number">Changes</th>
+              <th class="number">New</th>
+              <th class="number">Regressions</th>
+              <th class="number">Status</th>
+              <th>Highlights</th>
+            </tr>
+          </thead>
+          <tbody>{rows}</tbody>
+        </table>
+      </div>
+    </section>"""
+
+
+def _render_recent_change_row(day: dict[str, Any]) -> str:
+    counts = day.get("change_type_counts") if isinstance(day.get("change_type_counts"), dict) else {}
+    date = str(day.get("date", ""))
+    change_path = str(day.get("change_path", ""))
+    total_changes = int(day.get("total_changes", 0))
+    new_availability = int(counts.get("new_availability", 0))
+    regressions = int(counts.get("regression", 0))
+    status_changes = int(counts.get("status_change", 0))
+    date_cell = html.escape(date)
+    if change_path:
+        date_cell = f'<a href="api/history/{html.escape(change_path)}">{date_cell}</a>'
+    return f"""<tr>
+                <td>{date_cell}</td>
+                <td class="number">{total_changes:,}</td>
+                <td class="number">{new_availability:,}</td>
+                <td class="number">{regressions:,}</td>
+                <td class="number">{status_changes:,}</td>
+                <td>{_render_change_highlights(day.get("highlights", []))}</td>
+              </tr>"""
+
+
+def _render_change_highlights(highlights: object) -> str:
+    if not isinstance(highlights, list) or not highlights:
+        return '<span class="change-highlights">No changes detected.</span>'
+
+    rendered = []
+    for item in highlights[:3]:
+        if not isinstance(item, dict):
+            continue
+        region = str(item.get("region", ""))
+        group = str(item.get("group", ""))
+        feature = str(item.get("feature", ""))
+        current = str(item.get("current", ""))
+        previous = str(item.get("previous", ""))
+        label = _compact_feature_label(feature, group)
+        rendered.append(
+            '<span class="change-highlight">'
+            f"{html.escape(region)} {html.escape(label)} "
+            f"{html.escape(previous)} -> {html.escape(current)}"
+            "</span>"
+        )
+    if not rendered:
+        return '<span class="change-highlights">No changes detected.</span>'
+    rendered_highlights = "".join(rendered)
+    return f'<div class="change-highlights">{rendered_highlights}</div>'
+
+
+def _compact_feature_label(feature: str, group: str) -> str:
+    if feature.startswith("extensionTypes."):
+        label = feature.removeprefix("extensionTypes.")
+        group_prefix = f"{group}."
+        return label.removeprefix(group_prefix) if label.startswith(group_prefix) else label
+    if feature.startswith("kubernetesVersions."):
+        return feature.removeprefix("kubernetesVersions.")
+    if feature.startswith("vmSkus."):
+        return feature.removeprefix("vmSkus.")
+    return feature
 
 
 def _feature_category(feature: str) -> str:

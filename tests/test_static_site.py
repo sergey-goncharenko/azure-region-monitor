@@ -23,6 +23,59 @@ def test_build_static_site_writes_dashboard_and_latest_json(tmp_path):
     assert not (output_dir / "api" / "diff.json").exists()
 
 
+def test_build_static_site_copies_history_and_renders_recent_changes(tmp_path):
+    output_dir = tmp_path / "public"
+    history_dir = tmp_path / "history"
+    (history_dir / "changes").mkdir(parents=True)
+    (history_dir / "snapshots").mkdir(parents=True)
+    recent_changes = {
+        "generated_at": "2026-05-10T00:00:00Z",
+        "days": [
+            {
+                "date": "2026-05-10",
+                "snapshot_path": "snapshots/2026-05-10.json",
+                "change_path": "changes/2026-05-10.json",
+                "total_changes": 2,
+                "change_type_counts": {
+                    "new_availability": 1,
+                    "regression": 1,
+                    "status_change": 0,
+                },
+                "highlights": [
+                    {
+                        "region": "eastus",
+                        "group": "microsoft",
+                        "feature": "extensionTypes.microsoft.flux",
+                        "previous": "unavailable",
+                        "current": "available",
+                    }
+                ],
+            }
+        ],
+    }
+    (history_dir / "recent-changes.json").write_text(json.dumps(recent_changes), encoding="utf-8")
+    (history_dir / "changes" / "2026-05-10.json").write_text(
+        json.dumps(recent_changes["days"][0]), encoding="utf-8"
+    )
+    (history_dir / "snapshots" / "2026-05-10.json").write_text("{}", encoding="utf-8")
+
+    build_static_site(
+        output_dir,
+        snapshot_path=Path("data/snapshots/2026-05-08.json"),
+        diff_path=tmp_path / "missing-diff.json",
+        history_path=history_dir,
+    )
+
+    index_html = (output_dir / "index.html").read_text(encoding="utf-8")
+
+    assert "Recent Changes" in index_html
+    assert "Today plus previous change days" in index_html
+    assert 'href="api/history/changes/2026-05-10.json"' in index_html
+    assert "eastus flux unavailable -> available" in index_html
+    assert (output_dir / "api" / "history" / "recent-changes.json").exists()
+    assert (output_dir / "api" / "history" / "changes" / "2026-05-10.json").exists()
+
+
 def test_build_static_site_shows_uniform_extension_availability(tmp_path):
     snapshot_path = tmp_path / "snapshot.json"
     output_dir = tmp_path / "public"

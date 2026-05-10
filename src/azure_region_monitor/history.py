@@ -1,0 +1,310 @@
+from __future__ import annotations
+
+import json
+import shutil
+import urllib.error
+import urllib.parse
+import urllib.request
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+from azure_region_monitor.diff import build_diff
+from azure_region_monitor.models import Change, Snapshot
+from azure_region_monitor.storage import load_snapshot, write_snapshot
+
+RECENT_CHANGE_DAYS = 10
+CHANGE_HIGHLIGHTS = 10
+
+
+def fetch_history(history_dir: Path, base_url: str) -> bool:
+    history_dir.mkdir(parents=True, exist_ok=True)
+    index = _fetch_json(_join_url(base_url, "index.json"))
+    if index is None:
+        return False
+
+    _write_json(history_dir / "index.json", index)
+    paths = _history_paths(index)
+    paths.add("recent-changes.json")
+    for path in sorted(paths):
+        _download_file(_join_url(base_url, path), history_dir / path)
+    return True
+
+
+def update_history(snapshot_path: Path, history_dir: Path, base_url: str | None = None) -> dict[str, Any]:
+    history_dir.mkdir(parents=True, exist_ok=True)
+    if base_url:
+        fetch_history(history_dir, base_url)
+
+    current = load_snapshot(snapshot_path)
+    current_date = _snapshot_date(current)
+    snapshot_history_path = Path("snapshots") / f"{current_date}.json"
+    change_history_path = Path("changes") / f"{current_date}.json"
+
+    existing_index = _read_json(history_dir / "index.json") or {}
+    previous_entry = _previous_snapshot_entry(existing_index, current_date)
+    previous = _load_previous_snapshot(history_dir, previous_entry)
+    diff = build_diff(previous, current) if previous else None
+
+    write_snapshot(history_dir / snapshot_history_path, current)
+    day_summary = _build_day_summary(
+        current=current,
+        current_date=current_date,
+        snapshot_path=snapshot_history_path,
+        change_path=change_history_path,
+        previous_entry=previous_entry,
+        changes=diff.changes if diff else [],
+    )
+    _write_json(history_dir / change_history_path, day_summary)
+
+    days_by_date = {
+        str(day.get("date")): day
+        for day in existing_index.get("days", [])
+        if isinstance(day, dict) and day.get("date")
+    }
+    days_by_date[current_date] = day_summary
+    days = sorted(days_by_date.values(), key=lambda day: str(day["date"]), reverse=True)
+
+    generated_at = _utc_now()
+    index = {
+        "generated_at": generated_at,
+        "latest_date": current_date,
+        "latest_snapshot_path": str(snapshot_history_path).replace("\\", "/"),
+        "recent_changes_path": "recent-changes.json",
+        "days": days,
+    }
+    recent_changes = {
+        "generated_at": generated_at,
+        "days": _recent_change_days(days, current_date),
+    }
+
+    _write_json(history_dir / "index.json", index)
+    _write_json(history_dir / "recent-changes.json", recent_changes)
+    return recent_changes
+
+
+def _build_day_summary(
+    *,
+    current: Snapshot,
+    current_date: str,
+    snapshot_path: Path,
+    change_path: Path,
+    previous_entry: dict[str, Any] | None,
+    changes: list[Change],
+) -> dict[str, Any]:
+    change_type_counts: dict[str, int] = {}
+    for change in changes:
+        change_type_counts[change.change_type] = change_type_counts.get(change.change_type, 0) + 1
+
+    return {
+        "date": current_date,
+        "snapshot_timestamp": _normalize_timestamp(current.timestamp).isoformat(),
+        "snapshot_path": str(snapshot_path).replace("\\", "/"),
+        "change_path": str(change_path).replace("\\", "/"),
+        "previous_date": previous_entry.get("date") if previous_entry else None,
+        "previous_snapshot_path": previous_entry.get("snapshot_path") if previous_entry else None,
+        "total_changes": len(changes),
+        "change_type_counts": {
+            "new_availability": change_type_counts.get("new_availability", 0),
+            "regression": change_type_counts.get("regression", 0),
+            "status_change": change_type_counts.get("status_change", 0),
+        },
+        "status_counts": _status_counts(current),
+        "modality_counts": _modality_counts(current),
+        "highlights": [_summarize_change(change) for change in _highlight_changes(changes)],
+    }
+
+
+def _recent_change_days(days: list[dict[str, Any]], current_date: str) -> list[dict[str, Any]]:
+    current = next((day for day in days if day.get("date") == current_date), None)
+    previous_change_days = [
+        day
+        for day in days
+        if day.get("date") != current_date and int(day.get("total_changes", 0)) > 0
+    ]
+    if current is None:
+        return previous_change_days[:RECENT_CHANGE_DAYS]
+    return [current, *previous_change_days][:RECENT_CHANGE_DAYS]
+
+
+def _highlight_changes(changes: list[Change]) -> list[Change]:
+    priority = {"regression": 0, "new_availability": 1, "status_change": 2}
+    return sorted(
+        changes,
+        key=lambda change: (
+            priority.get(change.change_type, 3),
+            change.region,
+            _feature_category(change.feature),
+            change.feature,
+        ),
+    )[:CHANGE_HIGHLIGHTS]
+
+
+def _summarize_change(change: Change) -> dict[str, Any]:
+    return {
+        "region": change.region,
+        "service": change.service,
+        "modality": _feature_category(change.feature),
+        "group": _feature_group(change.feature),
+        "feature": change.feature,
+        "previous": change.previous,
+        "current": change.current,
+        "change_type": change.change_type,
+    }
+
+
+def _status_counts(snapshot: Snapshot) -> dict[str, int]:
+    counts = {"available": 0, "unavailable": 0, "partial": 0, "unknown": 0}
+    for _, _, _, status in _iter_statuses(snapshot):
+        counts[status] = counts.get(status, 0) + 1
+    return counts
+
+
+def _modality_counts(snapshot: Snapshot) -> dict[str, dict[str, int]]:
+    counts: dict[str, dict[str, int]] = {}
+    for _, _, feature, status in _iter_statuses(snapshot):
+        modality = _feature_category(feature)
+        modality_counts = counts.setdefault(
+            modality,
+            {"checks": 0, "available": 0, "unavailable": 0, "partial": 0, "unknown": 0},
+        )
+        modality_counts["checks"] += 1
+        modality_counts[status] = modality_counts.get(status, 0) + 1
+    return dict(sorted(counts.items()))
+
+
+def _iter_statuses(snapshot: Snapshot):
+    for region, services in snapshot.regions.items():
+        for service, features in services.items():
+            for feature, result in features.items():
+                yield region, service, feature, result.status
+
+
+def _previous_snapshot_entry(index: dict[str, Any], current_date: str) -> dict[str, Any] | None:
+    days = [day for day in index.get("days", []) if isinstance(day, dict)]
+    previous_days = [day for day in days if str(day.get("date")) < current_date]
+    if previous_days:
+        return max(previous_days, key=lambda day: str(day.get("date")))
+
+    same_day = [day for day in days if day.get("date") == current_date]
+    return same_day[0] if same_day else None
+
+
+def _load_previous_snapshot(history_dir: Path, entry: dict[str, Any] | None) -> Snapshot | None:
+    if not entry or not entry.get("snapshot_path"):
+        return None
+    path = _safe_history_path(history_dir, str(entry["snapshot_path"]))
+    if not path.exists():
+        return None
+    return load_snapshot(path)
+
+
+def _history_paths(index: dict[str, Any]) -> set[str]:
+    paths: set[str] = set()
+    for day in index.get("days", []):
+        if not isinstance(day, dict):
+            continue
+        for key in ("snapshot_path", "change_path"):
+            value = day.get(key)
+            if isinstance(value, str) and _is_safe_relative_path(value):
+                paths.add(value)
+    return paths
+
+
+def _download_file(url: str, path: Path) -> bool:
+    try:
+        with urllib.request.urlopen(url, timeout=120) as response:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(response.read())
+        return True
+    except urllib.error.HTTPError as error:
+        if error.code == 404:
+            return False
+        raise
+    except urllib.error.URLError:
+        return False
+
+
+def _fetch_json(url: str) -> dict[str, Any] | None:
+    try:
+        with urllib.request.urlopen(url, timeout=60) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as error:
+        if error.code == 404:
+            return None
+        raise
+    except (urllib.error.URLError, json.JSONDecodeError):
+        return None
+
+
+def _safe_history_path(history_dir: Path, relative_path: str) -> Path:
+    if not _is_safe_relative_path(relative_path):
+        raise ValueError(f"Unsafe history path: {relative_path}")
+    return history_dir / relative_path
+
+
+def _is_safe_relative_path(path: str) -> bool:
+    parsed = urllib.parse.urlparse(path)
+    return not parsed.scheme and not parsed.netloc and not Path(path).is_absolute() and ".." not in Path(path).parts
+
+
+def _join_url(base_url: str, path: str) -> str:
+    return base_url.rstrip("/") + "/" + urllib.parse.quote(path.replace("\\", "/"), safe="/")
+
+
+def _read_json(path: Path) -> dict[str, Any] | None:
+    if not path.exists():
+        return None
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _write_json(path: Path, data: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def copy_history_to_api(history_dir: Path, api_history_dir: Path) -> None:
+    if not history_dir.exists():
+        return
+    if api_history_dir.exists():
+        shutil.rmtree(api_history_dir)
+    shutil.copytree(history_dir, api_history_dir)
+
+
+def _snapshot_date(snapshot: Snapshot) -> str:
+    return _normalize_timestamp(snapshot.timestamp).date().isoformat()
+
+
+def _normalize_timestamp(timestamp: datetime) -> datetime:
+    if timestamp.tzinfo is None:
+        return timestamp.replace(tzinfo=timezone.utc)
+    return timestamp.astimezone(timezone.utc)
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _feature_category(feature: str) -> str:
+    if feature == "extensionCatalog" or feature.startswith("extensions.") or feature.startswith("extensionTypes."):
+        return "AKS extensions"
+    if feature.startswith("kubernetesVersions."):
+        return "AKS Kubernetes versions"
+    if feature.startswith("vmSkus."):
+        return "VM SKUs"
+    return feature.split(".", 1)[0]
+
+
+def _feature_group(feature: str) -> str:
+    if feature.startswith("extensionTypes."):
+        parts = feature.removeprefix("extensionTypes.").split(".")
+        return parts[0] if parts else "unknown"
+    if feature.startswith("extensions."):
+        return "curated"
+    if feature.startswith("kubernetesVersions."):
+        return feature.removeprefix("kubernetesVersions.")
+    if feature.startswith("vmSkus."):
+        sku = feature.removeprefix("vmSkus.").removeprefix("standard.")
+        letters = "".join(char for char in sku if char.isalpha())
+        return letters.upper() if letters else "Other"
+    return feature.split(".", 1)[0]

@@ -13,6 +13,7 @@ from azure_region_monitor.config import (
     parse_vm_skus,
 )
 from azure_region_monitor.diff import build_diff
+from azure_region_monitor.history import fetch_history, update_history
 from azure_region_monitor.probes.aks_extension import AksExtensionCliProbe
 from azure_region_monitor.probes.aks_extension_catalog import AksExtensionCatalogCliProbe
 from azure_region_monitor.probes.aks_versions import AksKubernetesVersionCliProbe
@@ -63,7 +64,23 @@ def main() -> None:
     static_parser.add_argument("--output", type=Path, default=Path("public"))
     static_parser.add_argument("--snapshot", type=Path, default=Path("data/snapshots/latest.json"))
     static_parser.add_argument("--diff", type=Path, default=Path("data/diffs/latest.json"))
+    static_parser.add_argument("--history", type=Path, default=Path("data/history"))
     static_parser.set_defaults(handler=_build_static)
+
+    fetch_history_parser = subparsers.add_parser(
+        "fetch-history", help="Fetch existing static dashboard history files"
+    )
+    fetch_history_parser.add_argument("--base-url", required=True)
+    fetch_history_parser.add_argument("--output", type=Path, default=Path("data/history"))
+    fetch_history_parser.set_defaults(handler=_fetch_history)
+
+    update_history_parser = subparsers.add_parser(
+        "update-history", help="Store the latest snapshot and update compact changelog JSON"
+    )
+    update_history_parser.add_argument("--snapshot", type=Path, default=Path("data/snapshots/latest.json"))
+    update_history_parser.add_argument("--history-dir", type=Path, default=Path("data/history"))
+    update_history_parser.add_argument("--base-url", default="")
+    update_history_parser.set_defaults(handler=_update_history)
 
     merge_parser = subparsers.add_parser(
         "merge-snapshot", help="Merge a focused modality snapshot into an existing snapshot"
@@ -97,8 +114,30 @@ def _serve(args: argparse.Namespace) -> None:
 
 
 def _build_static(args: argparse.Namespace) -> None:
-    build_static_site(args.output, snapshot_path=args.snapshot, diff_path=args.diff)
+    build_static_site(
+        args.output, snapshot_path=args.snapshot, diff_path=args.diff, history_path=args.history
+    )
     print(f"Built static site in {args.output}")
+
+
+def _fetch_history(args: argparse.Namespace) -> None:
+    fetched = fetch_history(args.output, args.base_url)
+    if fetched:
+        print(f"Fetched dashboard history from {args.base_url} to {args.output}")
+    else:
+        print(f"No existing dashboard history found at {args.base_url}")
+
+
+def _update_history(args: argparse.Namespace) -> None:
+    recent_changes = update_history(
+        snapshot_path=args.snapshot,
+        history_dir=args.history_dir,
+        base_url=args.base_url or None,
+    )
+    print(
+        f"Updated history in {args.history_dir} with "
+        f"{len(recent_changes.get('days', []))} recent change days"
+    )
 
 
 def _merge_snapshot(args: argparse.Namespace) -> None:
