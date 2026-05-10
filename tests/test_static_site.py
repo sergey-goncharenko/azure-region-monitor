@@ -137,16 +137,20 @@ def test_build_static_site_color_codes_regional_modality_groups(tmp_path):
 
     index_html = (output_dir / "index.html").read_text(encoding="utf-8")
 
-    assert "Rows are modality groups; columns are regions" in index_html
+    assert "Each modality has its own group / region matrix" in index_html
     assert "availability-matrix" in index_html
-    assert "<th>eastus</th>" in index_html
-    assert "<th>Modality</th>" in index_html
+    assert index_html.count('<section class="availability-section"') == 3
+    assert 'availability-section-title">AKS extensions' in index_html
+    assert 'availability-section-title">AKS Kubernetes versions' in index_html
+    assert 'availability-section-title">VM SKUs' in index_html
+    assert 'title="eastus"' in index_html
+    assert "\U0001f1fa\U0001f1f8" in index_html
+    assert '<span class="region-label">east</span>' in index_html
     assert "<th>Group</th>" in index_html
     assert "availability-good" in index_html
     assert "availability-warn" in index_html
     assert "availability-caution" in index_html
     assert "availability-poor" in index_html
-    assert "<td>AKS extensions</td>" in index_html
     assert "<td><code>azure</code></td>" in index_html
     assert "<td><code>microsoft</code></td>" in index_html
     assert "<td><code>D</code></td>" in index_html

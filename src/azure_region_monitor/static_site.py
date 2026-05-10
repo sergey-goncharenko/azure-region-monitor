@@ -38,11 +38,7 @@ def _render_index(snapshot: Snapshot) -> str:
     regions = sorted(snapshot.regions)
     unique_features = sorted({str(row["feature"]) for row in rows})
     modality_rows = "\n".join(_render_modality_row(row) for row in _modality_summaries(rows))
-    region_headers = "\n".join(_render_region_header(region) for region in regions)
-    region_modality_group_rows = "\n".join(
-      _render_region_modality_group_row(row, regions)
-      for row in _region_modality_group_summaries(rows)
-    )
+    regional_availability_tables = _render_regional_availability_tables(rows, regions)
     group_rows = "\n".join(_render_group_row(row) for row in _feature_group_summaries(rows))
 
     return f"""<!doctype html>
@@ -124,20 +120,9 @@ def _render_index(snapshot: Snapshot) -> str:
     <section class="panel" aria-label="Region modality availability">
       <div class="panel-header">
         <h2>Regional Availability By Modality</h2>
-        <div class="panel-subtitle">Rows are modality groups; columns are regions</div>
+        <div class="panel-subtitle">Each modality has its own group / region matrix</div>
       </div>
-      <div class="table-wrap availability-matrix">
-        <table>
-          <thead>
-            <tr>
-              <th>Modality</th>
-              <th>Group</th>
-              {region_headers}
-            </tr>
-          </thead>
-          <tbody>{region_modality_group_rows}</tbody>
-        </table>
-      </div>
+      <div class="availability-sections">{regional_availability_tables}</div>
     </section>
   </main>
 </body>
@@ -308,14 +293,18 @@ def _style_block() -> str:
     .status-partial { background: var(--partial-bg); color: var(--partial-text); }
     .status-unknown { background: var(--unknown-bg); color: var(--unknown-text); }
     .status-dot { display: inline-flex; width: 22px; height: 22px; border-radius: 50%; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; line-height: 1; }
-    .availability-matrix table { min-width: 1180px; }
+    .availability-sections { display: grid; gap: 16px; padding-top: 10px; }
+    .availability-section-title { padding: 0 14px; font-size: 14px; font-weight: 650; color: var(--text); }
+    .availability-matrix table { min-width: max-content; }
     .availability-matrix th, .availability-matrix td { text-align: center; }
-    .availability-matrix th:first-child, .availability-matrix td:first-child,
-    .availability-matrix th:nth-child(2), .availability-matrix td:nth-child(2) { text-align: left; }
+    .availability-matrix th:first-child, .availability-matrix td:first-child { text-align: left; }
     .availability-matrix th { position: sticky; top: 0; z-index: 2; background: var(--panel); }
-    .availability-matrix th:first-child, .availability-matrix td:first-child { position: sticky; left: 0; z-index: 1; min-width: 180px; background: var(--panel); }
-    .availability-matrix th:nth-child(2), .availability-matrix td:nth-child(2) { position: sticky; left: 180px; z-index: 1; min-width: 120px; background: var(--panel); }
-    .availability-matrix th:first-child, .availability-matrix th:nth-child(2) { z-index: 3; }
+    .availability-matrix th:first-child, .availability-matrix td:first-child { position: sticky; left: 0; z-index: 1; min-width: 120px; background: var(--panel); }
+    .availability-matrix th:first-child { z-index: 3; }
+    .region-header { min-width: 52px; width: 52px; padding-left: 6px; padding-right: 6px; }
+    .region-heading { display: inline-grid; justify-items: center; gap: 2px; line-height: 1.05; text-transform: none; }
+    .region-flag { font-size: 16px; line-height: 1; }
+    .region-label { max-width: 48px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; color: var(--muted); }
     .availability-badge { display: inline-flex; gap: 5px; align-items: center; justify-content: center; min-height: 24px; padding: 3px 7px; border-radius: 999px; border: 1px solid transparent; font-size: 12px; font-weight: 650; white-space: nowrap; }
     .availability-label { max-width: 96px; overflow: hidden; text-overflow: ellipsis; }
     .availability-count { font-variant-numeric: tabular-nums; opacity: 0.82; }
@@ -450,19 +439,221 @@ def _region_modality_group_summaries(rows: list[dict[str, object]]) -> list[dict
     )
 
 
+def _render_regional_availability_tables(rows: list[dict[str, object]], regions: list[str]) -> str:
+    summaries = _region_modality_group_summaries(rows)
+    summaries_by_modality: dict[str, list[dict[str, object]]] = {}
+    for summary in summaries:
+        summaries_by_modality.setdefault(str(summary["category"]), []).append(summary)
+
+    return "\n".join(
+        _render_modality_availability_table(modality, summaries_by_modality[modality], regions)
+        for modality in _sorted_modalities(summaries_by_modality)
+    )
+
+
+def _sorted_modalities(summaries_by_modality: dict[str, list[dict[str, object]]]) -> list[str]:
+    preferred_order = ["AKS extensions", "AKS Kubernetes versions", "VM SKUs"]
+    ordered = [modality for modality in preferred_order if modality in summaries_by_modality]
+    ordered.extend(sorted(set(summaries_by_modality) - set(preferred_order)))
+    return ordered
+
+
+def _render_modality_availability_table(
+    modality: str, summaries: list[dict[str, object]], regions: list[str]
+) -> str:
+    region_headers = "\n".join(_render_region_header(region) for region in regions)
+    group_rows = "\n".join(_render_region_group_row(row, regions) for row in summaries)
+    return f"""<section class="availability-section" aria-label="{html.escape(modality)} regional availability">
+          <h3 class="availability-section-title">{html.escape(modality)}</h3>
+          <div class="table-wrap availability-matrix">
+            <table>
+              <thead>
+                <tr>
+                  <th>Group</th>
+                  {region_headers}
+                </tr>
+              </thead>
+              <tbody>{group_rows}</tbody>
+            </table>
+          </div>
+        </section>"""
+
+
 def _render_region_header(region: str) -> str:
-    return f"<th>{html.escape(region)}</th>"
+    flag = _region_flag(region)
+    label = _region_short_label(region)
+    return f"""<th class="region-header" title="{html.escape(region)}">
+            <span class="region-heading"><span class="region-flag" aria-hidden="true">{flag}</span><span class="region-label">{html.escape(label)}</span></span>
+            </th>"""
 
 
-def _render_region_modality_group_row(row: dict[str, object], regions: list[str]) -> str:
+def _render_region_group_row(row: dict[str, object], regions: list[str]) -> str:
     region_cells = "\n".join(
         _render_availability_cell(row["regions"].get(region), region) for region in regions
     )
     return f"""<tr>
-                <td>{html.escape(str(row["category"]))}</td>
                 <td><code>{html.escape(str(row["group"]))}</code></td>
                 {region_cells}
               </tr>"""
+
+
+def _region_flag(region: str) -> str:
+    return _country_flag(_region_country_code(region))
+
+
+def _country_flag(country_code: str) -> str:
+    code = country_code.upper()
+    if len(code) != 2 or not code.isalpha():
+        return ""
+    return "".join(chr(0x1F1E6 + ord(character) - ord("A")) for character in code)
+
+
+def _region_country_code(region: str) -> str:
+    normalized = region.lower().replace(" ", "")
+    us_regions = {
+        "centralus",
+        "centraluseuap",
+        "eastus",
+        "eastus2",
+        "eastus2euap",
+        "northcentralus",
+        "southcentralus",
+        "westcentralus",
+        "westus",
+        "westus2",
+        "westus3",
+    }
+    if normalized in us_regions:
+        return "US"
+    if normalized.startswith("canada"):
+        return "CA"
+    if normalized.startswith("brazil"):
+        return "BR"
+    if normalized.startswith("mexico"):
+        return "MX"
+    if normalized.startswith("chile"):
+        return "CL"
+    if normalized.startswith("uk"):
+        return "GB"
+    if normalized.startswith("france"):
+        return "FR"
+    if normalized.startswith("germany"):
+        return "DE"
+    if normalized.startswith("italy"):
+        return "IT"
+    if normalized.startswith("spain"):
+        return "ES"
+    if normalized.startswith("poland"):
+        return "PL"
+    if normalized.startswith("sweden"):
+        return "SE"
+    if normalized.startswith("norway"):
+        return "NO"
+    if normalized.startswith("switzerland"):
+        return "CH"
+    if normalized.startswith("austria"):
+        return "AT"
+    if normalized.startswith("belgium"):
+        return "BE"
+    if normalized in {"northeurope", "westeurope"}:
+        return "IE" if normalized == "northeurope" else "NL"
+    if normalized.startswith("australia"):
+        return "AU"
+    if normalized.startswith("newzealand"):
+        return "NZ"
+    if normalized.startswith("japan"):
+        return "JP"
+    if normalized.startswith("korea"):
+        return "KR"
+    if normalized.startswith("india") or normalized in {"centralindia", "southindia", "westindia"}:
+        return "IN"
+    if normalized.startswith("china"):
+        return "CN"
+    if normalized.startswith("taiwan"):
+        return "TW"
+    if normalized.startswith("malaysia"):
+        return "MY"
+    if normalized.startswith("indonesia"):
+        return "ID"
+    if normalized.startswith("israel"):
+        return "IL"
+    if normalized.startswith("qatar"):
+        return "QA"
+    if normalized.startswith("uae"):
+        return "AE"
+    if normalized.startswith("southafrica"):
+        return "ZA"
+    if normalized == "eastasia":
+        return "HK"
+    if normalized == "southeastasia":
+        return "SG"
+    return "UN"
+
+
+def _region_short_label(region: str) -> str:
+    normalized = region.lower().replace(" ", "")
+    replacements = {
+      "eastus": "east",
+      "eastus2": "east2",
+      "centralus": "central",
+      "northcentralus": "n central",
+      "southcentralus": "s central",
+      "westcentralus": "w central",
+      "westus": "west",
+      "westus2": "west2",
+      "westus3": "west3",
+      "canadacentral": "central",
+      "canadaeast": "east",
+      "brazilsouth": "south",
+      "brazilsoutheast": "se",
+      "mexicocentral": "central",
+      "chilecentral": "central",
+      "uksouth": "south",
+      "ukwest": "west",
+      "francecentral": "central",
+      "francesouth": "south",
+      "germanywestcentral": "w central",
+      "germanynorth": "north",
+      "italynorth": "north",
+      "spaincentral": "central",
+      "polandcentral": "central",
+      "swedencentral": "central",
+      "norwayeast": "east",
+      "norwaywest": "west",
+      "switzerlandnorth": "north",
+      "switzerlandwest": "west",
+      "austriaeast": "east",
+      "belgiumcentral": "central",
+      "northeurope": "north",
+      "westeurope": "west",
+      "australiaeast": "east",
+      "australiasoutheast": "se",
+      "australiacentral": "central",
+      "australiacentral2": "central2",
+      "newzealandnorth": "north",
+      "japaneast": "east",
+      "japanwest": "west",
+      "koreacentral": "central",
+      "koreasouth": "south",
+      "centralindia": "central",
+      "southindia": "south",
+      "westindia": "west",
+      "chinanorth3": "north3",
+      "chinaeast3": "east3",
+      "taiwannorth": "north",
+      "taiwannorthwest": "nw",
+      "malaysiawest": "west",
+      "indonesiacentral": "central",
+      "eastasia": "east",
+      "southeastasia": "se",
+      "israelcentral": "central",
+      "qatarcentral": "central",
+      "uaecentral": "central",
+      "uaenorth": "north",
+      "southafricanorth": "north",
+      "southafricawest": "west",
+    }
+    return replacements.get(normalized, normalized)
 
 
 def _render_availability_cell(summary: dict[str, int] | None, region: str) -> str:
