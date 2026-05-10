@@ -119,6 +119,8 @@ class AiModelCatalogCliProbe:
 
         if completed.returncode != 0:
             message = (completed.stderr or completed.stdout or "Azure CLI command failed.").strip()
+            if _is_unsupported_model_catalog_location(message):
+                return [], None
             return [], AzureCliError("AzureCliCommandFailed", message)
 
         try:
@@ -188,6 +190,11 @@ def _model_tokens(models: list[AiModelRecord]) -> set[str]:
 
 def _normalize_model_token(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", value.lower())
+
+
+def _is_unsupported_model_catalog_location(message: str) -> bool:
+    normalized = message.lower()
+    return "noregisteredproviderfound" in normalized and "locations/models" in normalized
 
 
 def _feature_slug(value: str) -> str:

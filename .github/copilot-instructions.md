@@ -35,7 +35,7 @@ Do not describe `unavailable` as a quota failure unless a dedicated quota or cre
 
 For Azure Functions Flex Consumption, `unavailable` means the region was not returned by `az functionapp list-flexconsumption-locations --output json`. The Azure CLI help describes that command as listing available locations for running function apps on Flex Consumption. Absence from that list is regional listing evidence, not proof of quota exhaustion or deployment failure.
 
-For Azure AI models, `unavailable` means `az cognitiveservices model list --location <region> --output json` completed successfully, but the model/version was absent from that regional model catalog. It is not quota, account approval, deployment, content filtering, or inference evidence.
+For Azure AI models, `unavailable` means `az cognitiveservices model list --location <region> --output json` did not list the model/version in that regional model catalog, or the regional `locations/models` endpoint reported the region is outside its supported locations. It is not quota, account approval, deployment, content filtering, or inference evidence.
 
 For Container Apps, `unavailable` means Microsoft.App provider metadata was retrieved but the configured resource type did not advertise the region in its `locations` list. It is not a quota, capacity, Dapr runtime, or deployment result.
 

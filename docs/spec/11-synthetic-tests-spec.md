@@ -43,7 +43,7 @@ The current production workflow prioritizes low-cost read-only evidence. These c
 - Command: `az cognitiveservices model list --location <region> --output json`
 - Default scope: all model/version records returned by the regional catalog command.
 - `available`: model/version is listed in the region's model catalog.
-- `unavailable`: command succeeded but the model/version is absent from that region's catalog.
+- `unavailable`: command succeeded but the model/version is absent from that region's catalog, or the `locations/models` endpoint reports the region is outside its supported locations.
 - `unknown`: command failed, timed out, or returned invalid JSON.
 - This does not test quota, provisioned throughput, content filtering, account approval, deployment creation, or inference success.
 

@@ -218,7 +218,7 @@ Most checks are read-only catalog or listing probes. They are designed to answer
 
 For Azure Functions Flex Consumption, `unavailable` means the region was absent from `az functionapp list-flexconsumption-locations --output json`. Azure CLI describes that command as listing available locations for running function apps on the Flex Consumption plan. Absence from that list is not a quota result; quota, regional capacity, policy, provider registration, and create-time failures require separate signals.
 
-For Azure AI models, `available` means `az cognitiveservices model list --location <region> --output json` listed that model/version in the region. `unavailable` means the model catalog command succeeded, but that model/version was absent from the region's model catalog. This is catalog evidence; it does not test quota, provisioned throughput, content filtering, account approval, or a deployment invocation.
+For Azure AI models, `available` means `az cognitiveservices model list --location <region> --output json` listed that model/version in the region. `unavailable` means the model/version was absent from the region's model catalog, or the regional `locations/models` endpoint reported that the region is outside its supported locations. This is catalog evidence; it does not test quota, provisioned throughput, content filtering, account approval, or a deployment invocation.
 
 For Container Apps, `available` means `az provider show --namespace Microsoft.App --expand resourceTypes/locations --output json` advertised the configured Microsoft.App resource type in that region. `unavailable` means the provider metadata call succeeded but did not advertise that resource type for that region; it is not a deployment, quota, or Dapr runtime version test.
 

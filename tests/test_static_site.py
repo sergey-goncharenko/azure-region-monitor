@@ -43,6 +43,7 @@ def test_build_static_site_writes_status_methodology_page(tmp_path):
     assert "Quota is separate" in methodology_html
     assert "AKS extensions" in methodology_html
     assert "Azure AI models" in methodology_html
+    assert "locations/models" in methodology_html
     assert "Container Apps" in methodology_html
     assert "VM SKUs" in methodology_html
     assert "methodology.html" in heatmap_html

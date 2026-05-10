@@ -1,6 +1,7 @@
 import subprocess
 
 from azure_region_monitor.config import parse_ai_model_features
+from azure_region_monitor.runner import run_probes
 from azure_region_monitor.probes.ai_models import AiModelCatalogCliProbe
 
 
@@ -84,6 +85,41 @@ def test_ai_model_probe_captures_cli_error_as_unknown():
     assert results[0].feature == "aiModelCatalog"
     assert results[0].result.status == "unknown"
     assert results[0].result.error_code == "AzureCliCommandFailed"
+
+
+def test_ai_model_probe_treats_unsupported_catalog_region_as_empty_catalog():
+    def cli_runner(command: list[str]) -> subprocess.CompletedProcess[str]:
+        if command[command.index("--location") + 1] == "eastus":
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                stdout=(
+                    '[{"kind":"OpenAI","model":{"name":"gpt-4o","version":"2024-08-06",'
+                    '"publisher":"OpenAI"}}]'
+                ),
+                stderr="",
+            )
+        return subprocess.CompletedProcess(
+            command,
+            1,
+            stdout="",
+            stderr=(
+                "ERROR: (NoRegisteredProviderFound) No registered resource provider found "
+                "for location 'australiacentral' and API version '2025-09-01' "
+                "for type 'locations/models'."
+            ),
+        )
+
+    snapshot = run_probes(
+        ["eastus", "australiacentral"],
+        [AiModelCatalogCliProbe(cli_runner=cli_runner)],
+    )
+
+    assert snapshot.regions["eastus"]["ai"]["aiModels.openai.gpt-4o.2024-08-06"].status == "available"
+    assert (
+        snapshot.regions["australiacentral"]["ai"]["aiModels.openai.gpt-4o.2024-08-06"].status
+        == "unavailable"
+    )
 
 
 def test_parse_ai_model_features_defaults_to_all_models():

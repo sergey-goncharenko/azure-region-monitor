@@ -177,7 +177,7 @@ Current probes are read-only listing probes. They provide rollout evidence, not 
 
 For Azure Functions Flex Consumption, `unavailable` means `az functionapp list-flexconsumption-locations --output json` did not return the region. The CLI help says this command lists available locations for running function apps on Flex Consumption. It does not test subscription quota, regional capacity, policy, provider registration, or a real create/deploy path.
 
-For Azure AI models, `unavailable` means `az cognitiveservices model list --location <region> --output json` completed successfully, but the model/version was absent from the region's model catalog. It does not test quota, provisioned throughput, content filtering, account approval, deployment creation, or inference success.
+For Azure AI models, `unavailable` means `az cognitiveservices model list --location <region> --output json` did not list the model/version in the regional model catalog, or the regional `locations/models` endpoint reported that the region is outside its supported locations. It does not test quota, provisioned throughput, content filtering, account approval, deployment creation, or inference success.
 
 For Container Apps, `unavailable` means `az provider show --namespace Microsoft.App --expand resourceTypes/locations --output json` completed successfully, but the configured Microsoft.App resource type did not advertise the region in its `locations` metadata. It does not test a real Container Apps environment or app deployment, Dapr runtime behavior, quota, capacity, policy, or provider registration for the subscription.
 
