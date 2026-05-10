@@ -86,6 +86,8 @@ $env:FUNCTION_RUNTIME_FEATURES="runtimes.python.3.12=PYTHON|3.12,runtimes.node.2
 azure-region-monitor run --probe function-flex-cli --output data/snapshots/latest.json
 ```
 
+The default Functions runtime set tracks every versioned Linux runtime listed by Azure CLI and excludes the unversioned custom runtime entry.
+
 ## GitHub Actions Setup
 
 Create a Microsoft Entra application or managed identity that can authenticate from GitHub Actions with OIDC. The workflow expects these repository secrets:

@@ -93,6 +93,8 @@ Run the read-only Azure Functions Flex Consumption probe locally:
 azure-region-monitor run --probe function-flex-cli --output data/snapshots/latest.json
 ```
 
+By default, the Functions probe checks every versioned Linux runtime currently listed by Azure CLI, excluding the unversioned custom runtime entry.
+
 Default regions now cover a small global spread:
 
 ```text

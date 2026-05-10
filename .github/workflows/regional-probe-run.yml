@@ -31,7 +31,7 @@ on:
         description: "Comma-separated Azure Functions feature=runtime pairs to check"
         required: false
         type: string
-        default: "runtimes.python.3.11=PYTHON|3.11,runtimes.python.3.12=PYTHON|3.12,runtimes.node.20=NODE|20,runtimes.node.22=NODE|22,runtimes.dotnet-isolated.8=DOTNET-ISOLATED|8,runtimes.java.17=JAVA|17,runtimes.java.21=JAVA|21"
+        default: ""
       azure_cli_timeout_seconds:
         description: "Maximum seconds to wait for each Azure CLI probe command"
         required: false

@@ -1,6 +1,6 @@
 import subprocess
 
-from azure_region_monitor.config import parse_function_runtime_features
+from azure_region_monitor.config import DEFAULT_FUNCTION_RUNTIME_FEATURES, parse_function_runtime_features
 from azure_region_monitor.probes.functions import FunctionsFlexConsumptionCliProbe
 
 
@@ -99,3 +99,14 @@ def test_parse_function_runtime_features_from_environment_value():
 
     assert [feature.feature for feature in features] == ["runtimes.python.3.12", "runtimes.node.22"]
     assert [feature.runtime for feature in features] == ["PYTHON|3.12", "NODE|22"]
+
+
+def test_default_function_runtime_features_cover_current_versioned_linux_catalog():
+    default_features = {feature.feature for feature in DEFAULT_FUNCTION_RUNTIME_FEATURES}
+
+    assert "runtimes.dotnet-isolated.10" in default_features
+    assert "runtimes.dotnet.8" in default_features
+    assert "runtimes.node.24" in default_features
+    assert "runtimes.python.3.14" in default_features
+    assert "runtimes.java.25" in default_features
+    assert "runtimes.powershell.7.4" in default_features

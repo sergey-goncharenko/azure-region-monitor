@@ -14,7 +14,7 @@ on:
       function_runtime_features:
         description: "Comma-separated feature=runtime pairs, for example runtimes.python.3.12=PYTHON|3.12"
         required: false
-        default: "runtimes.python.3.11=PYTHON|3.11,runtimes.python.3.12=PYTHON|3.12,runtimes.node.20=NODE|20,runtimes.node.22=NODE|22,runtimes.dotnet-isolated.8=DOTNET-ISOLATED|8,runtimes.java.17=JAVA|17,runtimes.java.21=JAVA|21"
+        default: ""
       deploy_dashboard:
         description: "Deploy this modality snapshot to Azure Static Web Apps"
         required: false
@@ -32,7 +32,7 @@ jobs:
       probes: "function-flex-cli"
       regions: ${{ inputs.regions || 'eastus,eastus2,westus3,westeurope,northeurope,swedencentral,uksouth,germanywestcentral,southeastasia,australiaeast' }}
       previous_snapshot: ${{ inputs.previous_snapshot || '' }}
-      function_runtime_features: ${{ inputs.function_runtime_features || 'runtimes.python.3.11=PYTHON|3.11,runtimes.python.3.12=PYTHON|3.12,runtimes.node.20=NODE|20,runtimes.node.22=NODE|22,runtimes.dotnet-isolated.8=DOTNET-ISOLATED|8,runtimes.java.17=JAVA|17,runtimes.java.21=JAVA|21' }}
+      function_runtime_features: ${{ inputs.function_runtime_features || '' }}
       artifact_name: "azure-region-monitor-functions-flex"
       deploy_dashboard: ${{ inputs.deploy_dashboard || false }}
       existing_snapshot_url: ${{ inputs.deploy_dashboard && 'https://gray-island-09dc9e703.7.azurestaticapps.net/api/latest.json' || '' }}

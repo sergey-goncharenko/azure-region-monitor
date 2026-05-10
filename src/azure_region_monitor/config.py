@@ -25,13 +25,32 @@ class FunctionRuntimeFeature:
 
 
 DEFAULT_FUNCTION_RUNTIME_FEATURES = [
-    FunctionRuntimeFeature(feature="runtimes.python.3.11", runtime="PYTHON|3.11"),
-    FunctionRuntimeFeature(feature="runtimes.python.3.12", runtime="PYTHON|3.12"),
-    FunctionRuntimeFeature(feature="runtimes.node.20", runtime="NODE|20"),
-    FunctionRuntimeFeature(feature="runtimes.node.22", runtime="NODE|22"),
+    FunctionRuntimeFeature(feature="runtimes.dotnet-isolated.10", runtime="DOTNET-ISOLATED|10"),
+    FunctionRuntimeFeature(feature="runtimes.dotnet-isolated.9", runtime="DOTNET-ISOLATED|9"),
     FunctionRuntimeFeature(feature="runtimes.dotnet-isolated.8", runtime="DOTNET-ISOLATED|8"),
-    FunctionRuntimeFeature(feature="runtimes.java.17", runtime="JAVA|17"),
+    FunctionRuntimeFeature(feature="runtimes.dotnet-isolated.7", runtime="DOTNET-ISOLATED|7"),
+    FunctionRuntimeFeature(feature="runtimes.dotnet-isolated.6", runtime="DOTNET-ISOLATED|6"),
+    FunctionRuntimeFeature(feature="runtimes.dotnet.8", runtime="DOTNET|8"),
+    FunctionRuntimeFeature(feature="runtimes.dotnet.6", runtime="DOTNET|6"),
+    FunctionRuntimeFeature(feature="runtimes.node.24", runtime="NODE|24"),
+    FunctionRuntimeFeature(feature="runtimes.node.22", runtime="NODE|22"),
+    FunctionRuntimeFeature(feature="runtimes.node.20", runtime="NODE|20"),
+    FunctionRuntimeFeature(feature="runtimes.node.18", runtime="NODE|18"),
+    FunctionRuntimeFeature(feature="runtimes.python.3.14", runtime="PYTHON|3.14"),
+    FunctionRuntimeFeature(feature="runtimes.python.3.13", runtime="PYTHON|3.13"),
+    FunctionRuntimeFeature(feature="runtimes.python.3.12", runtime="PYTHON|3.12"),
+    FunctionRuntimeFeature(feature="runtimes.python.3.11", runtime="PYTHON|3.11"),
+    FunctionRuntimeFeature(feature="runtimes.python.3.10", runtime="PYTHON|3.10"),
+    FunctionRuntimeFeature(feature="runtimes.python.3.9", runtime="PYTHON|3.9"),
+    FunctionRuntimeFeature(feature="runtimes.python.3.8", runtime="PYTHON|3.8"),
+    FunctionRuntimeFeature(feature="runtimes.python.3.7", runtime="PYTHON|3.7"),
+    FunctionRuntimeFeature(feature="runtimes.java.25", runtime="JAVA|25"),
     FunctionRuntimeFeature(feature="runtimes.java.21", runtime="JAVA|21"),
+    FunctionRuntimeFeature(feature="runtimes.java.17", runtime="JAVA|17"),
+    FunctionRuntimeFeature(feature="runtimes.java.11", runtime="JAVA|11"),
+    FunctionRuntimeFeature(feature="runtimes.java.8", runtime="JAVA|8"),
+    FunctionRuntimeFeature(feature="runtimes.powershell.7.4", runtime="POWERSHELL|7.4"),
+    FunctionRuntimeFeature(feature="runtimes.powershell.7.2", runtime="POWERSHELL|7.2"),
 ]
 
 
