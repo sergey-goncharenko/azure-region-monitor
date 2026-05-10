@@ -28,6 +28,7 @@ The PoC proves that synthetic checks can produce structured, region-by-region Az
 - Manual modality test workflows:
   - `.github/workflows/aks-extension-tests.yml`
   - `.github/workflows/aks-version-tests.yml`
+  - `.github/workflows/function-flex-tests.yml`
   - `.github/workflows/vm-sku-tests.yml`
 - Shared runner workflow: `.github/workflows/regional-probe-run.yml`
 - Static host: Azure Static Web Apps
@@ -48,7 +49,7 @@ azure-region-monitor diff data/snapshots/2026-05-07.json data/snapshots/latest.j
 Run the full read-only regional probe set locally:
 
 ```powershell
-azure-region-monitor run --probe aks-extension-catalog-cli --probe aks-version-cli --probe vm-sku-cli --output data/snapshots/latest.json
+azure-region-monitor run --probe aks-extension-catalog-cli --probe aks-version-cli --probe function-flex-cli --probe vm-sku-cli --output data/snapshots/latest.json
 ```
 
 To override regions:
@@ -76,6 +77,13 @@ To override VM SKUs:
 ```powershell
 $env:AZURE_VM_SKUS="Standard_B2s,Standard_D2s_v5,Standard_D2as_v5,Standard_E2s_v5"
 azure-region-monitor run --probe vm-sku-cli --output data/snapshots/latest.json
+```
+
+To override Azure Functions runtime checks:
+
+```powershell
+$env:FUNCTION_RUNTIME_FEATURES="runtimes.python.3.12=PYTHON|3.12,runtimes.node.22=NODE|22"
+azure-region-monitor run --probe function-flex-cli --output data/snapshots/latest.json
 ```
 
 ## GitHub Actions Setup
@@ -115,6 +123,7 @@ For a faster modality-specific run, select one of the focused workflows instead:
 
 - `AKS extension regional tests` runs `aks-extension-catalog-cli`.
 - `AKS Kubernetes version regional tests` runs `aks-version-cli` only.
+- `Azure Functions Flex regional tests` runs `function-flex-cli` only.
 - `VM SKU regional tests` runs `vm-sku-cli` only.
 
 Focused workflows upload modality-specific artifacts and do not deploy the public dashboard by default. VM SKU focused deployments merge the fresh SKU snapshot into the current live dashboard snapshot before publishing, so existing extension and Kubernetes version sections remain visible.

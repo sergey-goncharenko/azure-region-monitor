@@ -27,6 +27,11 @@ on:
         required: false
         type: string
         default: "Standard_B2s,Standard_D2s_v5,Standard_D2as_v5,Standard_E2s_v5"
+      function_runtime_features:
+        description: "Comma-separated Azure Functions feature=runtime pairs to check"
+        required: false
+        type: string
+        default: "runtimes.python.3.11=PYTHON|3.11,runtimes.python.3.12=PYTHON|3.12,runtimes.node.20=NODE|20,runtimes.node.22=NODE|22,runtimes.dotnet-isolated.8=DOTNET-ISOLATED|8,runtimes.java.17=JAVA|17,runtimes.java.21=JAVA|21"
       azure_cli_timeout_seconds:
         description: "Maximum seconds to wait for each Azure CLI probe command"
         required: false
@@ -70,6 +75,7 @@ jobs:
       SNAPSHOT_DATE: ${{ github.run_id }}
       AKS_KUBERNETES_VERSION_PREFIXES: ${{ inputs.aks_kubernetes_version_prefixes }}
       AZURE_VM_SKUS: ${{ inputs.vm_skus }}
+      FUNCTION_RUNTIME_FEATURES: ${{ inputs.function_runtime_features }}
       AZURE_CLI_TIMEOUT_SECONDS: ${{ inputs.azure_cli_timeout_seconds }}
     steps:
       - name: Checkout

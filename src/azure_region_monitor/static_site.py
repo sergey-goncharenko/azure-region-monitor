@@ -527,6 +527,10 @@ def _compact_feature_label(feature: str, group: str) -> str:
         return label.removeprefix(group_prefix) if label.startswith(group_prefix) else label
     if feature.startswith("kubernetesVersions."):
         return feature.removeprefix("kubernetesVersions.")
+    if feature.startswith("hostingPlans."):
+        return feature.removeprefix("hostingPlans.")
+    if feature.startswith("runtimes."):
+        return feature.removeprefix("runtimes.")
     if feature.startswith("vmSkus."):
         return feature.removeprefix("vmSkus.")
     return feature
@@ -539,6 +543,8 @@ def _feature_category(feature: str) -> str:
         return "AKS extensions"
     if feature.startswith("kubernetesVersions."):
         return "AKS Kubernetes versions"
+    if feature.startswith("hostingPlans.") or feature.startswith("runtimes."):
+      return "Azure Functions"
     if feature.startswith("vmSkus."):
         return "VM SKUs"
     return feature.split(".", 1)[0]
@@ -552,6 +558,11 @@ def _feature_group(feature: str) -> str:
         return "curated"
     if feature.startswith("kubernetesVersions."):
         return feature.removeprefix("kubernetesVersions.")
+    if feature.startswith("hostingPlans."):
+        return "hosting plans"
+    if feature.startswith("runtimes."):
+        parts = feature.removeprefix("runtimes.").split(".")
+        return parts[0] if parts else "runtime"
     if feature.startswith("vmSkus."):
         return _vm_sku_family(feature)
     return feature.split(".", 1)[0]
@@ -624,7 +635,7 @@ def _render_regional_availability_tables(rows: list[dict[str, object]], regions:
 
 
 def _sorted_modalities(summaries_by_modality: dict[str, list[dict[str, object]]]) -> list[str]:
-    preferred_order = ["AKS extensions", "AKS Kubernetes versions", "VM SKUs"]
+    preferred_order = ["AKS extensions", "AKS Kubernetes versions", "Azure Functions", "VM SKUs"]
     ordered = [modality for modality in preferred_order if modality in summaries_by_modality]
     ordered.extend(sorted(set(summaries_by_modality) - set(preferred_order)))
     return ordered
@@ -1130,6 +1141,7 @@ def _heatmap_script() -> str:
       if (feature === 'extensionCatalog') return 'AKS extensions';
       if (feature.startsWith('extensions.') || feature.startsWith('extensionTypes.')) return 'AKS extensions';
       if (feature.startsWith('kubernetesVersions.')) return 'AKS Kubernetes versions';
+      if (feature.startsWith('hostingPlans.') || feature.startsWith('runtimes.')) return 'Azure Functions';
       if (feature.startsWith('vmSkus.')) return 'VM SKUs';
       return feature.split('.')[0];
     }
@@ -1137,6 +1149,8 @@ def _heatmap_script() -> str:
       if (feature.startsWith('extensionTypes.')) return feature.replace('extensionTypes.', '').split('.')[0] || 'unknown';
       if (feature.startsWith('extensions.')) return 'curated';
       if (feature.startsWith('kubernetesVersions.')) return feature.replace('kubernetesVersions.', '');
+      if (feature.startsWith('hostingPlans.')) return 'hosting plans';
+      if (feature.startsWith('runtimes.')) return feature.replace('runtimes.', '').split('.')[0] || 'runtime';
       if (feature.startsWith('vmSkus.')) {
         const sku = feature.replace('vmSkus.', '').replace('standard.', '');
         const match = sku.match(/^([a-z]+)/i);

@@ -163,6 +163,10 @@ def test_build_static_site_groups_modalities_by_feature_family(tmp_path):
                 "compute": {
                     "vmSkus.standard.b2s": {"status": "available"},
                 },
+                "functions": {
+                    "hostingPlans.flexConsumption": {"status": "available"},
+                    "runtimes.python.3.12": {"status": "available"},
+                },
             }
         },
     }
@@ -176,6 +180,7 @@ def test_build_static_site_groups_modalities_by_feature_family(tmp_path):
 
     assert "AKS extensions" in index_html
     assert "AKS Kubernetes versions" in index_html
+    assert "Azure Functions" in index_html
     assert "VM SKUs" in index_html
     assert "<td>None</td>" not in index_html
 
@@ -219,6 +224,11 @@ def test_build_static_site_color_codes_regional_modality_groups(tmp_path):
                     "vmSkus.standard.e4s.v5": {"status": "unavailable"},
                     "vmSkus.standard.e8s.v5": {"status": "unavailable"},
                 },
+                "functions": {
+                    "hostingPlans.flexConsumption": {"status": "available"},
+                    "runtimes.python.3.12": {"status": "available"},
+                    "runtimes.node.22": {"status": "unavailable"},
+                },
             }
         },
     }
@@ -232,10 +242,11 @@ def test_build_static_site_color_codes_regional_modality_groups(tmp_path):
 
     assert "Each modality has its own group / region matrix" in index_html
     assert "availability-matrix" in index_html
-    assert index_html.count('<section class="panel availability-section"') == 3
+    assert index_html.count('<section class="panel availability-section"') == 4
     assert "matrix-scroll-top" in index_html
     assert ">AKS extensions</h2>" in index_html
     assert ">AKS Kubernetes versions</h2>" in index_html
+    assert ">Azure Functions</h2>" in index_html
     assert ">VM SKUs</h2>" in index_html
     assert "Groups by country, then Azure region" in index_html
     assert index_html.index('title="Australia - australiaeast"') < index_html.index(
@@ -260,6 +271,9 @@ def test_build_static_site_color_codes_regional_modality_groups(tmp_path):
     assert "availability-poor" in index_html
     assert "<td><code>azure</code></td>" in index_html
     assert "<td><code>microsoft</code></td>" in index_html
+    assert "<td><code>hosting plans</code></td>" in index_html
+    assert "<td><code>python</code></td>" in index_html
+    assert "<td><code>node</code></td>" in index_html
     assert "<td><code>D</code></td>" in index_html
     assert "<td><code>E</code></td>" in index_html
     assert "<span class=\"availability-count\">1/1</span>" in index_html

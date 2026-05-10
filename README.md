@@ -25,6 +25,7 @@ The first implementation slice is a Python service with:
 - An Azure CLI-backed AKS extension probe for real regional checks
 - An Azure CLI-backed AKS extension catalog probe that tracks every listed extension type per region
 - An Azure CLI-backed AKS Kubernetes version probe for minor-version rollout checks
+- An Azure CLI-backed Azure Functions Flex Consumption probe for hosting/runtime rollout checks
 - An Azure CLI-backed VM SKU probe for compute SKU regional availability
 - JSON snapshot and diff storage helpers
 - Daily static snapshot history and compact recent-change summaries
@@ -77,13 +78,19 @@ azure-region-monitor run --probe aks-extension-cli --output data/snapshots/lates
 Run the full read-only regional probe set locally:
 
 ```powershell
-azure-region-monitor run --probe aks-extension-catalog-cli --probe aks-version-cli --probe vm-sku-cli --output data/snapshots/latest.json
+azure-region-monitor run --probe aks-extension-catalog-cli --probe aks-version-cli --probe function-flex-cli --probe vm-sku-cli --output data/snapshots/latest.json
 ```
 
 Run the read-only VM SKU probe locally:
 
 ```powershell
 azure-region-monitor run --probe vm-sku-cli --output data/snapshots/latest.json
+```
+
+Run the read-only Azure Functions Flex Consumption probe locally:
+
+```powershell
+azure-region-monitor run --probe function-flex-cli --output data/snapshots/latest.json
 ```
 
 Default regions now cover a small global spread:
@@ -118,6 +125,13 @@ Set `AZURE_VM_SKUS=all` to track every SKU returned by `az vm list-sizes` in eac
 ```powershell
 $env:AZURE_VM_SKUS="all"
 azure-region-monitor run --probe vm-sku-cli --output data/snapshots/latest.json
+```
+
+Customize Azure Functions runtime checks with comma-separated `feature=runtime` pairs:
+
+```powershell
+$env:FUNCTION_RUNTIME_FEATURES="runtimes.python.3.12=PYTHON|3.12,runtimes.node.22=NODE|22"
+azure-region-monitor run --probe function-flex-cli --output data/snapshots/latest.json
 ```
 
 Generate a diff between two snapshots:

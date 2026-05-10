@@ -19,6 +19,23 @@ DEFAULT_VM_SKUS = ["Standard_B2s", "Standard_D2s_v5", "Standard_D2as_v5", "Stand
 
 
 @dataclass(frozen=True)
+class FunctionRuntimeFeature:
+    feature: str
+    runtime: str
+
+
+DEFAULT_FUNCTION_RUNTIME_FEATURES = [
+    FunctionRuntimeFeature(feature="runtimes.python.3.11", runtime="PYTHON|3.11"),
+    FunctionRuntimeFeature(feature="runtimes.python.3.12", runtime="PYTHON|3.12"),
+    FunctionRuntimeFeature(feature="runtimes.node.20", runtime="NODE|20"),
+    FunctionRuntimeFeature(feature="runtimes.node.22", runtime="NODE|22"),
+    FunctionRuntimeFeature(feature="runtimes.dotnet-isolated.8", runtime="DOTNET-ISOLATED|8"),
+    FunctionRuntimeFeature(feature="runtimes.java.17", runtime="JAVA|17"),
+    FunctionRuntimeFeature(feature="runtimes.java.21", runtime="JAVA|21"),
+]
+
+
+@dataclass(frozen=True)
 class AksExtensionFeature:
     feature: str
     extension_type: str
@@ -70,3 +87,19 @@ def parse_vm_skus(raw: str | None) -> list[str]:
     if not skus:
         raise ValueError("VM SKUs cannot be empty")
     return skus
+
+
+def parse_function_runtime_features(raw: str | None) -> list[FunctionRuntimeFeature]:
+    if not raw:
+        return DEFAULT_FUNCTION_RUNTIME_FEATURES
+
+    features: list[FunctionRuntimeFeature] = []
+    for item in raw.split(","):
+        feature, separator, runtime = item.strip().partition("=")
+        if not separator or not feature or not runtime:
+            raise ValueError(
+                "Function runtime features must use 'feature=runtime' pairs separated by commas"
+            )
+        features.append(FunctionRuntimeFeature(feature=feature, runtime=runtime))
+
+    return features
