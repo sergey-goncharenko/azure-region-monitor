@@ -117,14 +117,17 @@ def _render_index(snapshot: Snapshot) -> str:
         </div>
       </div>
     </section>
-    <section class="panel" aria-label="Region modality availability">
-      <div class="panel-header">
+    <section class="availability-stack" aria-label="Region modality availability">
+      <div class="section-heading">
         <h2>Regional Availability By Modality</h2>
         <div class="panel-subtitle">Each modality has its own group / region matrix</div>
       </div>
-      <div class="availability-sections">{regional_availability_tables}</div>
     </section>
+    {regional_availability_tables}
   </main>
+  <script>
+{_index_script()}
+  </script>
 </body>
 </html>
 """
@@ -266,6 +269,7 @@ def _style_block() -> str:
     .layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(360px, 1fr); gap: 14px; align-items: start; margin-bottom: 14px; }
     .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; margin-bottom: 14px; }
     .panel-header { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; padding: 14px 14px 0; }
+    .section-heading { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; margin: 18px 0 10px; }
     h2 { margin: 0; font-size: 16px; line-height: 1.3; font-weight: 650; letter-spacing: 0; }
     .table-wrap { overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
     .panel .table-wrap { border: 0; border-radius: 0; }
@@ -293,8 +297,9 @@ def _style_block() -> str:
     .status-partial { background: var(--partial-bg); color: var(--partial-text); }
     .status-unknown { background: var(--unknown-bg); color: var(--unknown-text); }
     .status-dot { display: inline-flex; width: 22px; height: 22px; border-radius: 50%; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; line-height: 1; }
-    .availability-sections { display: grid; gap: 16px; padding-top: 10px; }
-    .availability-section-title { padding: 0 14px; font-size: 14px; font-weight: 650; color: var(--text); }
+    .availability-section .panel-header { padding-bottom: 10px; }
+    .matrix-scroll-top { overflow-x: auto; overflow-y: hidden; height: 16px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: #f9fbfd; }
+    .matrix-scroll-top > div { height: 1px; }
     .availability-matrix table { min-width: max-content; }
     .availability-matrix th, .availability-matrix td { text-align: center; }
     .availability-matrix th:first-child, .availability-matrix td:first-child { text-align: left; }
@@ -303,7 +308,8 @@ def _style_block() -> str:
     .availability-matrix th:first-child { z-index: 3; }
     .region-header { min-width: 52px; width: 52px; padding-left: 6px; padding-right: 6px; }
     .region-heading { display: inline-grid; justify-items: center; gap: 2px; line-height: 1.05; text-transform: none; }
-    .region-flag { font-size: 16px; line-height: 1; }
+    .region-flag { width: 20px; height: 15px; object-fit: cover; border-radius: 2px; box-shadow: 0 0 0 1px rgba(23, 32, 51, 0.12); }
+    .region-flag-fallback { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 15px; border-radius: 2px; background: var(--unknown-bg); color: var(--unknown-text); font-size: 10px; font-weight: 700; }
     .region-label { max-width: 48px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; color: var(--muted); }
     .availability-badge { display: inline-flex; gap: 5px; align-items: center; justify-content: center; min-height: 24px; padding: 3px 7px; border-radius: 999px; border: 1px solid transparent; font-size: 12px; font-weight: 650; white-space: nowrap; }
     .availability-label { max-width: 96px; overflow: hidden; text-overflow: ellipsis; }
@@ -463,8 +469,12 @@ def _render_modality_availability_table(
 ) -> str:
     region_headers = "\n".join(_render_region_header(region) for region in regions)
     group_rows = "\n".join(_render_region_group_row(row, regions) for row in summaries)
-    return f"""<section class="availability-section" aria-label="{html.escape(modality)} regional availability">
-          <h3 class="availability-section-title">{html.escape(modality)}</h3>
+    return f"""<section class="panel availability-section" aria-label="{html.escape(modality)} regional availability">
+          <div class="panel-header">
+            <h2>{html.escape(modality)}</h2>
+            <div class="panel-subtitle">Groups by region, sorted by Azure region name</div>
+          </div>
+          <div class="matrix-scroll-top" aria-hidden="true"><div></div></div>
           <div class="table-wrap availability-matrix">
             <table>
               <thead>
@@ -480,10 +490,11 @@ def _render_modality_availability_table(
 
 
 def _render_region_header(region: str) -> str:
-    flag = _region_flag(region)
+    country_code = _region_country_code(region)
+    flag = _region_flag(country_code)
     label = _region_short_label(region)
     return f"""<th class="region-header" title="{html.escape(region)}">
-            <span class="region-heading"><span class="region-flag" aria-hidden="true">{flag}</span><span class="region-label">{html.escape(label)}</span></span>
+                    <span class="region-heading">{flag}<span class="region-label">{html.escape(label)}</span></span>
             </th>"""
 
 
@@ -497,15 +508,14 @@ def _render_region_group_row(row: dict[str, object], regions: list[str]) -> str:
               </tr>"""
 
 
-def _region_flag(region: str) -> str:
-    return _country_flag(_region_country_code(region))
-
-
-def _country_flag(country_code: str) -> str:
-    code = country_code.upper()
-    if len(code) != 2 or not code.isalpha():
-        return ""
-    return "".join(chr(0x1F1E6 + ord(character) - ord("A")) for character in code)
+def _region_flag(country_code: str) -> str:
+  if country_code == "UN":
+    return '<span class="region-flag-fallback" aria-hidden="true">?</span>'
+  code = country_code.lower()
+  return (
+    f'<img class="region-flag" src="https://flagcdn.com/20x15/{code}.png" '
+    f'alt="{html.escape(country_code)} flag" loading="lazy">'
+  )
 
 
 def _region_country_code(region: str) -> str:
@@ -533,6 +543,14 @@ def _region_country_code(region: str) -> str:
         return "MX"
     if normalized.startswith("chile"):
         return "CL"
+    if normalized.startswith("denmark"):
+      return "DK"
+    if normalized.startswith("finland"):
+      return "FI"
+    if normalized.startswith("greece"):
+      return "GR"
+    if normalized.startswith("portugal"):
+      return "PT"
     if normalized.startswith("uk"):
         return "GB"
     if normalized.startswith("france"):
@@ -608,6 +626,10 @@ def _region_short_label(region: str) -> str:
       "brazilsoutheast": "se",
       "mexicocentral": "central",
       "chilecentral": "central",
+      "denmarkeast": "east",
+      "finlandcentral": "central",
+      "greececentral": "central",
+      "portugalcentral": "central",
       "uksouth": "south",
       "ukwest": "west",
       "francecentral": "central",
@@ -654,6 +676,31 @@ def _region_short_label(region: str) -> str:
       "southafricawest": "west",
     }
     return replacements.get(normalized, normalized)
+
+
+def _index_script() -> str:
+    return r"""
+    function syncAvailabilityScrollbars() {
+      document.querySelectorAll('.availability-section').forEach((section) => {
+        const top = section.querySelector('.matrix-scroll-top');
+        const body = section.querySelector('.availability-matrix');
+        const spacer = top ? top.firstElementChild : null;
+        if (!top || !body || !spacer) return;
+        spacer.style.width = `${body.scrollWidth}px`;
+        let syncing = false;
+        const sync = (source, target) => {
+          if (syncing) return;
+          syncing = true;
+          target.scrollLeft = source.scrollLeft;
+          syncing = false;
+        };
+        top.addEventListener('scroll', () => sync(top, body));
+        body.addEventListener('scroll', () => sync(body, top));
+      });
+    }
+    window.addEventListener('load', syncAvailabilityScrollbars);
+    window.addEventListener('resize', syncAvailabilityScrollbars);
+"""
 
 
 def _render_availability_cell(summary: dict[str, int] | None, region: str) -> str:

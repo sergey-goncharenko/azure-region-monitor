@@ -29,6 +29,14 @@ def test_build_static_site_shows_uniform_extension_availability(tmp_path):
     snapshot = {
         "timestamp": "2026-05-08T00:00:00Z",
         "regions": {
+            "australiaeast": {
+                "aks": {
+                    "extensionTypes.azure.policy": {"status": "available"},
+                },
+                "compute": {
+                    "vmSkus.standard.b2s": {"status": "available"},
+                },
+            },
             "eastus": {
                 "aks": {
                     "extensionCatalog": {
@@ -78,6 +86,14 @@ def test_build_static_site_groups_modalities_by_feature_family(tmp_path):
     snapshot = {
         "timestamp": "2026-05-08T00:00:00Z",
         "regions": {
+            "australiaeast": {
+                "aks": {
+                    "extensionTypes.azure.policy": {"status": "available"},
+                },
+                "compute": {
+                    "vmSkus.standard.b2s": {"status": "available"},
+                },
+            },
             "eastus": {
                 "aks": {
                     "extensionTypes.microsoft.flux": {"status": "available"},
@@ -109,6 +125,14 @@ def test_build_static_site_color_codes_regional_modality_groups(tmp_path):
     snapshot = {
         "timestamp": "2026-05-08T00:00:00Z",
         "regions": {
+            "australiaeast": {
+                "aks": {
+                    "extensionTypes.azure.policy": {"status": "available"},
+                },
+                "compute": {
+                    "vmSkus.standard.b2s": {"status": "available"},
+                },
+            },
             "eastus": {
                 "aks": {
                     "extensionTypes.microsoft.flux": {"status": "available"},
@@ -139,12 +163,18 @@ def test_build_static_site_color_codes_regional_modality_groups(tmp_path):
 
     assert "Each modality has its own group / region matrix" in index_html
     assert "availability-matrix" in index_html
-    assert index_html.count('<section class="availability-section"') == 3
-    assert 'availability-section-title">AKS extensions' in index_html
-    assert 'availability-section-title">AKS Kubernetes versions' in index_html
-    assert 'availability-section-title">VM SKUs' in index_html
+    assert index_html.count('<section class="panel availability-section"') == 3
+    assert "matrix-scroll-top" in index_html
+    assert ">AKS extensions</h2>" in index_html
+    assert ">AKS Kubernetes versions</h2>" in index_html
+    assert ">VM SKUs</h2>" in index_html
+    assert index_html.index('title="australiaeast"') < index_html.index('title="eastus"')
+    assert 'alt="AU flag"' in index_html
+    assert 'alt="US flag"' in index_html
+    assert "flagcdn.com/20x15/au.png" in index_html
+    assert "flagcdn.com/20x15/us.png" in index_html
     assert 'title="eastus"' in index_html
-    assert "\U0001f1fa\U0001f1f8" in index_html
+    assert "\U0001f1fa\U0001f1f8" not in index_html
     assert '<span class="region-label">east</span>' in index_html
     assert "<th>Group</th>" in index_html
     assert "availability-good" in index_html
