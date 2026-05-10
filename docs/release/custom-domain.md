@@ -27,8 +27,16 @@ az staticwebapp hostname show `
   --output tsv
 ```
 
-Add the TXT record requested by Azure only in the DNS provider. Do not commit
-validation tokens or Azure resource identifiers to this repository.
+For staged TXT validation, add the token only in the DNS provider:
+
+| Type | Name | Value |
+| --- | --- | --- |
+| TXT | `_dnsauth.azwatch` | Azure CLI validation token |
+
+Some DNS providers want the fully qualified name
+`_dnsauth.azwatch.operator.lat` instead of `_dnsauth.azwatch`.
+
+Do not commit validation tokens or Azure resource identifiers to this repository.
 
 ## Azure Binding
 
