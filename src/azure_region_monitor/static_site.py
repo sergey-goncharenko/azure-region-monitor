@@ -119,6 +119,7 @@ def _write_static_web_app_config(output_dir: Path) -> None:
         ],
         "mimeTypes": {
             ".json": "application/json",
+            ".gz": "application/gzip",
         },
     }
     (output_dir / "staticwebapp.config.json").write_text(

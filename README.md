@@ -235,7 +235,7 @@ Useful endpoints:
 - `GET /api/history/{date}`
 - `GET /api/history/index.json`
 - `GET /api/history/recent-changes.json`
-- `GET /api/history/snapshots/{date}.json`
+- `GET /api/history/snapshots/{date}.json.gz`
 - `GET /api/history/changes/{date}.json`
 
 ## Status Semantics

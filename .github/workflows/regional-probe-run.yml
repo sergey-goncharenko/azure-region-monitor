@@ -216,6 +216,11 @@ jobs:
       - name: Build static site
         run: azure-region-monitor build-static --output public
 
+      - name: Report static site size
+        run: |
+          du -sh public
+          find public -type f -printf '%s %p\n' | sort -nr | head -20
+
       - name: Deploy Azure Static Web App
         uses: Azure/static-web-apps-deploy@v1
         with:

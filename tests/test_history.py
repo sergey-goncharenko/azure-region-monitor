@@ -1,3 +1,4 @@
+import gzip
 import json
 
 from azure_region_monitor.history import update_history
@@ -44,14 +45,83 @@ def test_update_history_writes_daily_snapshot_and_recent_changes(tmp_path):
     index = json.loads((history_dir / "index.json").read_text(encoding="utf-8"))
     change_day = json.loads((history_dir / "changes" / "2026-05-10.json").read_text(encoding="utf-8"))
 
-    assert (history_dir / "snapshots" / "2026-05-10.json").exists()
+    snapshot_history = history_dir / "snapshots" / "2026-05-10.json.gz"
+    assert snapshot_history.exists()
+    with gzip.open(snapshot_history, "rt", encoding="utf-8") as stream:
+        assert json.loads(stream.read())["timestamp"] == "2026-05-10T00:00:00Z"
     assert index["latest_date"] == "2026-05-10"
+    assert index["latest_snapshot_path"] == "snapshots/2026-05-10.json.gz"
     assert [day["date"] for day in index["days"]] == ["2026-05-10", "2026-05-08"]
     assert change_day["previous_date"] == "2026-05-08"
     assert change_day["total_changes"] == 1
     assert change_day["change_type_counts"]["new_availability"] == 1
     assert change_day["highlights"][0]["group"] == "microsoft"
     assert recent_changes["days"][0]["date"] == "2026-05-10"
+
+
+def test_update_history_migrates_legacy_json_snapshots(tmp_path):
+    history_dir = tmp_path / "history"
+    legacy_snapshot_path = history_dir / "snapshots" / "2026-05-08.json"
+    legacy_snapshot_path.parent.mkdir(parents=True)
+    legacy_snapshot_path.write_text(
+        json.dumps(
+            {
+                "timestamp": "2026-05-08T00:00:00Z",
+                "regions": {
+                    "eastus": {
+                        "aks": {
+                            "extensionTypes.microsoft.flux": {"status": "unavailable"},
+                        }
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    (history_dir / "index.json").write_text(
+        json.dumps(
+            {
+                "latest_date": "2026-05-08",
+                "latest_snapshot_path": "snapshots/2026-05-08.json",
+                "days": [
+                    {
+                        "date": "2026-05-08",
+                        "snapshot_path": "snapshots/2026-05-08.json",
+                        "change_path": "changes/2026-05-08.json",
+                        "total_changes": 0,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    current_snapshot = tmp_path / "current.json"
+    current_snapshot.write_text(
+        json.dumps(
+            {
+                "timestamp": "2026-05-10T00:00:00Z",
+                "regions": {
+                    "eastus": {
+                        "aks": {
+                            "extensionTypes.microsoft.flux": {"status": "available"},
+                        }
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    update_history(current_snapshot, history_dir)
+
+    index = json.loads((history_dir / "index.json").read_text(encoding="utf-8"))
+    change_day = json.loads((history_dir / "changes" / "2026-05-10.json").read_text(encoding="utf-8"))
+
+    assert not legacy_snapshot_path.exists()
+    assert (history_dir / "snapshots" / "2026-05-08.json.gz").exists()
+    assert index["days"][1]["snapshot_path"] == "snapshots/2026-05-08.json.gz"
+    assert change_day["previous_snapshot_path"] == "snapshots/2026-05-08.json.gz"
+    assert change_day["total_changes"] == 1
 
 
 def test_recent_changes_include_today_and_previous_change_days(tmp_path):

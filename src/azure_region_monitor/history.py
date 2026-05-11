@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gzip
 import json
 import shutil
 import urllib.error
@@ -11,7 +12,7 @@ from typing import Any
 
 from azure_region_monitor.diff import build_diff
 from azure_region_monitor.models import Change, Snapshot
-from azure_region_monitor.storage import load_snapshot, write_snapshot
+from azure_region_monitor.storage import load_snapshot
 
 RECENT_CHANGE_DAYS = 10
 CHANGE_HIGHLIGHTS = 10
@@ -38,15 +39,16 @@ def update_history(snapshot_path: Path, history_dir: Path, base_url: str | None 
 
     current = load_snapshot(snapshot_path)
     current_date = _snapshot_date(current)
-    snapshot_history_path = Path("snapshots") / f"{current_date}.json"
+    snapshot_history_path = Path("snapshots") / f"{current_date}.json.gz"
     change_history_path = Path("changes") / f"{current_date}.json"
 
     existing_index = _read_json(history_dir / "index.json") or {}
+    _migrate_history_snapshot_paths(history_dir, existing_index)
     previous_entry = _previous_snapshot_entry(existing_index, current_date)
     previous = _load_previous_snapshot(history_dir, previous_entry)
     diff = build_diff(previous, current) if previous else None
 
-    write_snapshot(history_dir / snapshot_history_path, current)
+    _write_snapshot_gzip(history_dir / snapshot_history_path, current)
     day_summary = _build_day_summary(
         current=current,
         current_date=current_date,
@@ -196,7 +198,59 @@ def _load_previous_snapshot(history_dir: Path, entry: dict[str, Any] | None) -> 
     path = _safe_history_path(history_dir, str(entry["snapshot_path"]))
     if not path.exists():
         return None
+    return _load_history_snapshot(path)
+
+
+def _load_history_snapshot(path: Path) -> Snapshot:
+    if path.suffix == ".gz":
+        with gzip.open(path, "rt", encoding="utf-8") as stream:
+            return Snapshot.model_validate_json(stream.read())
     return load_snapshot(path)
+
+
+def _write_snapshot_gzip(path: Path, snapshot: Snapshot) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = json.dumps(snapshot.model_dump(mode="json"), indent=2, sort_keys=True) + "\n"
+    with gzip.open(path, "wt", encoding="utf-8") as stream:
+        stream.write(payload)
+
+
+def _migrate_history_snapshot_paths(history_dir: Path, index: dict[str, Any]) -> None:
+    path_map: dict[str, str] = {}
+    for day in index.get("days", []):
+        if not isinstance(day, dict):
+            continue
+        snapshot_path = day.get("snapshot_path")
+        if not isinstance(snapshot_path, str) or not snapshot_path.endswith(".json"):
+            continue
+        if not _is_safe_relative_path(snapshot_path):
+            continue
+        compressed_path = f"{snapshot_path}.gz"
+        source = history_dir / snapshot_path
+        target = history_dir / compressed_path
+        if source.exists():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if not target.exists():
+                with source.open("rb") as input_stream, gzip.open(target, "wb") as output_stream:
+                    shutil.copyfileobj(input_stream, output_stream)
+            source.unlink()
+        if target.exists():
+            path_map[snapshot_path] = compressed_path
+            day["snapshot_path"] = compressed_path
+
+    if not path_map:
+        return
+
+    latest_snapshot_path = index.get("latest_snapshot_path")
+    if isinstance(latest_snapshot_path, str) and latest_snapshot_path in path_map:
+        index["latest_snapshot_path"] = path_map[latest_snapshot_path]
+
+    for day in index.get("days", []):
+        if not isinstance(day, dict):
+            continue
+        previous_snapshot_path = day.get("previous_snapshot_path")
+        if isinstance(previous_snapshot_path, str) and previous_snapshot_path in path_map:
+            day["previous_snapshot_path"] = path_map[previous_snapshot_path]
 
 
 def _history_paths(index: dict[str, Any]) -> set[str]:
@@ -268,7 +322,26 @@ def copy_history_to_api(history_dir: Path, api_history_dir: Path) -> None:
         return
     if api_history_dir.exists():
         shutil.rmtree(api_history_dir)
-    shutil.copytree(history_dir, api_history_dir)
+    api_history_dir.mkdir(parents=True, exist_ok=True)
+
+    paths = {"recent-changes.json"}
+
+    index_path = history_dir / "index.json"
+    if index_path.exists():
+        shutil.copyfile(index_path, api_history_dir / "index.json")
+        index = _read_json(index_path) or {}
+        paths.update(_history_paths(index))
+
+    recent_changes = _read_json(history_dir / "recent-changes.json") or {}
+    paths.update(_history_paths(recent_changes))
+
+    for relative_path in sorted(paths):
+        source = _safe_history_path(history_dir, relative_path)
+        if not source.exists():
+            continue
+        target = _safe_history_path(api_history_dir, relative_path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source, target)
 
 
 def _snapshot_date(snapshot: Snapshot) -> str:
