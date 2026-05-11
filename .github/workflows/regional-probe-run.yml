@@ -23,10 +23,10 @@ on:
         type: string
         default: "1.32,1.33,1.34,1.35"
       vm_skus:
-        description: "Comma-separated Azure VM SKUs to check"
+        description: "Comma-separated Azure VM SKUs to check, or 'all' for every listed SKU"
         required: false
         type: string
-        default: "Standard_B2s,Standard_D2s_v5,Standard_D2as_v5,Standard_E2s_v5"
+        default: "all"
       function_runtime_features:
         description: "Comma-separated Azure Functions feature=runtime pairs to check"
         required: false

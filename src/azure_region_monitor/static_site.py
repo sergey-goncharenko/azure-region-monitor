@@ -54,6 +54,7 @@ _COUNTRY_NAMES = {
 
 _LARGE_EXTENSION_GROUP_THRESHOLD = 10
 _PRIMARY_EXTENSION_GROUPS = {"microsoft"}
+_REPOSITORY_URL = "https://github.com/sergey-goncharenko/azure-region-monitor"
 _CONTENT_SECURITY_POLICY = (
     "default-src 'self'; "
     "base-uri 'self'; "
@@ -159,8 +160,16 @@ def _render_index(snapshot: Snapshot, recent_changes: dict[str, Any] | None = No
         <a href="methodology.html">Status meanings</a>
         <a href="heatmap.html">Detailed heatmap</a>
         <a href="api/latest.json">api/latest.json</a>
+        <a href="{_REPOSITORY_URL}">GitHub repository</a>
       </nav>
     </header>
+    <section class="repo-callout" aria-label="Project repository">
+      <div>
+        <h2>Open Source Monitor</h2>
+        <p>Source code, methodology notes, workflows, and release tracking are public in the GitHub repository.</p>
+      </div>
+      <a href="{_REPOSITORY_URL}">View repository</a>
+    </section>
     <section class="metrics" aria-label="Availability summary">
       {_render_metric("Regions", len(regions))}
       {_render_metric("Unique features", len(unique_features))}
@@ -427,6 +436,9 @@ def _style_block() -> str:
     button:disabled { cursor: not-allowed; opacity: 0.45; }
     .links { display: flex; gap: 14px; flex-wrap: wrap; }
     .timestamp, .panel-subtitle { color: var(--muted); font-size: 14px; }
+    .repo-callout { display: flex; justify-content: space-between; align-items: center; gap: 18px; background: #eef4fb; border: 1px solid var(--line); border-radius: 8px; padding: 14px; margin: 0 0 18px; }
+    .repo-callout p { margin: 4px 0 0; color: var(--muted); font-size: 14px; }
+    .repo-callout a { white-space: nowrap; font-weight: 650; }
     .metrics { display: grid; grid-template-columns: repeat(4, minmax(130px, 1fr)); gap: 10px; margin: 18px 0; }
     .metric { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
     .metric-value { font-size: 24px; font-weight: 650; }
@@ -508,6 +520,7 @@ def _style_block() -> str:
       main { padding: 20px 12px 32px; }
       header { display: block; }
       h1 { font-size: 22px; }
+      .repo-callout { align-items: flex-start; flex-direction: column; }
       .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .layout { grid-template-columns: 1fr; }
       .toolbar { grid-template-columns: 1fr; }

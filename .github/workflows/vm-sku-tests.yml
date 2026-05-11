@@ -14,7 +14,7 @@ on:
       vm_skus:
         description: "Comma-separated Azure VM SKUs to check, or 'all' for every listed SKU"
         required: false
-        default: "Standard_B2s,Standard_D2s_v5,Standard_D2as_v5,Standard_E2s_v5"
+        default: "all"
       deploy_dashboard:
         description: "Deploy this modality snapshot to Azure Static Web Apps"
         required: false
@@ -32,7 +32,7 @@ jobs:
       probes: "vm-sku-cli"
       regions: ${{ inputs.regions || '' }}
       previous_snapshot: ${{ inputs.previous_snapshot || '' }}
-      vm_skus: ${{ inputs.vm_skus || 'Standard_B2s,Standard_D2s_v5,Standard_D2as_v5,Standard_E2s_v5' }}
+      vm_skus: ${{ inputs.vm_skus || 'all' }}
       artifact_name: "azure-region-monitor-vm-skus"
       deploy_dashboard: ${{ inputs.deploy_dashboard || false }}
       existing_snapshot_url: ${{ inputs.deploy_dashboard && 'https://azwatch.operator.lat/api/latest.json' || '' }}

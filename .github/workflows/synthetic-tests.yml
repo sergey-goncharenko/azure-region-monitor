@@ -18,7 +18,7 @@ on:
       vm_skus:
         description: "Comma-separated Azure VM SKUs to check, or 'all' for every listed SKU"
         required: false
-        default: "Standard_B2s,Standard_D2s_v5,Standard_D2as_v5,Standard_E2s_v5"
+        default: "all"
       function_runtime_features:
         description: "Comma-separated Azure Functions feature=runtime pairs to check"
         required: false
@@ -53,7 +53,7 @@ jobs:
       function_runtime_features: ${{ inputs.function_runtime_features || '' }}
       ai_model_features: ${{ inputs.ai_model_features || 'all' }}
       container_apps_resource_features: ${{ inputs.container_apps_resource_features || '' }}
-      vm_skus: ${{ inputs.vm_skus || 'Standard_B2s,Standard_D2s_v5,Standard_D2as_v5,Standard_E2s_v5' }}
+      vm_skus: ${{ inputs.vm_skus || 'all' }}
       azure_cli_timeout_seconds: ${{ inputs.azure_cli_timeout_seconds || '120' }}
       install_k8s_extension: true
       artifact_name: "azure-region-monitor-synthetic-data"

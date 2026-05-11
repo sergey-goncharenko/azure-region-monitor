@@ -18,11 +18,7 @@ The PoC proves that synthetic checks can produce structured, region-by-region Az
   - `1.33`
   - `1.34`
   - `1.35`
-- Default VM SKUs:
-  - `Standard_B2s`
-  - `Standard_D2s_v5`
-  - `Standard_D2as_v5`
-  - `Standard_E2s_v5`
+- Default VM SKU workflow mode: `all` listed VM SKUs per region
 - Default Container Apps resource type checks:
   - `containerApps.managedEnvironments=managedEnvironments`
   - `containerApps.apps=containerApps`
@@ -105,7 +101,7 @@ The default Functions runtime set tracks every versioned Linux runtime listed by
 
 Some modality items are discovered during every full scan, and some are configured intentionally:
 
-- AKS extension catalog, Azure AI model catalog, and VM SKU probes discover their feature items from the regional Azure catalogs/lists. The full run unions discovered items and fills absent items as `unavailable` where the catalog probe succeeded.
+- AKS extension catalog, Azure AI model catalog, and VM SKU probes discover their feature items from the regional Azure catalogs/lists. Full and VM-focused workflows pass `AZURE_VM_SKUS=all`, so VM SKU rows cover every listed size returned by `az vm list-sizes`. The full run unions discovered items and fills absent items as `unavailable` where the catalog probe succeeded.
 - Azure Functions runtime rows, Container Apps resource type rows, and AKS Kubernetes version-prefix rows come from Python configuration or workflow inputs.
 - Dashboard groups are derived from feature names during static-site generation. New extension publishers, model families, runtime families, and VM SKU families appear automatically when those feature names appear in the latest snapshot.
 

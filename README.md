@@ -67,7 +67,7 @@ The full scheduled workflow runs daily and uses the Python `DEFAULT_REGIONS` lis
 
 Feature items are mixed by design:
 
-- AKS extension catalog, Azure AI model catalog, and VM SKU runs discover the listed feature universe from each full scan and normalize missing discovered items to `unavailable` in regions where the listing probe succeeded.
+- AKS extension catalog, Azure AI model catalog, and VM SKU runs discover the listed feature universe from each full scan and normalize missing discovered items to `unavailable` in regions where the listing probe succeeded. Full and VM-focused workflows pass `AZURE_VM_SKUS=all`, so VM SKU rows cover every listed size returned by `az vm list-sizes`.
 - Azure Functions runtimes, Container Apps resource types, and AKS Kubernetes minor-version prefixes are configured lists that are refreshed when we update the monitor config.
 - Dashboard modality groups are derived from feature names in the snapshot at build time, so new discovered publishers, model families, or SKU families appear automatically after a full scan.
 

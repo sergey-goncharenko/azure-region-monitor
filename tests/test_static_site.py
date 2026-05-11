@@ -21,6 +21,8 @@ def test_build_static_site_writes_dashboard_and_latest_json(tmp_path):
     assert (output_dir / "methodology.html").exists()
     assert (output_dir / "staticwebapp.config.json").exists()
     assert "Status meanings" in index_html
+    assert "GitHub repository" in index_html
+    assert "https://github.com/sergey-goncharenko/azure-region-monitor" in index_html
     assert "swedencentral" in index_html
     assert "extensions.gitops" in latest_json
     assert not (output_dir / "api" / "diff.json").exists()
