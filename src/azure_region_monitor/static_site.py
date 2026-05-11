@@ -54,6 +54,11 @@ _COUNTRY_NAMES = {
 
 _LARGE_EXTENSION_GROUP_THRESHOLD = 10
 _PRIMARY_EXTENSION_GROUPS = {"microsoft"}
+_SITE_URL = "https://azwatch.operator.lat"
+_SITE_DESCRIPTION = (
+  "Read-only Azure regional availability evidence for AKS, Azure Functions, "
+  "Azure AI models, Container Apps, and VM SKUs."
+)
 _REPOSITORY_URL = "https://github.com/sergey-goncharenko/azure-region-monitor"
 _CONTENT_SECURITY_POLICY = (
     "default-src 'self'; "
@@ -105,7 +110,20 @@ def build_static_site(
     )
     (output_dir / "heatmap.html").write_text(_render_heatmap_page(snapshot), encoding="utf-8")
     (output_dir / "methodology.html").write_text(_render_methodology_page(snapshot), encoding="utf-8")
+    _write_discovery_assets(output_dir, snapshot, recent_changes=recent_changes)
     _write_static_web_app_config(output_dir)
+
+
+def _write_discovery_assets(
+    output_dir: Path, snapshot: Snapshot, recent_changes: dict[str, Any] | None = None
+) -> None:
+    (output_dir / "favicon.svg").write_text(_render_favicon(), encoding="utf-8")
+    (output_dir / "robots.txt").write_text(_render_robots_txt(), encoding="utf-8")
+    (output_dir / "sitemap.xml").write_text(_render_sitemap(snapshot), encoding="utf-8")
+    (output_dir / "llms.txt").write_text(_render_llms_txt(snapshot), encoding="utf-8")
+    (output_dir / "llms-full.txt").write_text(
+        _render_llms_full_txt(snapshot, recent_changes=recent_changes), encoding="utf-8"
+    )
 
 
 def _write_static_web_app_config(output_dir: Path) -> None:
@@ -120,11 +138,169 @@ def _write_static_web_app_config(output_dir: Path) -> None:
         "mimeTypes": {
             ".json": "application/json",
             ".gz": "application/gzip",
+          ".svg": "image/svg+xml",
+          ".txt": "text/plain; charset=utf-8",
+          ".xml": "application/xml",
         },
     }
     (output_dir / "staticwebapp.config.json").write_text(
         json.dumps(config, indent=2) + "\n", encoding="utf-8"
     )
+
+
+def _render_favicon() -> str:
+    return """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="AZ">
+  <rect width="64" height="64" rx="12" fill="#0f4c81"/>
+  <path d="M13 46 25 18h7l12 28h-7l-2.2-5.7H22.1L20 46h-7Zm11.2-11.5h8.5L28.4 23l-4.2 11.5Z" fill="#f7fbff"/>
+  <path d="M37 46v-5.1l12.7-17.1H38.2V18h20.1v5.1L45.7 40.2h12.9V46H37Z" fill="#9ee6c8"/>
+</svg>
+"""
+
+
+def _render_robots_txt() -> str:
+    return f"""User-agent: *
+Allow: /
+
+Sitemap: {_SITE_URL}/sitemap.xml
+"""
+
+
+def _render_sitemap(snapshot: Snapshot) -> str:
+    lastmod = _snapshot_lastmod(snapshot)
+    urls = [
+        ("/", "1.0"),
+        ("/heatmap.html", "0.9"),
+        ("/methodology.html", "0.8"),
+        ("/llms.txt", "0.7"),
+        ("/llms-full.txt", "0.7"),
+        ("/api/latest.json", "0.6"),
+        ("/api/history/index.json", "0.5"),
+    ]
+    entries = "\n".join(
+        "  <url>\n"
+        f"    <loc>{html.escape(_SITE_URL + path)}</loc>\n"
+        f"    <lastmod>{html.escape(lastmod)}</lastmod>\n"
+        f"    <priority>{priority}</priority>\n"
+        "  </url>"
+        for path, priority in urls
+    )
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+{entries}
+</urlset>
+"""
+
+
+def _render_llms_txt(snapshot: Snapshot) -> str:
+    rows = _flatten_snapshot(snapshot)
+    regions = _sort_regions(snapshot.regions)
+    features = {str(row["feature"]) for row in rows}
+    return f"""# Azure Regional Feature Availability Monitor
+
+> {_SITE_DESCRIPTION}
+
+Canonical site: {_SITE_URL}/
+Repository: {_REPOSITORY_URL}
+Latest snapshot: {snapshot.timestamp.isoformat()}
+
+## Useful Resources
+
+- [{_SITE_URL}/]({_SITE_URL}/): summary dashboard with modality and regional group availability.
+- [{_SITE_URL}/heatmap.html]({_SITE_URL}/heatmap.html): paged, filterable heatmap backed by the latest JSON snapshot.
+- [{_SITE_URL}/methodology.html]({_SITE_URL}/methodology.html): status semantics and probe evidence notes.
+- [{_SITE_URL}/api/latest.json]({_SITE_URL}/api/latest.json): complete current machine-readable snapshot.
+- [{_SITE_URL}/api/history/index.json]({_SITE_URL}/api/history/index.json): compact history index with daily snapshot and change links.
+- [{_SITE_URL}/llms-full.txt]({_SITE_URL}/llms-full.txt): fuller guide for LLM and crawler consumers.
+
+## Current Scope
+
+- Regions: {len(regions):,}
+- Unique features: {len(features):,}
+- Checks: {len(rows):,}
+
+## Status Semantics
+
+- available: positive read-only catalog or listing evidence was found.
+- unavailable: the probe completed, but the feature was absent from that catalog or listing.
+- unknown: the probe did not get trustworthy evidence because a command, API call, or provider response failed.
+- partial: reserved for multi-condition checks.
+"""
+
+
+def _render_llms_full_txt(snapshot: Snapshot, recent_changes: dict[str, Any] | None = None) -> str:
+    rows = _flatten_snapshot(snapshot)
+    status_counts = _status_counts(rows)
+    modality_lines = "\n".join(
+        f"- {item['category']}: {len(item['features']):,} features, {item['checks']:,} checks"
+        for item in _modality_summaries(rows)
+    )
+    history_note = "No recent change summary is currently published."
+    if recent_changes and isinstance(recent_changes.get("days"), list):
+        history_note = f"Recent change days in published summary: {len(recent_changes['days']):,}."
+    return f"""# Azure Regional Feature Availability Monitor - LLM Reference
+
+This project publishes public, read-only evidence about Azure regional feature rollout. It does not perform create/delete deployment probes, quota checks, inference tests, or private subscription capacity validation.
+
+## Canonical URLs
+
+- Site: {_SITE_URL}/
+- Repository: {_REPOSITORY_URL}
+- Latest JSON snapshot: {_SITE_URL}/api/latest.json
+- History index: {_SITE_URL}/api/history/index.json
+- Methodology: {_SITE_URL}/methodology.html
+- Sitemap: {_SITE_URL}/sitemap.xml
+
+## Snapshot Summary
+
+- Timestamp: {snapshot.timestamp.isoformat()}
+- Regions: {len(snapshot.regions):,}
+- Checks: {len(rows):,}
+- Available: {status_counts.get('available', 0):,}
+- Unavailable: {status_counts.get('unavailable', 0):,}
+- Partial: {status_counts.get('partial', 0):,}
+- Unknown: {status_counts.get('unknown', 0):,}
+
+## Modalities
+
+{modality_lines}
+
+## Snapshot Shape
+
+`api/latest.json` has this shape:
+
+```json
+{{
+  "timestamp": "ISO-8601 UTC timestamp",
+  "regions": {{
+    "<azure-region>": {{
+      "<service>": {{
+        "<feature-key>": {{
+          "status": "available | unavailable | partial | unknown",
+          "message": "optional probe message",
+          "error_code": "optional error code",
+          "latency_ms": "optional latency"
+        }}
+      }}
+    }}
+  }}
+}}
+```
+
+## Interpretation Rules
+
+- Treat unavailable as absence from a read-only catalog or listing, not as quota exhaustion or deployment failure.
+- Treat unknown as no trustworthy evidence for that region/feature pair.
+- Use methodology.html for modality-specific caveats before summarizing availability claims.
+- Full daily history snapshots are published as gzip JSON files referenced by `api/history/index.json`.
+
+## History
+
+{history_note}
+"""
+
+
+def _snapshot_lastmod(snapshot: Snapshot) -> str:
+    return snapshot.timestamp.date().isoformat()
 
 
 def _render_index(snapshot: Snapshot, recent_changes: dict[str, Any] | None = None) -> str:
@@ -147,7 +323,11 @@ def _render_index(snapshot: Snapshot, recent_changes: dict[str, Any] | None = No
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="{html.escape(_SITE_DESCRIPTION)}">
   <title>Azure Regional Feature Availability Monitor</title>
+  <link rel="canonical" href="{_SITE_URL}/">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="alternate" href="/llms.txt" type="text/plain" title="LLM guide">
   {_style_block()}
 </head>
 <body>
@@ -251,7 +431,11 @@ def _render_heatmap_page(snapshot: Snapshot) -> str:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Detailed regional heatmap for Azure feature availability evidence.">
   <title>Azure Regional Feature Heatmap</title>
+  <link rel="canonical" href="{_SITE_URL}/heatmap.html">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="alternate" href="/llms.txt" type="text/plain" title="LLM guide">
   {_style_block()}
 </head>
 <body>
@@ -346,7 +530,11 @@ def _render_methodology_page(snapshot: Snapshot) -> str:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Methodology and status semantics for Azure regional availability evidence.">
   <title>Azure Regional Feature Monitor Status Meanings</title>
+  <link rel="canonical" href="{_SITE_URL}/methodology.html">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="alternate" href="/llms.txt" type="text/plain" title="LLM guide">
   {_style_block()}
 </head>
 <body>
@@ -501,6 +689,8 @@ def _style_block() -> str:
     .region-flag-fallback { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%; background: var(--unknown-bg); color: var(--unknown-text); font-size: 10px; font-weight: 700; }
     .region-label { max-width: 48px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; color: var(--muted); }
     .availability-badge { display: inline-flex; gap: 5px; align-items: center; justify-content: center; min-height: 24px; padding: 3px 7px; border-radius: 999px; border: 1px solid transparent; font-size: 12px; font-weight: 650; white-space: nowrap; }
+    .availability-tooltip-trigger { cursor: help; }
+    .availability-tooltip-trigger:focus { outline: 2px solid #2759a5; outline-offset: 2px; }
     .availability-label { max-width: 96px; overflow: hidden; text-overflow: ellipsis; }
     .availability-count { font-variant-numeric: tabular-nums; opacity: 0.82; }
     .availability-good { background: #e5f6ee; border-color: #b6e4ca; color: #116339; }
@@ -517,6 +707,15 @@ def _style_block() -> str:
     .prose-body table { min-width: 0; margin: 10px 0 16px; }
     .prose-body th, .prose-body td { text-align: left; }
     .note { margin: 14px 0; padding: 12px 14px; border: 1px solid #b9d6f2; border-radius: 8px; background: #edf6ff; color: #17365d; line-height: 1.5; }
+    .availability-popover { position: fixed; z-index: 20; display: none; width: min(520px, calc(100vw - 24px)); max-height: min(560px, calc(100vh - 24px)); overflow: auto; padding: 12px; border: 1px solid var(--line-strong); border-radius: 8px; background: #fff; box-shadow: 0 18px 40px rgba(23, 32, 51, 0.18); font-size: 12px; line-height: 1.45; }
+    .availability-popover[data-visible="true"] { display: block; }
+    .availability-popover h3 { margin: 0 0 4px; font-size: 14px; line-height: 1.3; }
+    .availability-popover .tooltip-meta { color: var(--muted); margin-bottom: 8px; }
+    .availability-popover details { border-top: 1px solid var(--line); padding: 7px 0; }
+    .availability-popover details:first-of-type { border-top: 0; }
+    .availability-popover summary { cursor: pointer; font-weight: 650; }
+    .tooltip-feature-list { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
+    .tooltip-feature-list code { border: 1px solid var(--line); border-radius: 5px; padding: 2px 5px; background: #f8fafc; word-break: break-word; }
     @media (max-width: 720px) {
       main { padding: 20px 12px 32px; }
       header { display: block; }
@@ -834,7 +1033,10 @@ def _render_region_header(region: str) -> str:
 
 def _render_region_group_row(row: dict[str, object], regions: list[str]) -> str:
     region_cells = "\n".join(
-        _render_availability_cell(row["regions"].get(region), region) for region in regions
+    _render_availability_cell(
+      row["regions"].get(region), region, str(row["category"]), str(row["group"])
+    )
+    for region in regions
     )
     return f"""<tr>
                 <td><code>{html.escape(str(row["group"]))}</code></td>
@@ -1189,13 +1391,172 @@ def _index_script() -> str:
         });
       });
     }
+    function availabilityCategory(feature) {
+      if (feature === 'extensionCatalog') return 'AKS extensions';
+      if (feature.startsWith('extensions.') || feature.startsWith('extensionTypes.')) return 'AKS extensions';
+      if (feature.startsWith('kubernetesVersions.')) return 'AKS Kubernetes versions';
+      if (feature.startsWith('hostingPlans.') || feature.startsWith('runtimes.')) return 'Azure Functions';
+      if (feature.startsWith('aiModels.')) return 'Azure AI models';
+      if (feature.startsWith('containerApps.')) return 'Container Apps';
+      if (feature.startsWith('vmSkus.')) return 'VM SKUs';
+      return feature.split('.')[0];
+    }
+    function availabilityGroup(feature) {
+      if (feature.startsWith('extensionTypes.')) return feature.replace('extensionTypes.', '').split('.')[0] || 'unknown';
+      if (feature.startsWith('extensions.')) return 'curated';
+      if (feature.startsWith('kubernetesVersions.')) return feature.replace('kubernetesVersions.', '');
+      if (feature.startsWith('hostingPlans.')) return 'hosting plans';
+      if (feature.startsWith('runtimes.')) return feature.replace('runtimes.', '').split('.')[0] || 'runtime';
+      if (feature.startsWith('aiModels.')) return feature.replace('aiModels.', '').split('.')[0] || 'unknown';
+      if (feature.startsWith('containerApps.')) {
+        if (feature.endsWith('daprComponents')) return 'dapr';
+        if (feature.endsWith('connectedEnvironments')) return 'connected environments';
+        return 'core';
+      }
+      if (feature.startsWith('vmSkus.')) {
+        const sku = feature.replace('vmSkus.', '').replace('standard.', '');
+        const match = sku.match(/^([a-z]+)/i);
+        return match ? match[1].toUpperCase() : 'Other';
+      }
+      return feature.split('.')[0];
+    }
+    function compactFeatureName(feature, group) {
+      if (feature.startsWith('extensionTypes.')) {
+        const label = feature.replace('extensionTypes.', '');
+        const prefix = `${group}.`;
+        return label.startsWith(prefix) ? label.slice(prefix.length) : label;
+      }
+      return feature
+        .replace('kubernetesVersions.', '')
+        .replace('hostingPlans.', '')
+        .replace('runtimes.', '')
+        .replace('aiModels.', '')
+        .replace('containerApps.', '')
+        .replace('vmSkus.', '');
+    }
+    function escapeHtml(value) {
+      return String(value ?? '').replace(/[&<>'"]/g, (char) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
+      }[char]));
+    }
+    function initializeAvailabilityTooltips() {
+      const triggers = [...document.querySelectorAll('.availability-tooltip-trigger')];
+      if (!triggers.length) return;
+      const popover = document.createElement('div');
+      popover.className = 'availability-popover';
+      popover.setAttribute('role', 'tooltip');
+      document.body.appendChild(popover);
+      let activeTrigger = null;
+      let rowsPromise = null;
+
+      const loadRows = () => {
+        if (!rowsPromise) {
+          rowsPromise = fetch('api/latest.json', { cache: 'force-cache' })
+            .then((response) => response.json())
+            .then((snapshot) => {
+              const rows = [];
+              Object.entries(snapshot.regions || {}).forEach(([region, services]) => {
+                Object.entries(services || {}).forEach(([service, features]) => {
+                  Object.entries(features || {}).forEach(([feature, result]) => {
+                    rows.push({
+                      region,
+                      service,
+                      feature,
+                      category: availabilityCategory(feature),
+                      group: availabilityGroup(feature),
+                      status: result.status || 'unknown',
+                    });
+                  });
+                });
+              });
+              return rows;
+            });
+        }
+        return rowsPromise;
+      };
+
+      const placePopover = (trigger) => {
+        const rect = trigger.getBoundingClientRect();
+        const margin = 10;
+        const width = popover.offsetWidth || Math.min(520, window.innerWidth - 24);
+        const height = popover.offsetHeight || 280;
+        const left = Math.min(Math.max(margin, rect.left), window.innerWidth - width - margin);
+        const below = rect.bottom + margin;
+        const top = below + height < window.innerHeight ? below : Math.max(margin, rect.top - height - margin);
+        popover.style.left = `${left}px`;
+        popover.style.top = `${top}px`;
+      };
+
+      const renderGroups = (matches, group) => {
+        const statuses = ['available', 'unavailable', 'partial', 'unknown'];
+        return statuses.map((status) => {
+          const items = matches
+            .filter((row) => row.status === status)
+            .map((row) => compactFeatureName(row.feature, group))
+            .sort((a, b) => a.localeCompare(b));
+          if (!items.length) return '';
+          return `<details ${status === 'available' || status === 'unavailable' ? 'open' : ''}>
+            <summary>${escapeHtml(status)} (${items.length.toLocaleString()})</summary>
+            <div class="tooltip-feature-list">${items.map((item) => `<code>${escapeHtml(item)}</code>`).join('')}</div>
+          </details>`;
+        }).join('');
+      };
+
+      const show = async (trigger) => {
+        activeTrigger = trigger;
+        const region = trigger.dataset.region || '';
+        const category = trigger.dataset.category || '';
+        const group = trigger.dataset.group || '';
+        popover.innerHTML = `<h3>${escapeHtml(region)} / ${escapeHtml(group)}</h3><div class="tooltip-meta">Loading feature details...</div>`;
+        popover.dataset.visible = 'true';
+        placePopover(trigger);
+        try {
+          const rows = await loadRows();
+          if (activeTrigger !== trigger) return;
+          const matches = rows.filter((row) => row.region === region && row.category === category && row.group === group);
+          const available = matches.filter((row) => row.status === 'available').length;
+          const unavailable = matches.filter((row) => row.status === 'unavailable').length;
+          const partial = matches.filter((row) => row.status === 'partial').length;
+          const unknown = matches.filter((row) => row.status === 'unknown').length;
+          popover.innerHTML = `<h3>${escapeHtml(region)} / ${escapeHtml(group)}</h3>
+            <div class="tooltip-meta">${escapeHtml(category)}: ${available.toLocaleString()} available, ${unavailable.toLocaleString()} unavailable, ${partial.toLocaleString()} partial, ${unknown.toLocaleString()} unknown, ${matches.length.toLocaleString()} total</div>
+            ${renderGroups(matches, group) || '<div class="tooltip-meta">No matching checks in latest.json.</div>'}`;
+          placePopover(trigger);
+        } catch (error) {
+          if (activeTrigger !== trigger) return;
+          popover.innerHTML = '<div class="tooltip-meta">Could not load api/latest.json for details.</div>';
+          placePopover(trigger);
+        }
+      };
+
+      const hide = () => {
+        activeTrigger = null;
+        popover.dataset.visible = 'false';
+      };
+
+      triggers.forEach((trigger) => {
+        trigger.addEventListener('mouseenter', () => show(trigger));
+        trigger.addEventListener('focus', () => show(trigger));
+        trigger.addEventListener('click', (event) => { event.preventDefault(); show(trigger); });
+        trigger.addEventListener('mouseleave', hide);
+        trigger.addEventListener('blur', hide);
+      });
+      document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') hide();
+      });
+      window.addEventListener('scroll', () => activeTrigger && placePopover(activeTrigger), { passive: true });
+      window.addEventListener('resize', () => activeTrigger && placePopover(activeTrigger));
+    }
     window.addEventListener('load', syncAvailabilityScrollbars);
     window.addEventListener('load', initializeLazyExtensionGroups);
+    window.addEventListener('load', initializeAvailabilityTooltips);
     window.addEventListener('resize', syncAvailabilityScrollbars);
 """
 
 
-def _render_availability_cell(summary: dict[str, int] | None, region: str) -> str:
+def _render_availability_cell(
+  summary: dict[str, int] | None, region: str, category: str, group: str
+) -> str:
     if summary is None:
         badge = '<span class="availability-badge availability-empty">-</span>'
     else:
@@ -1205,7 +1566,11 @@ def _render_availability_cell(summary: dict[str, int] | None, region: str) -> st
         health_class = _availability_health_class(available, total)
         title = f"{region}: {available:,} available, {missing:,} not available, {total:,} total"
         badge = (
-            f'<span class="availability-badge {health_class}" title="{html.escape(title)}">'
+      f'<span class="availability-badge availability-tooltip-trigger {health_class}" '
+      f'tabindex="0" title="{html.escape(title)}" '
+      f'data-region="{html.escape(region)}" '
+      f'data-category="{html.escape(category)}" '
+      f'data-group="{html.escape(group)}">'
             f'<span class="availability-count">{available:,}/{total:,}</span>'
             "</span>"
         )

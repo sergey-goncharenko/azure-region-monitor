@@ -19,6 +19,11 @@ def test_build_static_site_writes_dashboard_and_latest_json(tmp_path):
     assert "Azure Regional Feature Availability Monitor" in index_html
     assert (output_dir / "heatmap.html").exists()
     assert (output_dir / "methodology.html").exists()
+    assert (output_dir / "favicon.svg").exists()
+    assert (output_dir / "robots.txt").exists()
+    assert (output_dir / "sitemap.xml").exists()
+    assert (output_dir / "llms.txt").exists()
+    assert (output_dir / "llms-full.txt").exists()
     assert (output_dir / "staticwebapp.config.json").exists()
     assert "Status meanings" in index_html
     assert "GitHub repository" in index_html
@@ -26,6 +31,34 @@ def test_build_static_site_writes_dashboard_and_latest_json(tmp_path):
     assert "swedencentral" in index_html
     assert "extensions.gitops" in latest_json
     assert not (output_dir / "api" / "diff.json").exists()
+
+
+def test_build_static_site_writes_crawl_and_llm_resources(tmp_path):
+    output_dir = tmp_path / "public"
+
+    build_static_site(
+        output_dir,
+        snapshot_path=Path("data/snapshots/2026-05-08.json"),
+        diff_path=tmp_path / "missing-diff.json",
+    )
+
+    robots_txt = (output_dir / "robots.txt").read_text(encoding="utf-8")
+    sitemap_xml = (output_dir / "sitemap.xml").read_text(encoding="utf-8")
+    llms_txt = (output_dir / "llms.txt").read_text(encoding="utf-8")
+    llms_full_txt = (output_dir / "llms-full.txt").read_text(encoding="utf-8")
+    index_html = (output_dir / "index.html").read_text(encoding="utf-8")
+    config = json.loads((output_dir / "staticwebapp.config.json").read_text(encoding="utf-8"))
+
+    assert "Sitemap: https://azwatch.operator.lat/sitemap.xml" in robots_txt
+    assert "<loc>https://azwatch.operator.lat/</loc>" in sitemap_xml
+    assert "<loc>https://azwatch.operator.lat/api/latest.json</loc>" in sitemap_xml
+    assert "# Azure Regional Feature Availability Monitor" in llms_txt
+    assert "api/latest.json" in llms_txt
+    assert "Snapshot Shape" in llms_full_txt
+    assert '<link rel="icon" href="/favicon.svg" type="image/svg+xml">' in index_html
+    assert '<link rel="alternate" href="/llms.txt" type="text/plain" title="LLM guide">' in index_html
+    assert config["mimeTypes"][".svg"] == "image/svg+xml"
+    assert config["mimeTypes"][".xml"] == "application/xml"
 
 
 def test_build_static_site_writes_security_config(tmp_path):
@@ -186,6 +219,11 @@ def test_build_static_site_shows_uniform_extension_availability(tmp_path):
 
     assert "AKS extensions" in index_html
     assert "curated" in index_html
+    assert "availability-tooltip-trigger" in index_html
+    assert 'data-region="australiaeast"' in index_html
+    assert 'data-category="VM SKUs"' in index_html
+    assert 'data-group="B"' in index_html
+    assert "initializeAvailabilityTooltips" in index_html
     assert "Detailed heatmap" in index_html
     assert "Check Details" in heatmap_html
     assert "Curated AKS extensions" not in index_html

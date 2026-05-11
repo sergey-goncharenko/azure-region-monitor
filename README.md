@@ -237,6 +237,10 @@ Useful endpoints:
 - `GET /api/history/recent-changes.json`
 - `GET /api/history/snapshots/{date}.json.gz`
 - `GET /api/history/changes/{date}.json`
+- `GET /robots.txt`
+- `GET /sitemap.xml`
+- `GET /llms.txt`
+- `GET /llms-full.txt`
 
 ## Status Semantics
 
