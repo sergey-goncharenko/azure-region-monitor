@@ -38,11 +38,12 @@ Some DNS providers want the fully qualified name
 
 If the parent domain has CAA records, allow Azure's managed certificate issuer.
 Azure App Service managed certificates are issued by DigiCert, so add this CAA
-record alongside any existing CAA records:
+record alongside any existing CAA records. In Vercel's DNS UI, use the apex name
+`@` and put the full CAA content in the value field:
 
-| Type | Name | Flags | Tag | Value |
-| --- | --- | --- | --- | --- |
-| CAA | `@` | `0` | `issue` | `digicert.com` |
+| Type | Name | Value | TTL |
+| --- | --- | --- | --- |
+| CAA | `@` | `0 issue "digicert.com"` | `60` |
 
 Without this record, Azure can validate DNS routing but fail when issuing the
 managed TLS certificate.
