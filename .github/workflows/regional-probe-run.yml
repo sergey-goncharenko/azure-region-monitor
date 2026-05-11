@@ -11,7 +11,7 @@ on:
         description: "Comma-separated Azure regions to test"
         required: false
         type: string
-        default: "eastus,eastus2,westus3,westeurope,northeurope,swedencentral,uksouth,germanywestcentral,southeastasia,australiaeast"
+        default: ""
       previous_snapshot:
         description: "Optional path to a previous snapshot in the repository for diff generation"
         required: false

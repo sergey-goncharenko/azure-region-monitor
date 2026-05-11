@@ -8,8 +8,8 @@ The PoC proves that synthetic checks can produce structured, region-by-region Az
 
 - Current probes: `aks-extension-catalog-cli`, `aks-version-cli`, `function-flex-cli`, `ai-model-catalog-cli`, `container-apps-provider-cli`, and `vm-sku-cli`
 - Original PoC regions: `westeurope`, `swedencentral`, `eastus`
-- Default workflow regions: `eastus`, `eastus2`, `westus3`, `westeurope`, `northeurope`, `swedencentral`, `uksouth`, `germanywestcentral`, `southeastasia`, `australiaeast`
-- Latest full run scope: 62 Azure physical locations from the live snapshot
+- Default workflow regions: blank workflow input, which falls back to the Python `DEFAULT_REGIONS` list
+- Default full run scope: Azure physical locations returned by Azure CLI, including recommended and other public cloud locations
 - Legacy curated AKS extension defaults for `aks-extension-cli`:
   - `extensions.gitops=microsoft.flux`
   - `extensions.monitor=microsoft.azuremonitor.containers`
@@ -33,6 +33,7 @@ The PoC proves that synthetic checks can produce structured, region-by-region Az
 - Output snapshot: `data/snapshots/latest.json`
 - Output diff: `data/diffs/latest.json`
 - Full dashboard automation: `.github/workflows/synthetic-tests.yml`
+- Full dashboard schedule: daily at 03:17 UTC
 - Manual modality test workflows:
   - `.github/workflows/aks-extension-tests.yml`
   - `.github/workflows/aks-version-tests.yml`
@@ -99,6 +100,14 @@ azure-region-monitor run --probe function-flex-cli --output data/snapshots/lates
 ```
 
 The default Functions runtime set tracks every versioned Linux runtime listed by Azure CLI and excludes the unversioned custom runtime entry.
+
+## Feature and Group Refresh Behavior
+
+Some modality items are discovered during every full scan, and some are configured intentionally:
+
+- AKS extension catalog, Azure AI model catalog, and VM SKU probes discover their feature items from the regional Azure catalogs/lists. The full run unions discovered items and fills absent items as `unavailable` where the catalog probe succeeded.
+- Azure Functions runtime rows, Container Apps resource type rows, and AKS Kubernetes version-prefix rows come from Python configuration or workflow inputs.
+- Dashboard groups are derived from feature names during static-site generation. New extension publishers, model families, runtime families, and VM SKU families appear automatically when those feature names appear in the latest snapshot.
 
 To run or override Azure AI model catalog checks:
 

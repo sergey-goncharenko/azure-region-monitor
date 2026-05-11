@@ -6,7 +6,7 @@ on:
       regions:
         description: "Comma-separated Azure regions to test"
         required: false
-        default: "eastus,eastus2,westus3,westeurope,northeurope,swedencentral,uksouth,germanywestcentral,southeastasia,australiaeast"
+        default: ""
       previous_snapshot:
         description: "Optional path to a previous snapshot in the repository for diff generation"
         required: false
@@ -30,7 +30,7 @@ jobs:
     uses: ./.github/workflows/regional-probe-run.yml
     with:
       probes: "function-flex-cli"
-      regions: ${{ inputs.regions || 'eastus,eastus2,westus3,westeurope,northeurope,swedencentral,uksouth,germanywestcentral,southeastasia,australiaeast' }}
+      regions: ${{ inputs.regions || '' }}
       previous_snapshot: ${{ inputs.previous_snapshot || '' }}
       function_runtime_features: ${{ inputs.function_runtime_features || '' }}
       artifact_name: "azure-region-monitor-functions-flex"

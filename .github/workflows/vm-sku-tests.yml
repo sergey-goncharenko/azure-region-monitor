@@ -6,7 +6,7 @@ on:
       regions:
         description: "Comma-separated Azure regions to test"
         required: false
-        default: "eastus,eastus2,westus3,westeurope,northeurope,swedencentral,uksouth,germanywestcentral,southeastasia,australiaeast"
+        default: ""
       previous_snapshot:
         description: "Optional path to a previous snapshot in the repository for diff generation"
         required: false
@@ -30,7 +30,7 @@ jobs:
     uses: ./.github/workflows/regional-probe-run.yml
     with:
       probes: "vm-sku-cli"
-      regions: ${{ inputs.regions || 'eastus,eastus2,westus3,westeurope,northeurope,swedencentral,uksouth,germanywestcentral,southeastasia,australiaeast' }}
+      regions: ${{ inputs.regions || '' }}
       previous_snapshot: ${{ inputs.previous_snapshot || '' }}
       vm_skus: ${{ inputs.vm_skus || 'Standard_B2s,Standard_D2s_v5,Standard_D2as_v5,Standard_E2s_v5' }}
       artifact_name: "azure-region-monitor-vm-skus"

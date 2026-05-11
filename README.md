@@ -61,6 +61,16 @@ The first implementation slice is a Python service with:
 - A generated static dashboard and JSON endpoint for Azure Static Web Apps
 - Tests for the diff engine and API behavior
 
+## Scope Discovery
+
+The full scheduled workflow runs daily and uses the Python `DEFAULT_REGIONS` list when the region input is left blank. That list tracks Azure physical locations returned by Azure CLI, including recommended and other public cloud locations.
+
+Feature items are mixed by design:
+
+- AKS extension catalog, Azure AI model catalog, and VM SKU runs discover the listed feature universe from each full scan and normalize missing discovered items to `unavailable` in regions where the listing probe succeeded.
+- Azure Functions runtimes, Container Apps resource types, and AKS Kubernetes minor-version prefixes are configured lists that are refreshed when we update the monitor config.
+- Dashboard modality groups are derived from feature names in the snapshot at build time, so new discovered publishers, model families, or SKU families appear automatically after a full scan.
+
 ## Project Structure
 
 ```text
