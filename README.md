@@ -33,11 +33,11 @@ See [docs/release/public-alpha.md](docs/release/public-alpha.md) for the public 
 
 License: [MIT](LICENSE)
 
-PoC dashboard: <https://gray-island-09dc9e703.7.azurestaticapps.net/>
+PoC dashboard: <https://azwatch.operator.lat/>
 
-Latest JSON snapshot: <https://gray-island-09dc9e703.7.azurestaticapps.net/api/latest.json>
+Latest JSON snapshot: <https://azwatch.operator.lat/api/latest.json>
 
-Status meanings and methodology: <https://gray-island-09dc9e703.7.azurestaticapps.net/methodology.html>
+Status meanings and methodology: <https://azwatch.operator.lat/methodology.html>
 
 ## Current Starter
 

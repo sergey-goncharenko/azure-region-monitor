@@ -42,8 +42,9 @@ The PoC proves that synthetic checks can produce structured, region-by-region Az
   - `.github/workflows/vm-sku-tests.yml`
 - Shared runner workflow: `.github/workflows/regional-probe-run.yml`
 - Static host: Azure Static Web Apps
-- Current hostname: `gray-island-09dc9e703.7.azurestaticapps.net`
-- Methodology page: `https://gray-island-09dc9e703.7.azurestaticapps.net/methodology.html`
+- Current hostname: `azwatch.operator.lat`
+- Azure Static Web Apps fallback hostname: `gray-island-09dc9e703.7.azurestaticapps.net`
+- Methodology page: `https://azwatch.operator.lat/methodology.html`
 
 ## Local Run
 

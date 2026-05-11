@@ -6,11 +6,11 @@ on:
       snapshot_url:
         description: "Snapshot JSON URL to render"
         required: false
-        default: "https://gray-island-09dc9e703.7.azurestaticapps.net/api/latest.json"
+        default: "https://azwatch.operator.lat/api/latest.json"
       history_base_url:
         description: "Existing dashboard history API URL to preserve"
         required: false
-        default: "https://gray-island-09dc9e703.7.azurestaticapps.net/api/history"
+        default: "https://azwatch.operator.lat/api/history"
       update_history:
         description: "Store the fetched snapshot as today's history entry"
         required: false

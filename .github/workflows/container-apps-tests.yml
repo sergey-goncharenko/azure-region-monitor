@@ -35,5 +35,5 @@ jobs:
       container_apps_resource_features: ${{ inputs.container_apps_resource_features || '' }}
       artifact_name: "azure-region-monitor-container-apps"
       deploy_dashboard: ${{ inputs.deploy_dashboard || false }}
-      existing_snapshot_url: ${{ inputs.deploy_dashboard && 'https://gray-island-09dc9e703.7.azurestaticapps.net/api/latest.json' || '' }}
+      existing_snapshot_url: ${{ inputs.deploy_dashboard && 'https://azwatch.operator.lat/api/latest.json' || '' }}
     secrets: inherit

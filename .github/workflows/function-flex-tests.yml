@@ -35,5 +35,5 @@ jobs:
       function_runtime_features: ${{ inputs.function_runtime_features || '' }}
       artifact_name: "azure-region-monitor-functions-flex"
       deploy_dashboard: ${{ inputs.deploy_dashboard || false }}
-      existing_snapshot_url: ${{ inputs.deploy_dashboard && 'https://gray-island-09dc9e703.7.azurestaticapps.net/api/latest.json' || '' }}
+      existing_snapshot_url: ${{ inputs.deploy_dashboard && 'https://azwatch.operator.lat/api/latest.json' || '' }}
     secrets: inherit

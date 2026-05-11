@@ -71,7 +71,7 @@ on:
         description: "Existing dashboard history API URL to preserve before deploying"
         required: false
         type: string
-        default: "https://gray-island-09dc9e703.7.azurestaticapps.net/api/history"
+        default: "https://azwatch.operator.lat/api/history"
 
 permissions:
   contents: read

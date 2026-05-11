@@ -16,7 +16,8 @@ committed Azure operator metadata.
 
 ## Public Endpoint
 
-- Dashboard hostname: `gray-island-09dc9e703.7.azurestaticapps.net`
+- Dashboard hostname: `azwatch.operator.lat`
+- Azure Static Web Apps fallback hostname: `gray-island-09dc9e703.7.azurestaticapps.net`
 - SKU: Free
 
 Do not commit tenant IDs, subscription IDs, resource group names, managed

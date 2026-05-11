@@ -35,5 +35,5 @@ jobs:
       vm_skus: ${{ inputs.vm_skus || 'Standard_B2s,Standard_D2s_v5,Standard_D2as_v5,Standard_E2s_v5' }}
       artifact_name: "azure-region-monitor-vm-skus"
       deploy_dashboard: ${{ inputs.deploy_dashboard || false }}
-      existing_snapshot_url: ${{ inputs.deploy_dashboard && 'https://gray-island-09dc9e703.7.azurestaticapps.net/api/latest.json' || '' }}
+      existing_snapshot_url: ${{ inputs.deploy_dashboard && 'https://azwatch.operator.lat/api/latest.json' || '' }}
     secrets: inherit
