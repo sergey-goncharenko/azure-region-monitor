@@ -36,6 +36,17 @@ For staged TXT validation, add the token only in the DNS provider:
 Some DNS providers want the fully qualified name
 `_dnsauth.azwatch.operator.lat` instead of `_dnsauth.azwatch`.
 
+If the parent domain has CAA records, allow Azure's managed certificate issuer.
+Azure App Service managed certificates are issued by DigiCert, so add this CAA
+record alongside any existing CAA records:
+
+| Type | Name | Flags | Tag | Value |
+| --- | --- | --- | --- | --- |
+| CAA | `@` | `0` | `issue` | `digicert.com` |
+
+Without this record, Azure can validate DNS routing but fail when issuing the
+managed TLS certificate.
+
 Do not commit validation tokens or Azure resource identifiers to this repository.
 
 ## Azure Binding
