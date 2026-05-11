@@ -33,7 +33,7 @@ See [docs/release/public-alpha.md](docs/release/public-alpha.md) for the public 
 
 License: [MIT](LICENSE)
 
-PoC dashboard: <https://azwatch.operator.lat/>
+Public website: <https://azwatch.operator.lat/>
 
 Latest JSON snapshot: <https://azwatch.operator.lat/api/latest.json>
 
