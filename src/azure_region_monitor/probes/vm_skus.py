@@ -10,6 +10,9 @@ from azure_region_monitor.probes.azure_cli import AzureCliError, CliRunner, az_e
 from azure_region_monitor.probes.base import ProbeResult
 
 
+MIN_REASONABLE_REGIONAL_SKU_COUNT = 100
+
+
 class VmSkuCliProbe:
     name = "vm-sku-cli"
     normalize_missing_features = True
@@ -119,7 +122,22 @@ class VmSkuCliProbe:
                 "json",
             ]
         )
-        legacy_skus, legacy_error = self._run_sku_command(
+
+        if list_skus_error is None and len(listed_skus) >= MIN_REASONABLE_REGIONAL_SKU_COUNT:
+            return listed_skus, None, False
+
+        legacy_skus, legacy_error = self._list_legacy_sizes(region)
+
+        if list_skus_error is None:
+            return listed_skus | legacy_skus, None, bool(legacy_skus - listed_skus)
+
+        if legacy_error is None:
+            return legacy_skus, None, True
+
+        return set(), _combine_errors(list_skus_error, legacy_error), False
+
+    def _list_legacy_sizes(self, region: str) -> tuple[set[str], AzureCliError | None]:
+        return self._run_sku_command(
             [
                 az_executable(),
                 "vm",
@@ -132,14 +150,6 @@ class VmSkuCliProbe:
                 "json",
             ]
         )
-
-        if list_skus_error is None:
-            return listed_skus | legacy_skus, None, bool(legacy_skus - listed_skus)
-
-        if legacy_error is None:
-            return legacy_skus, None, True
-
-        return set(), _combine_errors(list_skus_error, legacy_error), False
 
     def _run_sku_command(self, command: list[str]) -> tuple[set[str], AzureCliError | None]:
         try:

@@ -27,7 +27,7 @@ The current production workflow prioritizes low-cost read-only evidence. These c
 
 ## VM SKU Tests
 - Primary command: `az vm list-skus --location <region> --resource-type virtualMachines --all`
-- Supplemental fallback: `az vm list-sizes --location <region>` may add read-only listing evidence when the supported command omits a size or fails.
+- Supplemental fallback: `az vm list-sizes --location <region>` may add read-only listing evidence when the supported command fails or returns a suspiciously small catalog.
 - `available`: SKU is listed in the region.
 - `unavailable`: command succeeded but SKU is absent from the region list.
 - `unknown`: command failed, timed out, or returned invalid JSON.
