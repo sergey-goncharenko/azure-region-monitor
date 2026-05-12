@@ -701,7 +701,7 @@ def _style_block() -> str:
     .region-flag-fallback { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%; background: var(--unknown-bg); color: var(--unknown-text); font-size: 10px; font-weight: 700; }
     .region-label { max-width: 48px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; color: var(--muted); }
     .availability-badge { display: inline-flex; gap: 5px; align-items: center; justify-content: center; min-height: 24px; padding: 3px 7px; border-radius: 999px; border: 1px solid transparent; font-size: 12px; font-weight: 650; white-space: nowrap; }
-    .availability-single { min-width: 82px; justify-content: center; cursor: help; }
+    .availability-single { cursor: help; }
     .availability-tooltip-trigger { cursor: help; }
     .availability-tooltip-trigger:focus { outline: 2px solid #2759a5; outline-offset: 2px; }
     .availability-label { max-width: 96px; overflow: hidden; text-overflow: ellipsis; }
@@ -1502,7 +1502,7 @@ def _index_script() -> str:
         availabilityRowsPromise = fetch('api/latest.json', { cache: 'force-cache' })
           .then((response) => response.json())
           .then((snapshot) => {
-            availabilityRegions = Object.keys(snapshot.regions || {}).sort((a, b) => a.localeCompare(b));
+            availabilityRegions = sortRegions(Object.keys(snapshot.regions || {}));
             availabilityRows = flattenAvailabilitySnapshot(snapshot);
             return { rows: availabilityRows, regions: availabilityRegions };
           });
@@ -1515,8 +1515,64 @@ def _index_script() -> str:
       if ((summary.partial || 0) > 0) return 'partial';
       return 'unknown';
     }
-    function statusLabel(status) {
-      return status ? status.charAt(0).toUpperCase() + status.slice(1) : 'Unknown';
+    function statusInitial(status) {
+      return { available: 'A', unavailable: 'U', partial: 'P', unknown: '?' }[status] || '?';
+    }
+    function regionCountryCode(region) {
+      const normalized = region.toLowerCase().replace(/\s/g, '');
+      const usRegions = new Set(['centralus', 'centraluseuap', 'eastus', 'eastus2', 'eastus2euap', 'northcentralus', 'southcentralus', 'westcentralus', 'westus', 'westus2', 'westus3']);
+      if (usRegions.has(normalized)) return 'US';
+      if (normalized.startsWith('canada')) return 'CA';
+      if (normalized.startsWith('brazil')) return 'BR';
+      if (normalized.startsWith('mexico')) return 'MX';
+      if (normalized.startsWith('chile')) return 'CL';
+      if (normalized.startsWith('denmark')) return 'DK';
+      if (normalized.startsWith('finland')) return 'FI';
+      if (normalized.startsWith('greece')) return 'GR';
+      if (normalized.startsWith('portugal')) return 'PT';
+      if (normalized.startsWith('uk')) return 'GB';
+      if (normalized.startsWith('france')) return 'FR';
+      if (normalized.startsWith('germany')) return 'DE';
+      if (normalized.startsWith('italy')) return 'IT';
+      if (normalized.startsWith('spain')) return 'ES';
+      if (normalized.startsWith('poland')) return 'PL';
+      if (normalized.startsWith('sweden')) return 'SE';
+      if (normalized.startsWith('norway')) return 'NO';
+      if (normalized.startsWith('switzerland')) return 'CH';
+      if (normalized.startsWith('austria')) return 'AT';
+      if (normalized.startsWith('belgium')) return 'BE';
+      if (normalized === 'northeurope') return 'IE';
+      if (normalized === 'westeurope') return 'NL';
+      if (normalized.startsWith('australia')) return 'AU';
+      if (normalized.startsWith('newzealand')) return 'NZ';
+      if (normalized.startsWith('japan')) return 'JP';
+      if (normalized.startsWith('korea')) return 'KR';
+      if (normalized.startsWith('india') || ['centralindia', 'southindia', 'westindia'].includes(normalized)) return 'IN';
+      if (normalized.startsWith('china')) return 'CN';
+      if (normalized.startsWith('taiwan')) return 'TW';
+      if (normalized.startsWith('malaysia')) return 'MY';
+      if (normalized.startsWith('indonesia')) return 'ID';
+      if (normalized.startsWith('israel')) return 'IL';
+      if (normalized.startsWith('qatar')) return 'QA';
+      if (normalized.startsWith('uae')) return 'AE';
+      if (normalized.startsWith('southafrica')) return 'ZA';
+      if (normalized === 'eastasia') return 'HK';
+      if (normalized === 'southeastasia') return 'SG';
+      return 'UN';
+    }
+    function regionCountryName(region) {
+      return {
+        AE: 'United Arab Emirates', AT: 'Austria', AU: 'Australia', BE: 'Belgium', BR: 'Brazil', CA: 'Canada', CH: 'Switzerland', CL: 'Chile', CN: 'China', DE: 'Germany', DK: 'Denmark', ES: 'Spain', FI: 'Finland', FR: 'France', GB: 'United Kingdom', GR: 'Greece', HK: 'Hong Kong', ID: 'Indonesia', IE: 'Ireland', IL: 'Israel', IN: 'India', IT: 'Italy', JP: 'Japan', KR: 'Korea', MX: 'Mexico', MY: 'Malaysia', NL: 'Netherlands', NO: 'Norway', NZ: 'New Zealand', PL: 'Poland', PT: 'Portugal', QA: 'Qatar', SE: 'Sweden', SG: 'Singapore', TW: 'Taiwan', US: 'United States', ZA: 'South Africa', UN: 'Unknown'
+      }[regionCountryCode(region)] || 'Unknown';
+    }
+    function regionShortLabel(region) {
+      const normalized = region.toLowerCase().replace(/\s/g, '');
+      return {
+        eastus: 'east', eastus2: 'east2', centralus: 'central', northcentralus: 'n central', southcentralus: 's central', westcentralus: 'w central', westus: 'west', westus2: 'west2', westus3: 'west3', canadacentral: 'central', canadaeast: 'east', brazilsouth: 'south', brazilsoutheast: 'se', mexicocentral: 'central', chilecentral: 'central', denmarkeast: 'east', finlandcentral: 'central', greececentral: 'central', portugalcentral: 'central', uksouth: 'south', ukwest: 'west', francecentral: 'central', francesouth: 'south', germanywestcentral: 'w central', germanynorth: 'north', italynorth: 'north', spaincentral: 'central', polandcentral: 'central', swedencentral: 'central', norwayeast: 'east', norwaywest: 'west', switzerlandnorth: 'north', switzerlandwest: 'west', austriaeast: 'east', belgiumcentral: 'central', northeurope: 'north', westeurope: 'west', australiaeast: 'east', australiasoutheast: 'se', australiacentral: 'central', australiacentral2: 'central2', newzealandnorth: 'north', japaneast: 'east', japanwest: 'west', koreacentral: 'central', koreasouth: 'south', centralindia: 'central', southindia: 'south', westindia: 'west', chinanorth3: 'north3', chinaeast3: 'east3', taiwannorth: 'north', taiwannorthwest: 'nw', malaysiawest: 'west', indonesiacentral: 'central', eastasia: 'east', southeastasia: 'se', israelcentral: 'central', qatarcentral: 'central', uaecentral: 'central', uaenorth: 'north', southafricanorth: 'north', southafricawest: 'west'
+      }[normalized] || normalized;
+    }
+    function sortRegions(regions) {
+      return [...regions].sort((a, b) => regionCountryName(a).localeCompare(regionCountryName(b)) || regionShortLabel(a).localeCompare(regionShortLabel(b)) || a.localeCompare(b));
     }
     function availabilityHealthClass(available, total) {
       if (!total) return 'availability-empty';
@@ -1530,7 +1586,10 @@ def _index_script() -> str:
       return `tabindex="0" title="${escapeHtml(title)}" data-region="${escapeHtml(region)}" data-category="${escapeHtml(category)}" data-group="${escapeHtml(group)}"`;
     }
     function renderRegionHeader(region) {
-      return `<th class="region-header" title="${escapeHtml(region)}"><span class="region-heading"><span class="region-label">${escapeHtml(region)}</span></span></th>`;
+      const code = regionCountryCode(region);
+      const countryName = regionCountryName(region);
+      const display = code === 'UN' ? '?' : code;
+      return `<th class="region-header" title="${escapeHtml(`${countryName} - ${region}`)}"><span class="region-heading"><span class="region-flag-fallback" title="${escapeHtml(countryName)}" aria-label="${escapeHtml(countryName)}">${escapeHtml(display)}</span><span class="region-label">${escapeHtml(regionShortLabel(region))}</span></span></th>`;
     }
     function summarizeRegionalGroups(rows) {
       const summaries = new Map();
@@ -1561,7 +1620,7 @@ def _index_script() -> str:
       const attrs = triggerAttributes(region, category, group, title);
       if (summary.total === 1) {
         const status = statusFromCounts(summary);
-        return `<td><span class="status status-${escapeHtml(status)} availability-single availability-tooltip-trigger" ${attrs}>${escapeHtml(statusLabel(status))}</span></td>`;
+        return `<td><span class="status-dot status-${escapeHtml(status)} availability-single availability-tooltip-trigger" ${attrs}>${escapeHtml(statusInitial(status))}</span></td>`;
       }
       const healthClass = availabilityHealthClass(summary.available || 0, summary.total);
       return `<td><span class="availability-badge availability-tooltip-trigger ${healthClass}" ${attrs}><span class="availability-count">${(summary.available || 0).toLocaleString()}/${summary.total.toLocaleString()}</span></span></td>`;
@@ -1766,8 +1825,8 @@ def _render_availability_cell(
     if total == 1:
       status = _single_summary_status(summary)
       badge = (
-        f'<span class="status status-{html.escape(status)} availability-single '
-        f'availability-tooltip-trigger" {trigger_attrs}>{html.escape(status.title())}</span>'
+        f'<span class="status-dot status-{html.escape(status)} availability-single '
+        f'availability-tooltip-trigger" {trigger_attrs}>{html.escape(_status_initial(status))}</span>'
       )
     else:
       health_class = _availability_health_class(available, total)
@@ -1785,6 +1844,10 @@ def _single_summary_status(summary: dict[str, int]) -> str:
     if summary.get(status, 0) > 0:
       return status
   return "unknown"
+
+
+def _status_initial(status: str) -> str:
+  return {"available": "A", "unavailable": "U", "partial": "P", "unknown": "?"}.get(status, "?")
 
 
 def _availability_health_class(available: int, total: int) -> str:

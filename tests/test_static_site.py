@@ -355,6 +355,9 @@ def test_build_static_site_color_codes_regional_modality_groups(tmp_path):
     assert "regional-availability-root" in index_html
     assert "renderRegionalAvailability" in index_html
     assert "renderAvailabilityCell" in index_html
+    assert "regionCountryCode" in index_html
+    assert "region-flag-fallback" in index_html
+    assert "regionShortLabel" in index_html
     assert "availability-single" in index_html
     assert "Groups by Azure region, rendered from api/latest.json" in index_html
     assert "circle-flags" not in index_html
@@ -375,7 +378,7 @@ def test_build_static_site_color_codes_regional_modality_groups(tmp_path):
     assert "<td><code>connected environments</code></td>" in index_html
     assert "<td><code>D</code></td>" in index_html
     assert "<td><code>E</code></td>" in index_html
-    assert "${escapeHtml(statusLabel(status))}" in index_html
+    assert "${escapeHtml(statusInitial(status))}" in index_html
     assert "availability-count" in index_html
 
 
