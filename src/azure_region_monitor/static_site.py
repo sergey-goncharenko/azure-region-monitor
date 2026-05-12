@@ -313,9 +313,8 @@ def _render_index(snapshot: Snapshot, recent_changes: dict[str, Any] | None = No
     regions = _sort_regions(snapshot.regions)
     unique_features = sorted({str(row["feature"]) for row in rows})
     modality_rows = "\n".join(_render_modality_row(row) for row in _modality_summaries(rows))
-    regional_availability_tables = _render_regional_availability_tables(rows, regions)
-    large_extension_group_tables = _render_large_extension_group_tables(rows, regions)
     recent_changes_panel = _render_recent_changes_panel(recent_changes)
+    history_resources_panel = _render_history_resources_panel(recent_changes)
     group_rows = "\n".join(_render_group_row(row) for row in _feature_group_summaries(rows))
 
     return f"""<!doctype html>
@@ -364,6 +363,7 @@ def _render_index(snapshot: Snapshot, recent_changes: dict[str, Any] | None = No
       {_render_metric("Unknown", status_counts.get("unknown", 0))}
     </section>
     {recent_changes_panel}
+    {history_resources_panel}
     <section class="layout" aria-label="Coverage overview">
       <div class="panel">
         <div class="panel-header">
@@ -411,11 +411,21 @@ def _render_index(snapshot: Snapshot, recent_changes: dict[str, Any] | None = No
     <section class="availability-stack" aria-label="Region modality availability">
       <div class="section-heading">
         <h2>Regional Availability By Modality</h2>
-        <div class="panel-subtitle">Each modality has its own group / region matrix</div>
+        <div id="regional-availability-status" class="panel-subtitle">Loading group / region matrices from api/latest.json</div>
+      </div>
+      <div id="regional-availability-root">
+        <section class="panel availability-section" aria-label="Regional availability loading">
+          <div class="lazy-matrix-placeholder">Loading regional availability matrices.</div>
+        </section>
       </div>
     </section>
-    {regional_availability_tables}
-    {large_extension_group_tables}
+    <section class="availability-stack" aria-label="Large AKS extension group availability">
+      <div class="section-heading">
+        <h2>Large AKS Extension Groups</h2>
+        <div id="large-extension-status" class="panel-subtitle">Loading extension groups from api/latest.json</div>
+      </div>
+      <div id="large-extension-groups-root"></div>
+    </section>
   </main>
   <script>
 {_index_script()}
@@ -628,6 +638,8 @@ def _style_block() -> str:
     .repo-callout { display: flex; justify-content: space-between; align-items: center; gap: 18px; background: #eef4fb; border: 1px solid var(--line); border-radius: 8px; padding: 14px; margin: 0 0 18px; }
     .repo-callout p { margin: 4px 0 0; color: var(--muted); font-size: 14px; }
     .repo-callout a { white-space: nowrap; font-weight: 650; }
+    .resource-links { display: flex; flex-wrap: wrap; gap: 10px; padding: 12px 14px 14px; }
+    .resource-links a { display: inline-flex; align-items: center; min-height: 30px; border: 1px solid var(--line); border-radius: 6px; padding: 4px 9px; background: #f8fafc; font-weight: 600; text-decoration: none; }
     .metrics { display: grid; grid-template-columns: repeat(4, minmax(130px, 1fr)); gap: 10px; margin: 18px 0; }
     .metric { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
     .metric-value { font-size: 24px; font-weight: 650; }
@@ -689,6 +701,7 @@ def _style_block() -> str:
     .region-flag-fallback { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%; background: var(--unknown-bg); color: var(--unknown-text); font-size: 10px; font-weight: 700; }
     .region-label { max-width: 48px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; color: var(--muted); }
     .availability-badge { display: inline-flex; gap: 5px; align-items: center; justify-content: center; min-height: 24px; padding: 3px 7px; border-radius: 999px; border: 1px solid transparent; font-size: 12px; font-weight: 650; white-space: nowrap; }
+    .availability-single { min-width: 82px; justify-content: center; cursor: help; }
     .availability-tooltip-trigger { cursor: help; }
     .availability-tooltip-trigger:focus { outline: 2px solid #2759a5; outline-offset: 2px; }
     .availability-label { max-width: 96px; overflow: hidden; text-overflow: ellipsis; }
@@ -801,6 +814,26 @@ def _render_recent_changes_panel(recent_changes: dict[str, Any] | None) -> str:
           </thead>
           <tbody>{rows}</tbody>
         </table>
+      </div>
+    </section>"""
+
+
+def _render_history_resources_panel(recent_changes: dict[str, Any] | None) -> str:
+    latest_day = ""
+    if recent_changes and isinstance(recent_changes.get("days"), list):
+        days = [day for day in recent_changes["days"] if isinstance(day, dict)]
+        latest_day = str(days[0].get("date", "")) if days else ""
+
+    latest_note = f"Latest history day: {html.escape(latest_day)}" if latest_day else "History index"
+    return f"""<section class="panel history-resources" aria-label="History resources">
+      <div class="panel-header">
+        <h2>History Resources</h2>
+        <div class="panel-subtitle">{latest_note}</div>
+      </div>
+      <div class="resource-links">
+        <a href="api/history/index.json">History index</a>
+        <a href="api/history/recent-changes.json">Recent changes JSON</a>
+        <a href="api/latest.json">Latest snapshot JSON</a>
       </div>
     </section>"""
 
@@ -959,10 +992,13 @@ def _region_modality_group_summaries(rows: list[dict[str, object]]) -> list[dict
         summary = summaries.setdefault(
             (category, group), {"category": category, "group": group, "regions": {}}
         )
-        region_summary = summary["regions"].setdefault(region, {"available": 0, "total": 0})
+        region_summary = summary["regions"].setdefault(
+          region,
+          {"available": 0, "unavailable": 0, "partial": 0, "unknown": 0, "total": 0},
+        )
         region_summary["total"] += 1
-        if row["status"] == "available":
-            region_summary["available"] += 1
+        status = str(row["status"])
+        region_summary[status] = region_summary.get(status, 0) + 1
     return sorted(
         summaries.values(),
         key=lambda item: (str(item["category"]), str(item["group"])),
@@ -1357,6 +1393,10 @@ def _region_short_label(region: str) -> str:
 
 def _index_script() -> str:
     return r"""
+  let availabilityRowsPromise = null;
+  let availabilityRows = [];
+  let availabilityRegions = [];
+
     function syncAvailabilityScrollbars() {
       document.querySelectorAll('.availability-section').forEach((section) => {
         const top = section.querySelector('.matrix-scroll-top');
@@ -1439,41 +1479,190 @@ def _index_script() -> str:
         '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
       }[char]));
     }
+    function flattenAvailabilitySnapshot(snapshot) {
+      const rows = [];
+      Object.entries(snapshot.regions || {}).forEach(([region, services]) => {
+        Object.entries(services || {}).forEach(([service, features]) => {
+          Object.entries(features || {}).forEach(([feature, result]) => {
+            rows.push({
+              region,
+              service,
+              feature,
+              category: availabilityCategory(feature),
+              group: availabilityGroup(feature),
+              status: result.status || 'unknown',
+            });
+          });
+        });
+      });
+      return rows;
+    }
+    function loadAvailabilityRows() {
+      if (!availabilityRowsPromise) {
+        availabilityRowsPromise = fetch('api/latest.json', { cache: 'force-cache' })
+          .then((response) => response.json())
+          .then((snapshot) => {
+            availabilityRegions = Object.keys(snapshot.regions || {}).sort((a, b) => a.localeCompare(b));
+            availabilityRows = flattenAvailabilitySnapshot(snapshot);
+            return { rows: availabilityRows, regions: availabilityRegions };
+          });
+      }
+      return availabilityRowsPromise;
+    }
+    function statusFromCounts(summary) {
+      if ((summary.available || 0) > 0) return 'available';
+      if ((summary.unavailable || 0) > 0) return 'unavailable';
+      if ((summary.partial || 0) > 0) return 'partial';
+      return 'unknown';
+    }
+    function statusLabel(status) {
+      return status ? status.charAt(0).toUpperCase() + status.slice(1) : 'Unknown';
+    }
+    function availabilityHealthClass(available, total) {
+      if (!total) return 'availability-empty';
+      const missing = total - available;
+      if (missing === 0) return 'availability-good';
+      if (missing === 1) return 'availability-warn';
+      if (missing === 2) return 'availability-caution';
+      return 'availability-poor';
+    }
+    function triggerAttributes(region, category, group, title) {
+      return `tabindex="0" title="${escapeHtml(title)}" data-region="${escapeHtml(region)}" data-category="${escapeHtml(category)}" data-group="${escapeHtml(group)}"`;
+    }
+    function renderRegionHeader(region) {
+      return `<th class="region-header" title="${escapeHtml(region)}"><span class="region-heading"><span class="region-label">${escapeHtml(region)}</span></span></th>`;
+    }
+    function summarizeRegionalGroups(rows) {
+      const summaries = new Map();
+      rows.forEach((row) => {
+        const key = `${row.category}|${row.group}`;
+        if (!summaries.has(key)) summaries.set(key, { category: row.category, group: row.group, regions: new Map() });
+        const summary = summaries.get(key);
+        if (!summary.regions.has(row.region)) {
+          summary.regions.set(row.region, { available: 0, unavailable: 0, partial: 0, unknown: 0, total: 0 });
+        }
+        const regionSummary = summary.regions.get(row.region);
+        regionSummary.total += 1;
+        regionSummary[row.status] = (regionSummary[row.status] || 0) + 1;
+      });
+      return Array.from(summaries.values()).sort((a, b) => a.category.localeCompare(b.category) || a.group.localeCompare(b.group));
+    }
+    function sortedModalities(summaries) {
+      const preferred = ['AKS extensions', 'AKS Kubernetes versions', 'Azure Functions', 'Azure AI models', 'Container Apps', 'VM SKUs'];
+      const available = [...new Set(summaries.map((summary) => summary.category))];
+      return [
+        ...preferred.filter((modality) => available.includes(modality)),
+        ...available.filter((modality) => !preferred.includes(modality)).sort(),
+      ];
+    }
+    function renderAvailabilityCell(summary, region, category, group) {
+      if (!summary) return '<td><span class="availability-badge availability-empty">-</span></td>';
+      const title = `${region}: ${(summary.available || 0).toLocaleString()} available, ${(summary.unavailable || 0).toLocaleString()} unavailable, ${(summary.partial || 0).toLocaleString()} partial, ${(summary.unknown || 0).toLocaleString()} unknown, ${summary.total.toLocaleString()} total`;
+      const attrs = triggerAttributes(region, category, group, title);
+      if (summary.total === 1) {
+        const status = statusFromCounts(summary);
+        return `<td><span class="status status-${escapeHtml(status)} availability-single availability-tooltip-trigger" ${attrs}>${escapeHtml(statusLabel(status))}</span></td>`;
+      }
+      const healthClass = availabilityHealthClass(summary.available || 0, summary.total);
+      return `<td><span class="availability-badge availability-tooltip-trigger ${healthClass}" ${attrs}><span class="availability-count">${(summary.available || 0).toLocaleString()}/${summary.total.toLocaleString()}</span></span></td>`;
+    }
+    function renderRegionalAvailability(rows, regions) {
+      const root = document.getElementById('regional-availability-root');
+      const status = document.getElementById('regional-availability-status');
+      if (!root) return;
+      const summaries = summarizeRegionalGroups(rows);
+      const headers = regions.map(renderRegionHeader).join('');
+      root.innerHTML = sortedModalities(summaries).map((modality) => {
+        const groupRows = summaries
+          .filter((summary) => summary.category === modality)
+          .map((summary) => `<tr><td><code>${escapeHtml(summary.group)}</code></td>${regions.map((region) => renderAvailabilityCell(summary.regions.get(region), region, summary.category, summary.group)).join('')}</tr>`)
+          .join('');
+        return `<section class="panel availability-section" aria-label="${escapeHtml(modality)} regional availability">
+          <div class="panel-header"><h2>${escapeHtml(modality)}</h2><div class="panel-subtitle">Groups by Azure region, rendered from api/latest.json</div></div>
+          <div class="matrix-scroll-top" aria-hidden="true"><div></div></div>
+          <div class="table-wrap availability-matrix"><table><thead><tr><th>Group</th>${headers}</tr></thead><tbody>${groupRows}</tbody></table></div>
+        </section>`;
+      }).join('');
+      if (status) status.textContent = `${summaries.length.toLocaleString()} groups loaded from api/latest.json`;
+    }
+    function renderStatusCell(status, region) {
+      const labels = { available: 'A', unavailable: 'U', partial: 'P', unknown: '?' };
+      const css = labels[status] ? status : 'unknown';
+      return `<td><span class="status-dot status-${escapeHtml(css)}" title="${escapeHtml(`${region}: ${status || 'not reported'}`)}">${escapeHtml(labels[status] || '-')}</span></td>`;
+    }
+    function renderExtensionFeatureTable(features, regions) {
+      const headers = regions.map(renderRegionHeader).join('');
+      const rows = features.map((feature) => `<tr><td><code>${escapeHtml(feature.label)}</code></td>${regions.map((region) => renderStatusCell(feature.regions[region], region)).join('')}</tr>`).join('');
+      return `<div class="matrix-scroll-top" aria-hidden="true"><div></div></div>
+        <div class="table-wrap availability-matrix extension-feature-matrix"><table><thead><tr><th>Extension</th>${headers}</tr></thead><tbody>${rows}</tbody></table></div>`;
+    }
+    function largeExtensionGroups(rows) {
+      const summaries = new Map();
+      rows.forEach((row) => {
+        if (row.category !== 'AKS extensions' || !row.feature.startsWith('extensionTypes.')) return;
+        if (!summaries.has(row.group)) summaries.set(row.group, new Map());
+        const features = summaries.get(row.group);
+        if (!features.has(row.feature)) features.set(row.feature, { label: compactFeatureName(row.feature, row.group), regions: {} });
+        features.get(row.feature).regions[row.region] = row.status;
+      });
+      return Array.from(summaries.entries())
+        .map(([group, features]) => ({ group, features: Array.from(features.values()).sort((a, b) => a.label.localeCompare(b.label)) }))
+        .filter((summary) => summary.features.length > 10)
+        .sort((a, b) => (a.group !== 'microsoft') - (b.group !== 'microsoft') || a.group.localeCompare(b.group) || a.features.length - b.features.length);
+    }
+    function renderLargeExtensionGroups(rows, regions) {
+      const root = document.getElementById('large-extension-groups-root');
+      const status = document.getElementById('large-extension-status');
+      if (!root) return;
+      const summaries = largeExtensionGroups(rows);
+      if (!summaries.length) {
+        root.innerHTML = '<section class="panel"><div class="lazy-matrix-placeholder">No large extension groups in this snapshot.</div></section>';
+        if (status) status.textContent = 'No large extension groups in this snapshot';
+        return;
+      }
+      root.innerHTML = summaries.map((summary) => `<details class="panel availability-section extension-group-section extension-group-collapsed" data-extension-group="${escapeHtml(summary.group)}">
+        <summary class="panel-header extension-group-summary"><h2>AKS extensions: ${escapeHtml(summary.group)}</h2><div class="panel-subtitle">${summary.features.length.toLocaleString()} extensions by Azure region</div></summary>
+        <div class="lazy-matrix-placeholder">Open to load this extension matrix.</div>
+      </details>`).join('');
+      summaries.forEach((summary) => {
+        const section = root.querySelector(`[data-extension-group="${CSS.escape(summary.group)}"]`);
+        section?.addEventListener('toggle', () => {
+          if (!section.open || section.dataset.loaded === 'true') return;
+          const placeholder = section.querySelector('.lazy-matrix-placeholder');
+          if (!placeholder) return;
+          placeholder.outerHTML = renderExtensionFeatureTable(summary.features, regions);
+          section.dataset.loaded = 'true';
+          syncAvailabilityScrollbars();
+        });
+      });
+      if (status) status.textContent = `${summaries.length.toLocaleString()} large extension groups available on demand`;
+    }
+    function initializeDynamicAvailability() {
+      loadAvailabilityRows()
+        .then(({ rows, regions }) => {
+          renderRegionalAvailability(rows, regions);
+          renderLargeExtensionGroups(rows, regions);
+          initializeAvailabilityTooltips();
+          syncAvailabilityScrollbars();
+        })
+        .catch(() => {
+          const root = document.getElementById('regional-availability-root');
+          const status = document.getElementById('regional-availability-status');
+          if (root) root.innerHTML = '<section class="panel"><div class="lazy-matrix-placeholder">Could not load api/latest.json for regional availability.</div></section>';
+          if (status) status.textContent = 'Could not load regional matrices';
+        });
+    }
     function initializeAvailabilityTooltips() {
       const triggers = [...document.querySelectorAll('.availability-tooltip-trigger')];
       if (!triggers.length) return;
-      const popover = document.createElement('div');
-      popover.className = 'availability-popover';
-      popover.setAttribute('role', 'tooltip');
-      document.body.appendChild(popover);
+      let popover = document.querySelector('.availability-popover');
+      if (!popover) {
+        popover = document.createElement('div');
+        popover.className = 'availability-popover';
+        popover.setAttribute('role', 'tooltip');
+        document.body.appendChild(popover);
+      }
       let activeTrigger = null;
-      let rowsPromise = null;
-
-      const loadRows = () => {
-        if (!rowsPromise) {
-          rowsPromise = fetch('api/latest.json', { cache: 'force-cache' })
-            .then((response) => response.json())
-            .then((snapshot) => {
-              const rows = [];
-              Object.entries(snapshot.regions || {}).forEach(([region, services]) => {
-                Object.entries(services || {}).forEach(([service, features]) => {
-                  Object.entries(features || {}).forEach(([feature, result]) => {
-                    rows.push({
-                      region,
-                      service,
-                      feature,
-                      category: availabilityCategory(feature),
-                      group: availabilityGroup(feature),
-                      status: result.status || 'unknown',
-                    });
-                  });
-                });
-              });
-              return rows;
-            });
-        }
-        return rowsPromise;
-      };
 
       const placePopover = (trigger) => {
         const rect = trigger.getBoundingClientRect();
@@ -1511,7 +1700,7 @@ def _index_script() -> str:
         popover.dataset.visible = 'true';
         placePopover(trigger);
         try {
-          const rows = await loadRows();
+          const { rows } = await loadAvailabilityRows();
           if (activeTrigger !== trigger) return;
           const matches = rows.filter((row) => row.region === region && row.category === category && row.group === group);
           const available = matches.filter((row) => row.status === 'available').length;
@@ -1535,21 +1724,25 @@ def _index_script() -> str:
       };
 
       triggers.forEach((trigger) => {
+        if (trigger.dataset.tooltipReady === 'true') return;
+        trigger.dataset.tooltipReady = 'true';
         trigger.addEventListener('mouseenter', () => show(trigger));
         trigger.addEventListener('focus', () => show(trigger));
         trigger.addEventListener('click', (event) => { event.preventDefault(); show(trigger); });
         trigger.addEventListener('mouseleave', hide);
         trigger.addEventListener('blur', hide);
       });
-      document.addEventListener('keydown', (event) => {
-        if (event.key === 'Escape') hide();
-      });
-      window.addEventListener('scroll', () => activeTrigger && placePopover(activeTrigger), { passive: true });
-      window.addEventListener('resize', () => activeTrigger && placePopover(activeTrigger));
+      if (document.body.dataset.tooltipGlobalReady !== 'true') {
+        document.body.dataset.tooltipGlobalReady = 'true';
+        document.addEventListener('keydown', (event) => {
+          if (event.key === 'Escape') hide();
+        });
+        window.addEventListener('scroll', () => activeTrigger && placePopover(activeTrigger), { passive: true });
+        window.addEventListener('resize', () => activeTrigger && placePopover(activeTrigger));
+      }
     }
     window.addEventListener('load', syncAvailabilityScrollbars);
-    window.addEventListener('load', initializeLazyExtensionGroups);
-    window.addEventListener('load', initializeAvailabilityTooltips);
+    window.addEventListener('load', initializeDynamicAvailability);
     window.addEventListener('resize', syncAvailabilityScrollbars);
 """
 
@@ -1563,18 +1756,35 @@ def _render_availability_cell(
         available = summary["available"]
         total = summary["total"]
         missing = total - available
-        health_class = _availability_health_class(available, total)
         title = f"{region}: {available:,} available, {missing:,} not available, {total:,} total"
-        badge = (
-      f'<span class="availability-badge availability-tooltip-trigger {health_class}" '
+    trigger_attrs = (
       f'tabindex="0" title="{html.escape(title)}" '
       f'data-region="{html.escape(region)}" '
       f'data-category="{html.escape(category)}" '
-      f'data-group="{html.escape(group)}">'
-            f'<span class="availability-count">{available:,}/{total:,}</span>'
-            "</span>"
-        )
+      f'data-group="{html.escape(group)}"'
+    )
+    if total == 1:
+      status = _single_summary_status(summary)
+      badge = (
+        f'<span class="status status-{html.escape(status)} availability-single '
+        f'availability-tooltip-trigger" {trigger_attrs}>{html.escape(status.title())}</span>'
+      )
+    else:
+      health_class = _availability_health_class(available, total)
+      badge = (
+        f'<span class="availability-badge availability-tooltip-trigger {health_class}" '
+        f'{trigger_attrs}>'
+        f'<span class="availability-count">{available:,}/{total:,}</span>'
+        "</span>"
+      )
     return f"<td>{badge}</td>"
+
+
+def _single_summary_status(summary: dict[str, int]) -> str:
+  for status in ("available", "unavailable", "partial", "unknown"):
+    if summary.get(status, 0) > 0:
+      return status
+  return "unknown"
 
 
 def _availability_health_class(available: int, total: int) -> str:

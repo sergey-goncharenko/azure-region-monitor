@@ -28,7 +28,8 @@ def test_build_static_site_writes_dashboard_and_latest_json(tmp_path):
     assert "Status meanings" in index_html
     assert "GitHub repository" in index_html
     assert "https://github.com/sergey-goncharenko/azure-region-monitor" in index_html
-    assert "swedencentral" in index_html
+    assert "swedencentral" in latest_json
+    assert (output_dir / "index.html").stat().st_size < 1_000_000
     assert "extensions.gitops" in latest_json
     assert not (output_dir / "api" / "diff.json").exists()
 
@@ -220,9 +221,8 @@ def test_build_static_site_shows_uniform_extension_availability(tmp_path):
     assert "AKS extensions" in index_html
     assert "curated" in index_html
     assert "availability-tooltip-trigger" in index_html
-    assert 'data-region="australiaeast"' in index_html
-    assert 'data-category="VM SKUs"' in index_html
-    assert 'data-group="B"' in index_html
+    assert "renderRegionalAvailability" in index_html
+    assert "renderAvailabilityCell" in index_html
     assert "initializeAvailabilityTooltips" in index_html
     assert "Detailed heatmap" in index_html
     assert "Check Details" in heatmap_html
@@ -351,31 +351,14 @@ def test_build_static_site_color_codes_regional_modality_groups(tmp_path):
 
     index_html = (output_dir / "index.html").read_text(encoding="utf-8")
 
-    assert "Each modality has its own group / region matrix" in index_html
-    assert "availability-matrix" in index_html
-    assert index_html.count('<section class="panel availability-section"') == 6
-    assert "matrix-scroll-top" in index_html
-    assert ">AKS extensions</h2>" in index_html
-    assert ">AKS Kubernetes versions</h2>" in index_html
-    assert ">Azure Functions</h2>" in index_html
-    assert ">Azure AI models</h2>" in index_html
-    assert ">Container Apps</h2>" in index_html
-    assert ">VM SKUs</h2>" in index_html
-    assert "Groups by country, then Azure region" in index_html
-    assert index_html.index('title="Australia - australiaeast"') < index_html.index(
-        'title="France - francecentral"'
-    )
-    assert index_html.index('title="France - francecentral"') < index_html.index(
-        'title="United States - eastus"'
-    )
-    assert 'aria-label="Australia">AU</span>' in index_html
-    assert 'aria-label="France">FR</span>' in index_html
-    assert 'aria-label="United States">US</span>' in index_html
+    assert "Loading group / region matrices from api/latest.json" in index_html
+    assert "regional-availability-root" in index_html
+    assert "renderRegionalAvailability" in index_html
+    assert "renderAvailabilityCell" in index_html
+    assert "availability-single" in index_html
+    assert "Groups by Azure region, rendered from api/latest.json" in index_html
     assert "circle-flags" not in index_html
-    assert 'title="United States - eastus"' in index_html
     assert "\U0001f1fa\U0001f1f8" not in index_html
-    assert '<span class="region-label">east</span>' in index_html
-    assert "<th>Group</th>" in index_html
     assert "availability-good" in index_html
     assert "availability-warn" in index_html
     assert "availability-caution" in index_html
@@ -392,10 +375,8 @@ def test_build_static_site_color_codes_regional_modality_groups(tmp_path):
     assert "<td><code>connected environments</code></td>" in index_html
     assert "<td><code>D</code></td>" in index_html
     assert "<td><code>E</code></td>" in index_html
-    assert "<span class=\"availability-count\">1/1</span>" in index_html
-    assert "<span class=\"availability-count\">1/2</span>" in index_html
-    assert "<span class=\"availability-count\">1/3</span>" in index_html
-    assert "<span class=\"availability-count\">0/3</span>" in index_html
+    assert "${escapeHtml(statusLabel(status))}" in index_html
+    assert "availability-count" in index_html
 
 
 def test_build_static_site_uses_paged_detail_page_for_heavy_tables(tmp_path):
@@ -465,22 +446,14 @@ def test_build_static_site_splits_large_extension_groups_into_detail_tables(tmp_
     index_html = (output_dir / "index.html").read_text(encoding="utf-8")
 
     assert "Large AKS Extension Groups" in index_html
-    assert "Extension groups with more than 10 extensions" in index_html
-    assert ">AKS extensions: microsoft</h2>" in index_html
-    assert "11 extensions by country, then Azure region" in index_html
-    assert ">AKS extensions: contoso</h2>" in index_html
+    assert "Loading extension groups from api/latest.json" in index_html
+    assert "renderLargeExtensionGroups" in index_html
+    assert "largeExtensionGroups" in index_html
     assert "extension-group-collapsed" in index_html
     assert "Open to load this extension matrix." in index_html
-    assert "<template>" in index_html
-    assert ">AKS extensions: boutique</h2>" not in index_html
     assert "<th>Extension</th>" in index_html
-    assert "<td><code>extension0</code></td>" in index_html
+    assert "extension0" not in index_html
     assert "extensionTypes.microsoft.extension0" not in index_html
-    assert 'title="eastus: available"' in index_html
-    assert 'title="westus: unavailable"' in index_html
-    assert index_html.index(">AKS extensions: microsoft</h2>") < index_html.index(
-        ">AKS extensions: contoso</h2>"
-    )
     assert index_html.index("Regional Availability By Modality") < index_html.index(
         "Large AKS Extension Groups"
     )
