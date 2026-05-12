@@ -106,6 +106,11 @@ class VmSkuCliProbe:
             )
 
     def _list_sizes(self, region: str) -> tuple[set[str], AzureCliError | None, bool]:
+        legacy_skus, legacy_error = self._list_legacy_sizes(region)
+
+        if legacy_error is None and len(legacy_skus) >= MIN_REASONABLE_REGIONAL_SKU_COUNT:
+            return legacy_skus, None, True
+
         listed_skus, list_skus_error = self._run_sku_command(
             [
                 az_executable(),
@@ -123,18 +128,26 @@ class VmSkuCliProbe:
             ]
         )
 
+        if legacy_error is None and list_skus_error is None:
+            return legacy_skus | listed_skus, None, True
+
+        if legacy_error is None:
+            return set(), AzureCliError(
+                "AzureCliIncompleteCatalog",
+                "Legacy az vm list-sizes returned a suspiciously small catalog and "
+                f"az vm list-skus fallback failed: {list_skus_error.message if list_skus_error else 'no error'}",
+            ), True
+
         if list_skus_error is None and len(listed_skus) >= MIN_REASONABLE_REGIONAL_SKU_COUNT:
             return listed_skus, None, False
 
-        legacy_skus, legacy_error = self._list_legacy_sizes(region)
-
         if list_skus_error is None:
-            return listed_skus | legacy_skus, None, bool(legacy_skus - listed_skus)
+            return set(), AzureCliError(
+                "AzureCliIncompleteCatalog",
+                "Legacy az vm list-sizes failed and az vm list-skus returned a suspiciously small catalog.",
+            ), False
 
-        if legacy_error is None:
-            return legacy_skus, None, True
-
-        return set(), _combine_errors(list_skus_error, legacy_error), False
+        return set(), _combine_errors(legacy_error, list_skus_error), False
 
     def _list_legacy_sizes(self, region: str) -> tuple[set[str], AzureCliError | None]:
         return self._run_sku_command(
@@ -172,7 +185,7 @@ class VmSkuCliProbe:
 def _combine_errors(primary: AzureCliError, fallback: AzureCliError) -> AzureCliError:
     return AzureCliError(
         primary.error_code,
-        f"az vm list-skus failed: {primary.message} Legacy az vm list-sizes fallback failed: {fallback.message}",
+        f"Legacy az vm list-sizes failed: {primary.message} az vm list-skus fallback failed: {fallback.message}",
     )
 
 
@@ -201,7 +214,7 @@ def _sku_message(
     used_legacy_fallback: bool,
 ) -> str:
     source = (
-        "az vm list-skus or legacy az vm list-sizes fallback"
+        "legacy az vm list-sizes and az vm list-skus fallback evidence"
         if used_legacy_fallback
         else "az vm list-skus"
     )

@@ -6,11 +6,8 @@ from azure_region_monitor.probes.vm_skus import VmSkuCliProbe
 
 def test_vm_sku_probe_marks_unrestricted_listed_sku_available():
     def cli_runner(command: list[str]) -> subprocess.CompletedProcess[str]:
-        assert command[1:3] == ["vm", "list-skus"]
+        assert command[1:3] == ["vm", "list-sizes"]
         assert command[command.index("--location") + 1] == "westeurope"
-        assert "--resource-type" in command
-        assert "virtualMachines" in command
-        assert "--all" in command
         assert command[command.index("--query") + 1] == "[].name"
         return subprocess.CompletedProcess(
             command,
@@ -56,32 +53,61 @@ def test_vm_sku_probe_captures_cli_error_as_unknown():
     assert results[0].result.error_code == "AzureCliCommandFailed"
 
 
-def test_vm_sku_probe_uses_legacy_fallback_when_list_skus_fails():
+def test_vm_sku_probe_uses_list_skus_fallback_when_legacy_listing_fails():
     def cli_runner(command: list[str]) -> subprocess.CompletedProcess[str]:
-        if command[1:3] == ["vm", "list-skus"]:
+        if command[1:3] == ["vm", "list-sizes"]:
             return subprocess.CompletedProcess(command, 1, stdout="", stderr="provider failed")
-        return subprocess.CompletedProcess(command, 0, stdout='["Standard_D2s_v5"]', stderr="")
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout=_sku_payload("Standard_D2s_v5", extra_count=100),
+            stderr="",
+        )
 
     probe = VmSkuCliProbe(skus=["Standard_D2s_v5"], cli_runner=cli_runner)
 
     results = list(probe.run("westeurope"))
 
     assert results[0].result.status == "available"
-    assert "legacy az vm list-sizes fallback" in results[0].result.message
+    assert "az vm list-skus" in results[0].result.message
 
 
-def test_vm_sku_probe_unions_legacy_fallback_when_list_skus_omits_size():
+def test_vm_sku_probe_uses_legacy_listing_when_supported_listing_omits_size():
     def cli_runner(command: list[str]) -> subprocess.CompletedProcess[str]:
         if command[1:3] == ["vm", "list-skus"]:
-            return subprocess.CompletedProcess(command, 0, stdout="[]", stderr="")
-        return subprocess.CompletedProcess(command, 0, stdout='["Standard_D2s_v5"]', stderr="")
+            raise AssertionError("list-skus should not run after a complete legacy catalog")
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout=_sku_payload("Standard_D2s_v5", extra_count=100),
+            stderr="",
+        )
 
     probe = VmSkuCliProbe(skus=["Standard_D2s_v5"], cli_runner=cli_runner)
 
     results = list(probe.run("westeurope"))
 
     assert results[0].result.status == "available"
-    assert "legacy az vm list-sizes fallback" in results[0].result.message
+    assert "legacy az vm list-sizes" in results[0].result.message
+
+
+def test_vm_sku_probe_unions_list_skus_fallback_when_legacy_listing_is_small():
+    def cli_runner(command: list[str]) -> subprocess.CompletedProcess[str]:
+        if command[1:3] == ["vm", "list-sizes"]:
+            return subprocess.CompletedProcess(command, 0, stdout="[]", stderr="")
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout=_sku_payload("Standard_D2s_v5", extra_count=100),
+            stderr="",
+        )
+
+    probe = VmSkuCliProbe(skus=["Standard_D2s_v5"], cli_runner=cli_runner)
+
+    results = list(probe.run("westeurope"))
+
+    assert results[0].result.status == "available"
+    assert "legacy az vm list-sizes" in results[0].result.message
 
 
 def test_vm_sku_probe_can_emit_all_listed_skus():

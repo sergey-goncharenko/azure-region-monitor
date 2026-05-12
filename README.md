@@ -69,7 +69,7 @@ The full scheduled workflow runs daily and uses the Python `DEFAULT_REGIONS` lis
 
 Feature items are mixed by design:
 
-- AKS extension catalog, Azure AI model catalog, and VM SKU runs discover the listed feature universe from each full scan and normalize missing discovered items to `unavailable` in regions where the listing probe succeeded. Full and VM-focused workflows pass `AZURE_VM_SKUS=all`, so VM SKU rows cover sizes returned by regional `az vm list-skus --location <region> --resource-type virtualMachines --all` calls, supplemented by legacy `az vm list-sizes --location <region>` when the supported listing fails or is suspiciously small.
+- AKS extension catalog, Azure AI model catalog, and VM SKU runs discover the listed feature universe from each full scan and normalize missing discovered items to `unavailable` in regions where the listing probe succeeded. Full and VM-focused workflows pass `AZURE_VM_SKUS=all`, so VM SKU rows cover sizes returned by regional legacy `az vm list-sizes --location <region>` calls, supplemented by supported `az vm list-skus --location <region> --resource-type virtualMachines --all` evidence when the legacy listing fails or is suspiciously small.
 - Azure Functions runtimes, Container Apps resource types, and AKS Kubernetes minor-version prefixes are configured lists that are refreshed when we update the monitor config.
 - Dashboard modality groups are derived from feature names in the snapshot at build time, so new discovered publishers, model families, or SKU families appear automatically after a full scan.
 
@@ -176,7 +176,7 @@ $env:AZURE_VM_SKUS="Standard_B2s,Standard_D2s_v5,Standard_D2as_v5,Standard_E2s_v
 azure-region-monitor run --probe vm-sku-cli --output data/snapshots/latest.json
 ```
 
-Set `AZURE_VM_SKUS=all` to track every SKU returned by the regional VM SKU listing probe, including legacy `az vm list-sizes` fallback evidence when the supported listing is not trustworthy:
+Set `AZURE_VM_SKUS=all` to track every SKU returned by the regional VM SKU listing probe, including supported `az vm list-skus` fallback evidence when the legacy listing is not trustworthy:
 
 ```powershell
 $env:AZURE_VM_SKUS="all"
