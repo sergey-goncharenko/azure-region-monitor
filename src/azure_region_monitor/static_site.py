@@ -86,6 +86,10 @@ _API_HEADERS = {
     "Access-Control-Allow-Headers": "*",
     "Cache-Control": "public, must-revalidate, max-age=60",
 }
+_LATEST_SNAPSHOT_HEADERS = {
+  **_API_HEADERS,
+  "Content-Disposition": 'attachment; filename="azure-region-monitor-latest.json"',
+}
 
 
 def build_static_site(
@@ -130,6 +134,10 @@ def _write_static_web_app_config(output_dir: Path) -> None:
     config = {
         "globalHeaders": _SECURITY_HEADERS,
         "routes": [
+          {
+            "route": "/api/latest.json",
+            "headers": _LATEST_SNAPSHOT_HEADERS,
+          },
             {
                 "route": "/api/*",
                 "headers": _API_HEADERS,
@@ -339,7 +347,7 @@ def _render_index(snapshot: Snapshot, recent_changes: dict[str, Any] | None = No
       <nav class="links" aria-label="Dashboard links">
         <a href="methodology.html">Status meanings</a>
         <a href="heatmap.html">Detailed heatmap</a>
-        <a href="api/latest.json">api/latest.json</a>
+        <a href="api/latest.json" download="azure-region-monitor-latest.json">Download latest JSON</a>
         <a href="{_REPOSITORY_URL}">GitHub repository</a>
       </nav>
     </header>
@@ -458,7 +466,7 @@ def _render_heatmap_page(snapshot: Snapshot) -> str:
       <nav class="links" aria-label="Dashboard links">
         <a href="index.html">Summary</a>
         <a href="methodology.html">Status meanings</a>
-        <a href="api/latest.json">api/latest.json</a>
+        <a href="api/latest.json" download="azure-region-monitor-latest.json">Download latest JSON</a>
       </nav>
     </header>
     <section class="panel" aria-label="Heatmap filters">
@@ -557,7 +565,7 @@ def _render_methodology_page(snapshot: Snapshot) -> str:
       <nav class="links" aria-label="Dashboard links">
         <a href="index.html">Summary</a>
         <a href="heatmap.html">Detailed heatmap</a>
-        <a href="api/latest.json">api/latest.json</a>
+        <a href="api/latest.json" download="azure-region-monitor-latest.json">Download latest JSON</a>
       </nav>
     </header>
     <section class="panel prose" aria-label="Plain-language status guide">
@@ -833,7 +841,7 @@ def _render_history_resources_panel(recent_changes: dict[str, Any] | None) -> st
       <div class="resource-links">
         <a href="api/history/index.json">History index</a>
         <a href="api/history/recent-changes.json">Recent changes JSON</a>
-        <a href="api/latest.json">Latest snapshot JSON</a>
+        <a href="api/latest.json" download="azure-region-monitor-latest.json">Latest snapshot JSON</a>
       </div>
     </section>"""
 

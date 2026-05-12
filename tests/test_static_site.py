@@ -60,6 +60,7 @@ def test_build_static_site_writes_crawl_and_llm_resources(tmp_path):
     assert '<link rel="alternate" href="/llms.txt" type="text/plain" title="LLM guide">' in index_html
     assert config["mimeTypes"][".svg"] == "image/svg+xml"
     assert config["mimeTypes"][".xml"] == "application/xml"
+    assert 'download="azure-region-monitor-latest.json"' in index_html
 
 
 def test_build_static_site_writes_security_config(tmp_path):
@@ -79,8 +80,14 @@ def test_build_static_site_writes_security_config(tmp_path):
     assert config["globalHeaders"]["X-Content-Type-Options"] == "nosniff"
     assert config["globalHeaders"]["X-Frame-Options"] == "DENY"
     assert config["globalHeaders"]["Permissions-Policy"]
-    assert config["routes"][0]["route"] == "/api/*"
+    assert config["routes"][0]["route"] == "/api/latest.json"
     assert config["routes"][0]["headers"]["Access-Control-Allow-Origin"] == "*"
+    assert (
+        config["routes"][0]["headers"]["Content-Disposition"]
+        == 'attachment; filename="azure-region-monitor-latest.json"'
+    )
+    assert config["routes"][1]["route"] == "/api/*"
+    assert config["routes"][1]["headers"]["Access-Control-Allow-Origin"] == "*"
     assert "hatscripts.github.io" not in index_html
 
 
