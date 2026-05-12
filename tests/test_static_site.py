@@ -26,6 +26,10 @@ def test_build_static_site_writes_dashboard_and_latest_json(tmp_path):
     assert (output_dir / "llms-full.txt").exists()
     assert (output_dir / "staticwebapp.config.json").exists()
     assert "Status meanings" in index_html
+    assert "Public Alpha" in index_html
+    assert "Current scans cover" in index_html
+    assert "configured Azure public cloud regions" in index_html
+    assert "unknown</span> usually means a probe failed, timed out" in index_html
     assert "GitHub repository" in index_html
     assert "https://github.com/sergey-goncharenko/azure-region-monitor" in index_html
     assert "swedencentral" in latest_json
@@ -104,6 +108,10 @@ def test_build_static_site_writes_status_methodology_page(tmp_path):
     heatmap_html = (output_dir / "heatmap.html").read_text(encoding="utf-8")
 
     assert "Plain-language guide" in methodology_html
+    assert "Public Alpha" in methodology_html
+    assert "Region scope" in methodology_html
+    assert "configured public Azure region list" in methodology_html
+    assert "sovereign cloud" in methodology_html
     assert "not a quota result" in methodology_html
     assert "az functionapp list-flexconsumption-locations --output json" in methodology_html
     assert "Quota is separate" in methodology_html
@@ -113,6 +121,7 @@ def test_build_static_site_writes_status_methodology_page(tmp_path):
     assert "Container Apps" in methodology_html
     assert "VM SKUs" in methodology_html
     assert "methodology.html" in heatmap_html
+    assert "Public Alpha" in heatmap_html
 
 
 def test_build_static_site_copies_history_and_renders_recent_changes(tmp_path):

@@ -24,6 +24,8 @@ Alpha scope:
 Alpha limits:
 
 - Results are catalog/listing evidence, not deployment guarantees.
+- Data can be incomplete or temporarily wrong while the monitor is in public alpha.
+- Region coverage means the configured Azure public cloud region list used by the monitor; it does not claim sovereign clouds, private previews, every possible API version, or hidden capacity cells.
 - The project does not publish tenant IDs, subscription IDs, private resource names, credentials, or customer data.
 - Alerts, signed webhooks, SDKs, and durable external snapshot storage are future roadmap items.
 
@@ -63,7 +65,7 @@ The first implementation slice is a Python service with:
 
 ## Scope Discovery
 
-The full scheduled workflow runs daily and uses the Python `DEFAULT_REGIONS` list when the region input is left blank. That list tracks Azure physical locations returned by Azure CLI, including recommended and other public cloud locations.
+The full scheduled workflow runs daily and uses the Python `DEFAULT_REGIONS` list when the region input is left blank. That list tracks Azure physical locations returned by Azure CLI, including recommended and other public cloud locations. In alpha, treat this as the monitor's configured Azure public cloud scope, not a contractual statement that every Azure location, sovereign cloud, private preview region, or hidden capacity cell is represented.
 
 Feature items are mixed by design:
 
@@ -248,7 +250,7 @@ Most checks are read-only catalog or listing probes. They are designed to answer
 
 - `available`: the feature was listed or matched by the probe for that region.
 - `unavailable`: the probe completed successfully, but the feature was absent from the command output or catalog used by that probe.
-- `unknown`: the monitor did not get trustworthy evidence, usually because the Azure CLI command failed, timed out, returned invalid JSON, or hit a provider/control-plane issue.
+- `unknown`: the monitor did not get trustworthy evidence, usually because the Azure CLI command failed, timed out, returned invalid JSON, or hit a provider/control-plane issue. It is not an availability verdict; it means the monitor could not trust the probe result.
 - `partial`: reserved for future multi-condition probes where only some required sub-checks pass.
 
 For Azure Functions Flex Consumption, `unavailable` means the region was absent from `az functionapp list-flexconsumption-locations --output json`. Azure CLI describes that command as listing available locations for running function apps on the Flex Consumption plan. Absence from that list is not a quota result; quota, regional capacity, policy, provider registration, and create-time failures require separate signals.

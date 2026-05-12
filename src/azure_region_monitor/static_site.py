@@ -351,6 +351,7 @@ def _render_index(snapshot: Snapshot, recent_changes: dict[str, Any] | None = No
         <a href="{_REPOSITORY_URL}">GitHub repository</a>
       </nav>
     </header>
+    {_render_alpha_notice(len(regions))}
     <section class="repo-callout" aria-label="Project repository">
       <div>
         <h2>Open Source Monitor</h2>
@@ -469,6 +470,7 @@ def _render_heatmap_page(snapshot: Snapshot) -> str:
         <a href="api/latest.json" download="azure-region-monitor-latest.json">Download latest JSON</a>
       </nav>
     </header>
+    {_render_alpha_notice(len(snapshot.regions))}
     <section class="panel" aria-label="Heatmap filters">
       <div class="panel-header">
         <h2>Filters</h2>
@@ -574,7 +576,10 @@ def _render_methodology_page(snapshot: Snapshot) -> str:
         <div class="panel-subtitle">What the dashboard can and cannot prove</div>
       </div>
       <div class="prose-body">
+        <div class="note"><strong>Public Alpha.</strong> Data can be incomplete or temporarily wrong. The current scan covers {len(snapshot.regions):,} configured Azure public cloud regions and uses read-only Azure CLI/control-plane evidence. It does not claim to cover sovereign clouds, private previews, every possible API version, or hidden capacity signals.</div>
         <p>This dashboard is a regional rollout monitor. Most checks are read-only catalog checks: they ask Azure which locations, versions, SKUs, or extension types are advertised by Azure control-plane APIs or Azure CLI commands. They are fast and cheap, but they are not the same thing as a full deployment test.</p>
+        <h3>Region scope</h3>
+        <p>The scheduled full scan uses the monitor's configured public Azure region list, which is refreshed from Azure CLI location metadata as the project evolves. In other words, the dashboard is intended to cover Azure public cloud physical regions in scope for this monitor, but it should not be read as a contractual list of every Azure location, sovereign cloud, private preview region, or capacity cell.</p>
         <h3>Overall statuses</h3>
         <table>
           <thead><tr><th>Status</th><th>Meaning</th><th>What it does not prove</th></tr></thead>
@@ -607,6 +612,17 @@ def _render_methodology_page(snapshot: Snapshot) -> str:
 </body>
 </html>
 """
+
+
+def _render_alpha_notice(region_count: int) -> str:
+    return f"""<section class="alpha-notice" aria-label="Public alpha data notice">
+      <div class="alpha-badge">Public Alpha</div>
+      <div>
+        <strong>Read the data as rollout evidence, not a deployment guarantee.</strong>
+        <p>Current scans cover {region_count:,} configured Azure public cloud regions. Some results can be incomplete or temporarily wrong; <span class="status status-unknown">unknown</span> usually means a probe failed, timed out, returned invalid JSON, or could not get a trustworthy provider response.</p>
+      </div>
+      <a href="methodology.html">Methodology</a>
+    </section>"""
 
 
 def _style_block() -> str:
@@ -643,6 +659,10 @@ def _style_block() -> str:
     button:disabled { cursor: not-allowed; opacity: 0.45; }
     .links { display: flex; gap: 14px; flex-wrap: wrap; }
     .timestamp, .panel-subtitle { color: var(--muted); font-size: 14px; }
+    .alpha-notice { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 14px; background: #fff7df; border: 1px solid #e8c96b; border-radius: 8px; padding: 13px 14px; margin: 0 0 14px; color: #3c2e07; }
+    .alpha-notice p { margin: 4px 0 0; color: #604b0b; font-size: 14px; line-height: 1.45; }
+    .alpha-notice a { white-space: nowrap; font-weight: 650; color: #614a00; }
+    .alpha-badge { display: inline-flex; align-items: center; min-height: 28px; border-radius: 999px; padding: 3px 10px; background: #3c2e07; color: #fff8de; font-size: 12px; font-weight: 750; text-transform: uppercase; letter-spacing: 0; white-space: nowrap; }
     .repo-callout { display: flex; justify-content: space-between; align-items: center; gap: 18px; background: #eef4fb; border: 1px solid var(--line); border-radius: 8px; padding: 14px; margin: 0 0 18px; }
     .repo-callout p { margin: 4px 0 0; color: var(--muted); font-size: 14px; }
     .repo-callout a { white-space: nowrap; font-weight: 650; }
@@ -741,6 +761,7 @@ def _style_block() -> str:
       main { padding: 20px 12px 32px; }
       header { display: block; }
       h1 { font-size: 22px; }
+      .alpha-notice { grid-template-columns: 1fr; align-items: start; }
       .repo-callout { align-items: flex-start; flex-direction: column; }
       .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .layout { grid-template-columns: 1fr; }
