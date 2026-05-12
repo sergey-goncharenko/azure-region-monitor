@@ -372,7 +372,6 @@ def _render_index(snapshot: Snapshot, recent_changes: dict[str, Any] | None = No
       {_render_metric("Partial", status_counts.get("partial", 0))}
       {_render_metric("Unknown", status_counts.get("unknown", 0))}
     </section>
-    {unknown_diagnostics_panel}
     {recent_changes_panel}
     {history_resources_panel}
     <section class="layout" aria-label="Coverage overview">
@@ -437,6 +436,7 @@ def _render_index(snapshot: Snapshot, recent_changes: dict[str, Any] | None = No
       </div>
       <div id="large-extension-groups-root"></div>
     </section>
+    {unknown_diagnostics_panel}
   </main>
   <script>
 {_index_script()}
@@ -726,6 +726,13 @@ def _style_block() -> str:
     .extension-group-summary::-webkit-details-marker { display: none; }
     .extension-group-summary h2::before { content: ">"; display: inline-block; width: 16px; color: var(--muted); }
     details[open] > .extension-group-summary h2::before { content: "v"; }
+    .unknown-diagnostics { margin-top: 18px; }
+    .unknown-diagnostics-summary { cursor: pointer; list-style: none; padding: 14px; }
+    .unknown-diagnostics-summary::-webkit-details-marker { display: none; }
+    .unknown-diagnostics-summary .panel-header { padding: 0; }
+    .unknown-diagnostics-summary h2::before { content: ">"; display: inline-block; width: 16px; color: var(--muted); }
+    details[open] > .unknown-diagnostics-summary h2::before { content: "v"; }
+    .unknown-diagnostics .note { margin: 0 14px 14px; }
     .lazy-matrix-placeholder { padding: 16px 14px; color: var(--muted); border-top: 1px solid var(--line); }
     .region-header { min-width: 52px; width: 52px; padding-left: 6px; padding-right: 6px; }
     .region-heading { display: inline-grid; justify-items: center; gap: 2px; line-height: 1.05; text-transform: none; }
@@ -815,13 +822,15 @@ def _render_unknown_diagnostics_panel(rows: list[dict[str, object]]) -> str:
     unknown_count = len(unknown_rows)
     unknown_percent = round((unknown_count / total) * 100, 2) if total else 0
     if not unknown_rows:
-        return """<section class="panel" aria-label="Unknown diagnostics">
-      <div class="panel-header">
+        return """<details class="panel unknown-diagnostics" aria-label="Unknown diagnostics">
+      <summary class="unknown-diagnostics-summary">
+        <div class="panel-header">
         <h2>Unknowns To Investigate</h2>
         <div class="panel-subtitle">0 unknown checks</div>
-      </div>
+        </div>
+      </summary>
       <div class="empty">No unknown results in the current snapshot.</div>
-    </section>"""
+    </details>"""
 
     groups: dict[tuple[str, str], dict[str, object]] = {}
     for row in unknown_rows:
@@ -841,11 +850,13 @@ def _render_unknown_diagnostics_panel(rows: list[dict[str, object]]) -> str:
             groups.values(), key=lambda item: (-int(item["count"]), str(item["category"]), str(item["reason"]))
         )[:8]
     )
-    return f"""<section class="panel" aria-label="Unknown diagnostics">
-      <div class="panel-header">
+    return f"""<details class="panel unknown-diagnostics" aria-label="Unknown diagnostics">
+      <summary class="unknown-diagnostics-summary">
+        <div class="panel-header">
         <h2>Unknowns To Investigate</h2>
         <div class="panel-subtitle">{unknown_count:,} unknown checks, {unknown_percent}% of current snapshot</div>
-      </div>
+        </div>
+      </summary>
       <div class="note">Use this as a probe quality backlog. Unknown means the monitor did not get trustworthy evidence; investigate repeated failure reasons first, then lower the percentage with retry tuning, narrower timeouts, better CLI error classification, or provider-specific fallback probes.</div>
       <div class="table-wrap">
         <table>
@@ -853,7 +864,7 @@ def _render_unknown_diagnostics_panel(rows: list[dict[str, object]]) -> str:
           <tbody>{diagnostic_rows}</tbody>
         </table>
       </div>
-    </section>"""
+    </details>"""
 
 
 def _unknown_reason(message: str) -> str:
