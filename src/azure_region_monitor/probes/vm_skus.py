@@ -17,15 +17,20 @@ class VmSkuCliProbe:
     def __init__(self, skus: list[str] | None = None, cli_runner: CliRunner | None = None) -> None:
         self._skus = DEFAULT_VM_SKUS if skus is None else skus
         self._cli_runner = cli_runner or run_az
-        self._sku_locations: tuple[dict[str, set[str]], AzureCliError | None] | None = None
 
     def run(self, region: str):
         started = time.perf_counter()
-        listed_skus, error = self._list_sizes(region)
+        listed_skus, error, used_legacy_fallback = self._list_sizes(region)
         latency_ms = round((time.perf_counter() - started) * 1000)
 
         if not self._skus:
-            yield from self._run_all_listed_skus(region, listed_skus, error, latency_ms)
+            yield from self._run_all_listed_skus(
+                region,
+                listed_skus,
+                error,
+                latency_ms,
+                used_legacy_fallback=used_legacy_fallback,
+            )
             return
 
         for sku in self._skus:
@@ -43,13 +48,19 @@ class VmSkuCliProbe:
                 )
                 continue
 
+            is_available = sku.lower() in listed_skus
             yield ProbeResult(
                 service="compute",
                 feature=feature,
                 result=FeatureResult(
-                    status="available" if sku.lower() in listed_skus else "unavailable",
+                    status="available" if is_available else "unavailable",
                     latency_ms=latency_ms,
-                    message=_sku_message(region, sku, sku.lower() in listed_skus),
+                    message=_sku_message(
+                        region,
+                        sku,
+                        is_available,
+                        used_legacy_fallback=used_legacy_fallback,
+                    ),
                 ),
             )
 
@@ -59,6 +70,8 @@ class VmSkuCliProbe:
         listed_skus: set[str],
         error: AzureCliError | None,
         latency_ms: int,
+        *,
+        used_legacy_fallback: bool,
     ):
         if error:
             yield ProbeResult(
@@ -80,39 +93,55 @@ class VmSkuCliProbe:
                 result=FeatureResult(
                     status="available",
                     latency_ms=latency_ms,
-                    message=f"VM SKU '{sku}' is listed by az vm list-skus in {region}.",
+                    message=_sku_message(
+                        region,
+                        sku,
+                        True,
+                        used_legacy_fallback=used_legacy_fallback,
+                    ),
                 ),
             )
 
-    def _list_sizes(self, region: str) -> tuple[set[str], AzureCliError | None]:
-        sku_locations, error = self._list_sku_locations()
-        if error:
-            return set(), error
+    def _list_sizes(self, region: str) -> tuple[set[str], AzureCliError | None, bool]:
+        listed_skus, list_skus_error = self._run_sku_command(
+            [
+                az_executable(),
+                "vm",
+                "list-skus",
+                "--location",
+                region,
+                "--resource-type",
+                "virtualMachines",
+                "--all",
+                "--query",
+                "[].name",
+                "--output",
+                "json",
+            ]
+        )
+        legacy_skus, legacy_error = self._run_sku_command(
+            [
+                az_executable(),
+                "vm",
+                "list-sizes",
+                "--location",
+                region,
+                "--query",
+                "[].name",
+                "--output",
+                "json",
+            ]
+        )
 
-        normalized_region = _normalize_location(region)
-        return {
-            sku for sku, locations in sku_locations.items() if normalized_region in locations
-        }, None
+        if list_skus_error is None:
+            return listed_skus | legacy_skus, None, bool(legacy_skus - listed_skus)
 
-    def _list_sku_locations(self) -> tuple[dict[str, set[str]], AzureCliError | None]:
-        if self._sku_locations is None:
-            self._sku_locations = self._fetch_sku_locations()
-        return self._sku_locations
+        if legacy_error is None:
+            return legacy_skus, None, True
 
-    def _fetch_sku_locations(self) -> tuple[dict[str, set[str]], AzureCliError | None]:
-        command = [
-            az_executable(),
-            "vm",
-            "list-skus",
-            "--resource-type",
-            "virtualMachines",
-            "--all",
-            "--query",
-            "[].{name:name,locations:locations}",
-            "--output",
-            "json",
-        ]
+        return set(), _combine_errors(list_skus_error, legacy_error), False
 
+    def _run_sku_command(self, command: list[str]) -> tuple[set[str], AzureCliError | None]:
         try:
             completed = self._cli_runner(command)
         except FileNotFoundError:
@@ -125,39 +154,51 @@ class VmSkuCliProbe:
         try:
             payload = json.loads(completed.stdout or "[]")
         except json.JSONDecodeError as error:
-            return {}, AzureCliError("AzureCliInvalidJson", str(error))
+            return set(), AzureCliError("AzureCliInvalidJson", str(error))
 
-        return _extract_vm_size_locations(payload), None
+        return _extract_vm_size_names(payload), None
 
 
-def _extract_vm_size_locations(payload: object) -> dict[str, set[str]]:
+def _combine_errors(primary: AzureCliError, fallback: AzureCliError) -> AzureCliError:
+    return AzureCliError(
+        primary.error_code,
+        f"az vm list-skus failed: {primary.message} Legacy az vm list-sizes fallback failed: {fallback.message}",
+    )
+
+
+def _extract_vm_size_names(payload: object) -> set[str]:
     if not isinstance(payload, list):
-        return {}
+        return set()
 
-    sku_locations: dict[str, set[str]] = {}
+    skus: set[str] = set()
     for item in payload:
+        if isinstance(item, str):
+            skus.add(item.lower())
+            continue
         if not isinstance(item, dict):
             continue
         name = item.get("name")
-        locations = item.get("locations")
-        if not isinstance(name, str) or not isinstance(locations, list):
-            continue
-        normalized_locations = {
-            _normalize_location(location) for location in locations if isinstance(location, str)
-        }
-        sku_locations[name.lower()] = {location for location in normalized_locations if location}
-    return sku_locations
+        if isinstance(name, str):
+            skus.add(name.lower())
+    return skus
 
 
-def _sku_message(region: str, sku: str, is_available: bool) -> str:
+def _sku_message(
+    region: str,
+    sku: str,
+    is_available: bool,
+    *,
+    used_legacy_fallback: bool,
+) -> str:
+    source = (
+        "az vm list-skus or legacy az vm list-sizes fallback"
+        if used_legacy_fallback
+        else "az vm list-skus"
+    )
     if is_available:
-        return f"VM SKU '{sku}' is listed by az vm list-skus in {region}."
-    return f"VM SKU '{sku}' was not listed by az vm list-skus in {region}."
+        return f"VM SKU '{sku}' is listed by {source} in {region}."
+    return f"VM SKU '{sku}' was not listed by {source} in {region}."
 
 
 def _feature_slug(sku: str) -> str:
     return re.sub(r"[^a-z0-9]+", ".", sku.lower()).strip(".")
-
-
-def _normalize_location(value: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "", value.lower())
