@@ -35,6 +35,6 @@ def _feature_category(feature: str) -> str:
         return "aiModels"
     if feature.startswith("containerApps."):
         return "containerApps"
-    if feature.startswith("vmSkus."):
+    if feature == "vmSkuCatalog" or feature.startswith("vmSkus."):
         return "vmSkus"
     return feature.split(".", 1)[0]

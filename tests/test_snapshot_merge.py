@@ -67,6 +67,38 @@ def test_merge_snapshot_overlay_replaces_only_vm_sku_features():
     assert merged.regions["eastus"]["compute"]["otherCompute.signal"].status == "unknown"
 
 
+def test_merge_snapshot_overlay_replaces_vm_sku_rows_when_catalog_fails():
+    base = Snapshot(
+        regions={
+            "eastus": {
+                "compute": {
+                    "vmSkus.standard.b2s": FeatureResult(status="available"),
+                    "vmSkus.standard.d2s.v5": FeatureResult(status="unknown"),
+                }
+            }
+        },
+    )
+    overlay = Snapshot(
+        regions={
+            "eastus": {
+                "compute": {
+                    "vmSkuCatalog": FeatureResult(
+                        status="unknown",
+                        error_code="AzureCliCommandFailed",
+                        message="catalog failed",
+                    ),
+                }
+            }
+        },
+    )
+
+    merged = merge_snapshot_overlay(base, overlay)
+
+    assert "vmSkus.standard.b2s" not in merged.regions["eastus"]["compute"]
+    assert "vmSkus.standard.d2s.v5" not in merged.regions["eastus"]["compute"]
+    assert merged.regions["eastus"]["compute"]["vmSkuCatalog"].status == "unknown"
+
+
 def test_merge_snapshot_overlay_replaces_functions_features_as_one_modality():
     base = Snapshot(
         regions={
