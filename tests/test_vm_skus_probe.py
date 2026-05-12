@@ -10,10 +10,11 @@ def test_vm_sku_probe_marks_unrestricted_listed_sku_available():
         assert "--resource-type" in command
         assert "virtualMachines" in command
         assert "--all" in command
+        assert command[command.index("--query") + 1] == "[].name"
         return subprocess.CompletedProcess(
             command,
             0,
-            stdout='[{"name":"Standard_D2s_v5"}]',
+            stdout='["Standard_D2s_v5"]',
             stderr="",
         )
 
@@ -54,7 +55,7 @@ def test_vm_sku_probe_can_emit_all_listed_skus():
         return subprocess.CompletedProcess(
             command,
             0,
-            stdout='[{"name":"Standard_D2s_v5"},{"name":"Standard_B2s"}]',
+            stdout='["Standard_D2s_v5","Standard_B2s"]',
             stderr="",
         )
 

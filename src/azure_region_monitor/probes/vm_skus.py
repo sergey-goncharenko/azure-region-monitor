@@ -93,6 +93,8 @@ class VmSkuCliProbe:
             "--resource-type",
             "virtualMachines",
             "--all",
+            "--query",
+            "[].name",
             "--output",
             "json",
         ]
@@ -120,6 +122,9 @@ def _extract_vm_size_names(payload: object) -> set[str]:
 
     skus: set[str] = set()
     for item in payload:
+        if isinstance(item, str):
+            skus.add(item.lower())
+            continue
         if not isinstance(item, dict):
             continue
         name = item.get("name")
