@@ -101,7 +101,7 @@ The default Functions runtime set tracks every versioned Linux runtime listed by
 
 Some modality items are discovered during every full scan, and some are configured intentionally:
 
-- AKS extension catalog, Azure AI model catalog, and VM SKU probes discover their feature items from the regional Azure catalogs/lists. Full and VM-focused workflows pass `AZURE_VM_SKUS=all`, so VM SKU rows cover every listed size returned by `az vm list-sizes`. The full run unions discovered items and fills absent items as `unavailable` where the catalog probe succeeded.
+- AKS extension catalog, Azure AI model catalog, and VM SKU probes discover their feature items from the regional Azure catalogs/lists. Full and VM-focused workflows pass `AZURE_VM_SKUS=all`, so VM SKU rows cover every listed size returned by `az vm list-skus --resource-type virtualMachines --all`. The full run unions discovered items and fills absent items as `unavailable` where the catalog probe succeeded.
 - Azure Functions runtime rows, Container Apps resource type rows, and AKS Kubernetes version-prefix rows come from Python configuration or workflow inputs.
 - Dashboard groups are derived from feature names during static-site generation. New extension publishers, model families, runtime families, and VM SKU families appear automatically when those feature names appear in the latest snapshot.
 

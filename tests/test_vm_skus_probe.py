@@ -6,7 +6,10 @@ from azure_region_monitor.probes.vm_skus import VmSkuCliProbe
 
 def test_vm_sku_probe_marks_unrestricted_listed_sku_available():
     def cli_runner(command: list[str]) -> subprocess.CompletedProcess[str]:
-        assert command[1:3] == ["vm", "list-sizes"]
+        assert command[1:3] == ["vm", "list-skus"]
+        assert "--resource-type" in command
+        assert "virtualMachines" in command
+        assert "--all" in command
         return subprocess.CompletedProcess(
             command,
             0,

@@ -79,7 +79,7 @@ class VmSkuCliProbe:
                 result=FeatureResult(
                     status="available",
                     latency_ms=latency_ms,
-                    message=f"VM SKU '{sku}' is listed by az vm list-sizes in {region}.",
+                    message=f"VM SKU '{sku}' is listed by az vm list-skus in {region}.",
                 ),
             )
 
@@ -87,9 +87,12 @@ class VmSkuCliProbe:
         command = [
             az_executable(),
             "vm",
-            "list-sizes",
+            "list-skus",
             "--location",
             region,
+            "--resource-type",
+            "virtualMachines",
+            "--all",
             "--output",
             "json",
         ]
@@ -127,8 +130,8 @@ def _extract_vm_size_names(payload: object) -> set[str]:
 
 def _sku_message(region: str, sku: str, is_available: bool) -> str:
     if is_available:
-        return f"VM SKU '{sku}' is listed by az vm list-sizes in {region}."
-    return f"VM SKU '{sku}' was not listed by az vm list-sizes in {region}."
+        return f"VM SKU '{sku}' is listed by az vm list-skus in {region}."
+    return f"VM SKU '{sku}' was not listed by az vm list-skus in {region}."
 
 
 def _feature_slug(sku: str) -> str:

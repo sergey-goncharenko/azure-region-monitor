@@ -26,7 +26,7 @@ The current production workflow prioritizes low-cost read-only evidence. These c
 - This does not test quota, regional capacity, policy, provider registration, or a real deployment.
 
 ## VM SKU Tests
-- Command: `az vm list-sizes --location <region>`
+- Command: `az vm list-skus --location <region> --resource-type virtualMachines --all`
 - `available`: SKU is listed in the region.
 - `unavailable`: command succeeded but SKU is absent from the region list.
 - `unknown`: command failed, timed out, or returned invalid JSON.
