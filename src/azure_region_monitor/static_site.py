@@ -605,7 +605,7 @@ def _render_methodology_page(snapshot: Snapshot) -> str:
             <tr><td>AKS Kubernetes versions</td><td><code>az aks get-versions</code> listed a Kubernetes version matching the configured prefix.</td><td>The version listing succeeded, but no matching version prefix was present.</td></tr>
             <tr><td>Azure AI models</td><td><code>az cognitiveservices model list --location &lt;region&gt;</code> listed the model/version in the region.</td><td>The model/version was not present in the regional catalog, or the regional <code>locations/models</code> endpoint reported that the region is outside its supported locations.</td></tr>
             <tr><td>Container Apps</td><td><code>az provider show --namespace Microsoft.App --expand resourceTypes/locations</code> advertised the resource type in the region.</td><td>The provider metadata call succeeded, but the resource type was not advertised in that region.</td></tr>
-            <tr><td>VM SKUs</td><td><code>az vm list-skus --resource-type virtualMachines --all</code> listed the SKU in the region.</td><td>The SKU listing succeeded, but the SKU was not present in that regional SKU list.</td></tr>
+            <tr><td>VM SKUs</td><td><code>az vm list-skus --resource-type virtualMachines --all</code> listed the SKU with that region in its locations metadata.</td><td>The SKU listing succeeded, but the SKU did not include that region in its locations metadata.</td></tr>
           </tbody>
         </table>
       </div>

@@ -17,6 +17,7 @@ class VmSkuCliProbe:
     def __init__(self, skus: list[str] | None = None, cli_runner: CliRunner | None = None) -> None:
         self._skus = DEFAULT_VM_SKUS if skus is None else skus
         self._cli_runner = cli_runner or run_az
+        self._sku_locations: tuple[dict[str, set[str]], AzureCliError | None] | None = None
 
     def run(self, region: str):
         started = time.perf_counter()
@@ -84,17 +85,30 @@ class VmSkuCliProbe:
             )
 
     def _list_sizes(self, region: str) -> tuple[set[str], AzureCliError | None]:
+        sku_locations, error = self._list_sku_locations()
+        if error:
+            return set(), error
+
+        normalized_region = _normalize_location(region)
+        return {
+            sku for sku, locations in sku_locations.items() if normalized_region in locations
+        }, None
+
+    def _list_sku_locations(self) -> tuple[dict[str, set[str]], AzureCliError | None]:
+        if self._sku_locations is None:
+            self._sku_locations = self._fetch_sku_locations()
+        return self._sku_locations
+
+    def _fetch_sku_locations(self) -> tuple[dict[str, set[str]], AzureCliError | None]:
         command = [
             az_executable(),
             "vm",
             "list-skus",
-            "--location",
-            region,
             "--resource-type",
             "virtualMachines",
             "--all",
             "--query",
-            "[].name",
+            "[].{name:name,locations:locations}",
             "--output",
             "json",
         ]
@@ -111,26 +125,28 @@ class VmSkuCliProbe:
         try:
             payload = json.loads(completed.stdout or "[]")
         except json.JSONDecodeError as error:
-            return set(), AzureCliError("AzureCliInvalidJson", str(error))
+            return {}, AzureCliError("AzureCliInvalidJson", str(error))
 
-        return _extract_vm_size_names(payload), None
+        return _extract_vm_size_locations(payload), None
 
 
-def _extract_vm_size_names(payload: object) -> set[str]:
+def _extract_vm_size_locations(payload: object) -> dict[str, set[str]]:
     if not isinstance(payload, list):
-        return set()
+        return {}
 
-    skus: set[str] = set()
+    sku_locations: dict[str, set[str]] = {}
     for item in payload:
-        if isinstance(item, str):
-            skus.add(item.lower())
-            continue
         if not isinstance(item, dict):
             continue
         name = item.get("name")
-        if isinstance(name, str):
-            skus.add(name.lower())
-    return skus
+        locations = item.get("locations")
+        if not isinstance(name, str) or not isinstance(locations, list):
+            continue
+        normalized_locations = {
+            _normalize_location(location) for location in locations if isinstance(location, str)
+        }
+        sku_locations[name.lower()] = {location for location in normalized_locations if location}
+    return sku_locations
 
 
 def _sku_message(region: str, sku: str, is_available: bool) -> str:
@@ -141,3 +157,7 @@ def _sku_message(region: str, sku: str, is_available: bool) -> str:
 
 def _feature_slug(sku: str) -> str:
     return re.sub(r"[^a-z0-9]+", ".", sku.lower()).strip(".")
+
+
+def _normalize_location(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", value.lower())

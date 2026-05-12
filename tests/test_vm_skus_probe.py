@@ -7,14 +7,15 @@ from azure_region_monitor.probes.vm_skus import VmSkuCliProbe
 def test_vm_sku_probe_marks_unrestricted_listed_sku_available():
     def cli_runner(command: list[str]) -> subprocess.CompletedProcess[str]:
         assert command[1:3] == ["vm", "list-skus"]
+        assert "--location" not in command
         assert "--resource-type" in command
         assert "virtualMachines" in command
         assert "--all" in command
-        assert command[command.index("--query") + 1] == "[].name"
+        assert command[command.index("--query") + 1] == "[].{name:name,locations:locations}"
         return subprocess.CompletedProcess(
             command,
             0,
-            stdout='["Standard_D2s_v5"]',
+            stdout='[{"name":"Standard_D2s_v5","locations":["westeurope"]}]',
             stderr="",
         )
 
@@ -29,7 +30,12 @@ def test_vm_sku_probe_marks_unrestricted_listed_sku_available():
 
 def test_vm_sku_probe_marks_missing_sku_unavailable():
     def cli_runner(command: list[str]) -> subprocess.CompletedProcess[str]:
-        return subprocess.CompletedProcess(command, 0, stdout="[]", stderr="")
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout='[{"name":"Standard_D2s_v5","locations":["westeurope"]}]',
+            stderr="",
+        )
 
     probe = VmSkuCliProbe(skus=["Standard_D2s_v5"], cli_runner=cli_runner)
 
@@ -55,7 +61,10 @@ def test_vm_sku_probe_can_emit_all_listed_skus():
         return subprocess.CompletedProcess(
             command,
             0,
-            stdout='["Standard_D2s_v5","Standard_B2s"]',
+            stdout=(
+                '[{"name":"Standard_D2s_v5","locations":["eastus"]},'
+                '{"name":"Standard_B2s","locations":["eastus","westeurope"]}]'
+            ),
             stderr="",
         )
 
@@ -68,6 +77,28 @@ def test_vm_sku_probe_can_emit_all_listed_skus():
         "vmSkus.standard.d2s.v5",
     ]
     assert {result.result.status for result in results} == {"available"}
+
+
+def test_vm_sku_probe_reuses_global_catalog_across_regions():
+    calls: list[list[str]] = []
+
+    def cli_runner(command: list[str]) -> subprocess.CompletedProcess[str]:
+        calls.append(command)
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout='[{"name":"Standard_D2s_v5","locations":["eastus"]}]',
+            stderr="",
+        )
+
+    probe = VmSkuCliProbe(skus=["Standard_D2s_v5"], cli_runner=cli_runner)
+
+    eastus_results = list(probe.run("eastus"))
+    west_results = list(probe.run("westeurope"))
+
+    assert len(calls) == 1
+    assert eastus_results[0].result.status == "available"
+    assert west_results[0].result.status == "unavailable"
 
 
 def test_vm_sku_probe_captures_all_sku_catalog_error_as_unknown():
