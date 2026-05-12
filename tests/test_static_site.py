@@ -236,6 +236,11 @@ def test_build_static_site_shows_uniform_extension_availability(tmp_path):
 
     assert "AKS extensions" in index_html
     assert "curated" in index_html
+    assert "Unknowns To Investigate" in index_html
+    assert "1 unknown checks" in index_html
+    assert "Use this as a probe quality backlog" in index_html
+    assert "Catalog failed." in index_html
+    assert "extensionCatalog" in index_html
     assert "availability-tooltip-trigger" in index_html
     assert "renderRegionalAvailability" in index_html
     assert "renderAvailabilityCell" in index_html

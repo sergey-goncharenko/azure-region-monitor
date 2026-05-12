@@ -323,6 +323,7 @@ def _render_index(snapshot: Snapshot, recent_changes: dict[str, Any] | None = No
     modality_rows = "\n".join(_render_modality_row(row) for row in _modality_summaries(rows))
     recent_changes_panel = _render_recent_changes_panel(recent_changes)
     history_resources_panel = _render_history_resources_panel(recent_changes)
+    unknown_diagnostics_panel = _render_unknown_diagnostics_panel(rows)
     group_rows = "\n".join(_render_group_row(row) for row in _feature_group_summaries(rows))
 
     return f"""<!doctype html>
@@ -371,6 +372,7 @@ def _render_index(snapshot: Snapshot, recent_changes: dict[str, Any] | None = No
       {_render_metric("Partial", status_counts.get("partial", 0))}
       {_render_metric("Unknown", status_counts.get("unknown", 0))}
     </section>
+    {unknown_diagnostics_panel}
     {recent_changes_panel}
     {history_resources_panel}
     <section class="layout" aria-label="Coverage overview">
@@ -673,6 +675,8 @@ def _style_block() -> str:
     .metric-value { font-size: 24px; font-weight: 650; }
     .metric-label { color: var(--muted); font-size: 13px; margin-top: 2px; }
     .status-strip { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 18px; }
+    .reason-cell { max-width: 520px; line-height: 1.45; }
+    .muted-list { color: var(--muted); font-size: 12px; line-height: 1.45; }
     .layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(360px, 1fr); gap: 14px; align-items: start; margin-bottom: 14px; }
     .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; margin-bottom: 14px; }
     .panel-header { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; padding: 14px 14px 0; }
@@ -803,6 +807,85 @@ def _render_metric(label: str, value: int | str) -> str:
           <div class="metric-value">{html.escape(str(value))}</div>
         <div class="metric-label">{html.escape(label)}</div>
       </div>"""
+
+
+def _render_unknown_diagnostics_panel(rows: list[dict[str, object]]) -> str:
+    unknown_rows = [row for row in rows if row.get("status") == "unknown"]
+    total = len(rows)
+    unknown_count = len(unknown_rows)
+    unknown_percent = round((unknown_count / total) * 100, 2) if total else 0
+    if not unknown_rows:
+        return """<section class="panel" aria-label="Unknown diagnostics">
+      <div class="panel-header">
+        <h2>Unknowns To Investigate</h2>
+        <div class="panel-subtitle">0 unknown checks</div>
+      </div>
+      <div class="empty">No unknown results in the current snapshot.</div>
+    </section>"""
+
+    groups: dict[tuple[str, str], dict[str, object]] = {}
+    for row in unknown_rows:
+        category = str(row.get("category", "Unknown modality"))
+        reason = _unknown_reason(str(row.get("message", "")))
+        group = groups.setdefault(
+            (category, reason),
+            {"category": category, "reason": reason, "count": 0, "regions": set(), "features": set()},
+        )
+        group["count"] = int(group["count"]) + 1
+        group["regions"].add(str(row.get("region", "")))
+        group["features"].add(str(row.get("feature", "")))
+
+    diagnostic_rows = "\n".join(
+        _render_unknown_diagnostic_row(group)
+        for group in sorted(
+            groups.values(), key=lambda item: (-int(item["count"]), str(item["category"]), str(item["reason"]))
+        )[:8]
+    )
+    return f"""<section class="panel" aria-label="Unknown diagnostics">
+      <div class="panel-header">
+        <h2>Unknowns To Investigate</h2>
+        <div class="panel-subtitle">{unknown_count:,} unknown checks, {unknown_percent}% of current snapshot</div>
+      </div>
+      <div class="note">Use this as a probe quality backlog. Unknown means the monitor did not get trustworthy evidence; investigate repeated failure reasons first, then lower the percentage with retry tuning, narrower timeouts, better CLI error classification, or provider-specific fallback probes.</div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Modality</th><th class="number">Unknowns</th><th>Reason</th><th>Example regions</th><th>Example features</th></tr></thead>
+          <tbody>{diagnostic_rows}</tbody>
+        </table>
+      </div>
+    </section>"""
+
+
+def _unknown_reason(message: str) -> str:
+    normalized = " ".join(message.split())
+    if not normalized:
+        return "No probe message or error code recorded"
+    return _truncate_text(normalized, 180)
+
+
+def _render_unknown_diagnostic_row(group: dict[str, object]) -> str:
+    regions = _compact_examples(sorted(str(region) for region in group["regions"] if region), limit=5)
+    features = _compact_examples(sorted(str(feature) for feature in group["features"] if feature), limit=4)
+    return f"""<tr>
+                <td>{html.escape(str(group["category"]))}</td>
+                <td class="number">{int(group["count"]):,}</td>
+                <td class="reason-cell">{html.escape(str(group["reason"]))}</td>
+                <td class="muted-list">{html.escape(regions)}</td>
+                <td class="muted-list">{html.escape(features)}</td>
+              </tr>"""
+
+
+def _compact_examples(values: list[str], limit: int) -> str:
+    shown = values[:limit]
+    if len(values) > limit:
+        shown.append(f"+{len(values) - limit} more")
+    return ", ".join(shown) if shown else "-"
+
+
+def _truncate_text(value: str, limit: int) -> str:
+    if len(value) <= limit:
+        return value
+    return value[: limit - 1].rstrip() + "..."
 
 
 def _load_recent_changes(history_path: Path) -> dict[str, Any] | None:

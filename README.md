@@ -261,11 +261,12 @@ For Container Apps, `available` means `az provider show --namespace Microsoft.Ap
 
 ## Next Engineering Steps
 
-1. Review the live Azure AI model catalog results and tune dashboard grouping if model volume makes scanning awkward.
-2. Add quota/capacity-specific probes where Azure exposes safe read APIs; do not overload `unavailable` to mean quota failure.
-3. Add controlled create/delete lifecycle probes only where read-only evidence is not enough and cleanup can be guaranteed.
-4. Add the next read-only modality, likely App Service Linux rollout signals.
-5. Add alert delivery once daily recent-change summaries are stable enough for subscriptions.
-6. Move any remaining heavy dashboard detail sections to on-demand fetches if browser performance degrades again.
+1. Drive down the unknown percentage by investigating repeated failure reasons, tuning retries/timeouts, improving CLI error classification, and adding provider-specific fallback probes.
+2. Review the live Azure AI model catalog results and tune dashboard grouping if model volume makes scanning awkward.
+3. Add quota/capacity-specific probes where Azure exposes safe read APIs; do not overload `unavailable` to mean quota failure.
+4. Add controlled create/delete lifecycle probes only where read-only evidence is not enough and cleanup can be guaranteed.
+5. Add the next read-only modality, likely App Service Linux rollout signals.
+6. Add alert delivery once daily recent-change summaries are stable enough for subscriptions.
+7. Move any remaining heavy dashboard detail sections to on-demand fetches if browser performance degrades again.
 
 See [docs/poc-deployment.md](docs/poc-deployment.md) for the PoC deployment/runbook.
