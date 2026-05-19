@@ -298,6 +298,7 @@ This project publishes public, read-only evidence about Azure regional feature r
 
 - Treat unavailable as absence from a read-only catalog or listing, not as quota exhaustion or deployment failure.
 - Treat unknown as no trustworthy evidence for that region/feature pair.
+- Treat unknown-to-known and known-to-unknown history changes as parked probe-quality changes, not rollout wins or regressions.
 - Use methodology.html for modality-specific caveats before summarizing availability claims.
 - Full daily history snapshots are published as gzip JSON files referenced by `api/history/index.json`.
 
@@ -320,11 +321,35 @@ def _render_index(snapshot: Snapshot, recent_changes: dict[str, Any] | None = No
     )
     regions = _sort_regions(snapshot.regions)
     unique_features = sorted({str(row["feature"]) for row in rows})
+    current_history_day = _current_history_day(
+        snapshot=snapshot,
+        regions=len(regions),
+        features=len(unique_features),
+        checks=len(rows),
+        status_counts=status_counts,
+    )
+    history_days = _merge_current_history_day(recent_changes, current_history_day)
     modality_rows = "\n".join(_render_modality_row(row) for row in _modality_summaries(rows))
     recent_changes_panel = _render_recent_changes_panel(recent_changes)
     history_resources_panel = _render_history_resources_panel(recent_changes)
     unknown_diagnostics_panel = _render_unknown_diagnostics_panel(rows)
     group_rows = "\n".join(_render_group_row(row) for row in _feature_group_summaries(rows))
+    region_metric = _render_metric(
+        "Regions", len(regions), _render_count_trend(history_days, "regions", len(regions))
+    )
+    feature_metric = _render_metric(
+        "Unique features",
+        len(unique_features),
+        _render_count_trend(history_days, "features", len(unique_features)),
+    )
+    checks_metric = _render_metric(
+        "Checks", len(rows), _render_count_trend(history_days, "checks", len(rows))
+    )
+    available_metric = _render_metric(
+        "Available",
+        f"{available_percent}%",
+        _render_availability_trend(history_days, available_percent),
+    )
 
     return f"""<!doctype html>
 <html lang="en">
@@ -361,10 +386,10 @@ def _render_index(snapshot: Snapshot, recent_changes: dict[str, Any] | None = No
       <a href="{_REPOSITORY_URL}">View repository</a>
     </section>
     <section class="metrics" aria-label="Availability summary">
-      {_render_metric("Regions", len(regions))}
-      {_render_metric("Unique features", len(unique_features))}
-      {_render_metric("Checks", len(rows))}
-      {_render_metric("Available", f"{available_percent}%")}
+      {region_metric}
+      {feature_metric}
+      {checks_metric}
+      {available_metric}
     </section>
     <section class="status-strip" aria-label="Status totals">
       {_render_metric("Available", status_counts.get("available", 0))}
@@ -592,6 +617,8 @@ def _render_methodology_page(snapshot: Snapshot) -> str:
             <tr><td><span class="status status-unknown">unknown</span></td><td>The probe could not produce reliable evidence, usually because Azure CLI failed, timed out, returned invalid JSON, or the provider endpoint was not available.</td><td>It should not be treated as unavailable. It means the monitor did not get a trustworthy answer.</td></tr>
           </tbody>
         </table>
+        <h3>History and signal changes</h3>
+        <p>The recent-history panel highlights only clear availability signals: <span class="status status-unavailable">unavailable</span> to <span class="status status-available">available</span> is a new availability signal, and <span class="status status-available">available</span> to <span class="status status-unavailable">unavailable</span> is a regression signal. Transitions into or out of <span class="status status-unknown">unknown</span> are parked as probe-quality changes, because they do not prove a rollout or rollback.</p>
         <h3>Azure Functions Flex Consumption</h3>
         <p>The <code>hostingPlans.flexConsumption</code> row comes from <code>az functionapp list-flexconsumption-locations --output json</code>. Azure CLI describes this command as listing available locations for running function apps on the Flex Consumption plan.</p>
         <p>If a region is absent from that list, the dashboard marks Flex Consumption as <span class="status status-unavailable">unavailable</span>. In plain language, that means Azure did not advertise that region as a Flex Consumption location to this command at scan time. It is not a quota result.</p>
@@ -621,7 +648,7 @@ def _render_alpha_notice(region_count: int) -> str:
       <div class="alpha-badge">Public Alpha</div>
       <div>
         <strong>Read the data as rollout evidence, not a deployment guarantee.</strong>
-        <p>Current scans cover {region_count:,} configured Azure public cloud regions. Some results can be incomplete or temporarily wrong; <span class="status status-unknown">unknown</span> usually means a probe failed, timed out, returned invalid JSON, or could not get a trustworthy provider response.</p>
+        <p>Current scans cover {region_count:,} configured Azure public cloud regions. Some results can be incomplete or temporarily wrong; <span class="status status-unknown">unknown</span> means the monitor parked that check because a probe failed, timed out, returned invalid JSON, or could not get a trustworthy provider response.</p>
       </div>
       <a href="methodology.html">Methodology</a>
     </section>"""
@@ -674,6 +701,13 @@ def _style_block() -> str:
     .metric { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
     .metric-value { font-size: 24px; font-weight: 650; }
     .metric-label { color: var(--muted); font-size: 13px; margin-top: 2px; }
+    .metric-detail { display: flex; align-items: center; gap: 8px; min-height: 20px; margin-top: 7px; color: var(--muted); font-size: 12px; line-height: 1.3; }
+    .metric-up { color: var(--available-text); }
+    .metric-down { color: var(--unavailable-text); }
+    .metric-flat { color: var(--muted); }
+    .sparkline { width: 74px; height: 24px; flex: 0 0 auto; overflow: visible; }
+    .sparkline-line { fill: none; stroke: #2759a5; stroke-width: 2; vector-effect: non-scaling-stroke; }
+    .sparkline-fill { fill: rgba(39, 89, 165, 0.1); }
     .status-strip { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 18px; }
     .reason-cell { max-width: 520px; line-height: 1.45; }
     .muted-list { color: var(--muted); font-size: 12px; line-height: 1.45; }
@@ -707,9 +741,13 @@ def _style_block() -> str:
     .status-unavailable { background: var(--unavailable-bg); color: var(--unavailable-text); }
     .status-partial { background: var(--partial-bg); color: var(--partial-text); }
     .status-unknown { background: var(--unknown-bg); color: var(--unknown-text); }
-    .change-highlights { max-width: 460px; color: var(--muted); font-size: 12px; line-height: 1.45; }
+    .change-highlights { max-width: 520px; color: var(--muted); font-size: 12px; line-height: 1.45; }
     .change-highlight { display: inline; }
     .change-highlight + .change-highlight::before { content: "; "; }
+    .change-count { font-weight: 650; }
+    .change-count-new, .change-highlight-new { color: var(--available-text); }
+    .change-count-regression, .change-highlight-regression { color: var(--unavailable-text); }
+    .change-count-parked { color: var(--unknown-text); }
     .status-dot { display: inline-flex; width: 22px; height: 22px; border-radius: 50%; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; line-height: 1; }
     .availability-section .panel-header { padding-bottom: 10px; }
     .matrix-scroll-top { overflow-x: auto; overflow-y: hidden; height: 16px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: #f9fbfd; }
@@ -809,11 +847,166 @@ def _status_counts(rows: list[dict[str, object]]) -> dict[str, int]:
     return counts
 
 
-def _render_metric(label: str, value: int | str) -> str:
+def _render_metric(label: str, value: int | str, detail_html: str = "") -> str:
+    detail = f"\n        {detail_html}" if detail_html else ""
     return f"""<div class="metric">
           <div class="metric-value">{html.escape(str(value))}</div>
         <div class="metric-label">{html.escape(label)}</div>
+{detail}
       </div>"""
+
+
+def _current_history_day(
+    *,
+    snapshot: Snapshot,
+    regions: int,
+    features: int,
+    checks: int,
+    status_counts: dict[str, int],
+) -> dict[str, Any]:
+    return {
+        "date": snapshot.timestamp.date().isoformat(),
+        "summary_counts": {
+            "regions": regions,
+            "features": features,
+            "checks": checks,
+        },
+        "status_counts": dict(status_counts),
+    }
+
+
+def _merge_current_history_day(
+    recent_changes: dict[str, Any] | None, current_day: dict[str, Any]
+) -> list[dict[str, Any]]:
+    days: list[dict[str, Any]] = []
+    if recent_changes and isinstance(recent_changes.get("days"), list):
+        days = [day for day in recent_changes["days"] if isinstance(day, dict)]
+    if not days:
+        return [current_day]
+    if days[0].get("date") == current_day["date"]:
+        merged = {**days[0]}
+        merged.setdefault("summary_counts", current_day["summary_counts"])
+        merged.setdefault("status_counts", current_day["status_counts"])
+        return [merged, *days[1:]]
+    return [current_day, *days]
+
+
+def _render_count_trend(days: list[dict[str, Any]], key: str, current_value: int) -> str:
+    previous_value = _summary_count(days[1], key) if len(days) > 1 else None
+    if previous_value is None:
+        return '<div class="metric-detail metric-flat">History baseline starts today</div>'
+    delta = current_value - previous_value
+    if delta == 0:
+        stable_days = _stable_day_count(days, key, current_value)
+        day_label = "day" if stable_days == 1 else "days"
+        return f'<div class="metric-detail metric-flat">No change for {stable_days} {day_label}</div>'
+    direction = "Up" if delta > 0 else "Down"
+    css_class = "metric-up" if delta > 0 else "metric-down"
+    return (
+        f'<div class="metric-detail {css_class}">{direction} '
+        f'{abs(delta):,} since previous snapshot</div>'
+    )
+
+
+def _render_availability_trend(days: list[dict[str, Any]], current_percent: float) -> str:
+    previous_percent = _availability_percent(days[1]) if len(days) > 1 else None
+    if previous_percent is None:
+        text = "History baseline starts today"
+        css_class = "metric-flat"
+    else:
+        delta = round(current_percent - previous_percent, 1)
+        if delta == 0:
+            stable_days = _stable_available_day_count(days, current_percent)
+            day_label = "day" if stable_days == 1 else "days"
+            text = f"No change for {stable_days} {day_label}"
+            css_class = "metric-flat"
+        else:
+            direction = "Up" if delta > 0 else "Down"
+            text = f"{direction} {abs(delta):.1f} pp since previous snapshot"
+            css_class = "metric-up" if delta > 0 else "metric-down"
+    sparkline = _render_availability_sparkline(days)
+    return f'<div class="metric-detail {css_class}">{sparkline}<span>{html.escape(text)}</span></div>'
+
+
+def _summary_count(day: dict[str, Any], key: str) -> int | None:
+    counts = day.get("summary_counts")
+    if not isinstance(counts, dict) or key not in counts:
+        return None
+    try:
+        return int(counts[key])
+    except (TypeError, ValueError):
+        return None
+
+
+def _stable_day_count(days: list[dict[str, Any]], key: str, current_value: int) -> int:
+    stable_days = 0
+    for day in days[1:]:
+        value = _summary_count(day, key)
+        if value != current_value:
+            break
+        stable_days += 1
+    return max(stable_days, 1)
+
+
+def _availability_percent(day: dict[str, Any]) -> float | None:
+    counts = day.get("status_counts")
+    if not isinstance(counts, dict):
+        return None
+    try:
+        available = int(counts.get("available", 0))
+        total = sum(
+            int(counts.get(status, 0))
+            for status in ("available", "unavailable", "partial", "unknown")
+        )
+    except (TypeError, ValueError):
+        return None
+    if total <= 0:
+        return None
+    return round((available / total) * 100, 1)
+
+
+def _stable_available_day_count(days: list[dict[str, Any]], current_percent: float) -> int:
+    stable_days = 0
+    for day in days[1:]:
+        value = _availability_percent(day)
+        if value != current_percent:
+            break
+        stable_days += 1
+    return max(stable_days, 1)
+
+
+def _render_availability_sparkline(days: list[dict[str, Any]]) -> str:
+    values = [
+        value
+        for value in (_availability_percent(day) for day in reversed(days[:10]))
+        if value is not None
+    ]
+    if len(values) < 2:
+        return ""
+    width = 74
+    height = 24
+    top_padding = 3
+    bottom_padding = 3
+    minimum = min(values)
+    maximum = max(values)
+    span = maximum - minimum
+    points = []
+    for index, value in enumerate(values):
+        x = round((index / (len(values) - 1)) * width, 2)
+        if span == 0:
+            y = height / 2
+        else:
+            y = top_padding + (maximum - value) / span * (height - top_padding - bottom_padding)
+        points.append((x, round(y, 2)))
+    polyline = " ".join(f"{x},{y}" for x, y in points)
+    fill_points = f"0,{height} {polyline} {width},{height}"
+    return (
+        '<svg class="sparkline" viewBox="0 0 74 24" role="img" '
+        'aria-label="Recent available percentage trend">'
+        f'<polygon class="sparkline-fill" points="{html.escape(fill_points)}"></polygon>'
+        f'<polyline class="sparkline-line" points="{html.escape(polyline)}"></polyline>'
+        "</svg>"
+    )
 
 
 def _render_unknown_diagnostics_panel(rows: list[dict[str, object]]) -> str:
@@ -857,7 +1050,7 @@ def _render_unknown_diagnostics_panel(rows: list[dict[str, object]]) -> str:
         <div class="panel-subtitle">{unknown_count:,} unknown checks, {unknown_percent}% of current snapshot</div>
         </div>
       </summary>
-      <div class="note">Use this as a probe quality backlog. Unknown means the monitor did not get trustworthy evidence; investigate repeated failure reasons first, then lower the percentage with retry tuning, narrower timeouts, better CLI error classification, or provider-specific fallback probes.</div>
+      {_render_unknown_guidance(unknown_rows, total)}
       <div class="table-wrap">
         <table>
           <thead><tr><th>Modality</th><th class="number">Unknowns</th><th>Reason</th><th>Example regions</th><th>Example features</th></tr></thead>
@@ -872,6 +1065,37 @@ def _unknown_reason(message: str) -> str:
     if not normalized:
         return "No probe message or error code recorded"
     return _truncate_text(normalized, 180)
+
+
+def _render_unknown_guidance(unknown_rows: list[dict[str, object]], total: int) -> str:
+    region_counts: dict[str, int] = {}
+    for row in unknown_rows:
+        region = str(row.get("region", ""))
+        if region:
+            region_counts[region] = region_counts.get(region, 0) + 1
+    top_regions = sorted(region_counts.items(), key=lambda item: (-item[1], item[0]))[:3]
+    top_region_text = ", ".join(f"{region} ({count:,})" for region, count in top_regions) or "none"
+    unknown_percent = round((len(unknown_rows) / total) * 100, 2) if total else 0
+    specialized_regions = [region for region, _ in top_regions if _is_specialized_region(region)]
+    specialized_note = ""
+    if specialized_regions:
+        specialized_note = (
+            " Preview/staging regions such as "
+            f"{html.escape(', '.join(specialized_regions))} often need separate probe handling."
+        )
+    return (
+        '<div class="note"><strong>Why this can happen:</strong> Unknown checks are parked as '
+        "probe-quality gaps, not counted as rollout wins or regressions. "
+        f"They currently represent {unknown_percent}% of checks; top unknown regions: "
+        f"{html.escape(top_region_text)}."
+        f"{specialized_note} Investigate repeated failure reasons first, then lower the percentage "
+        "with retry tuning, narrower timeouts, better CLI error classification, or provider-specific "
+        "fallback probes.</div>"
+    )
+
+
+def _is_specialized_region(region: str) -> bool:
+    return region.endswith("stg") or region.endswith("euap") or "stage" in region
 
 
 def _render_unknown_diagnostic_row(group: dict[str, object]) -> str:
@@ -920,18 +1144,18 @@ def _render_recent_changes_panel(recent_changes: dict[str, Any] | None) -> str:
     rows = "\n".join(_render_recent_change_row(day) for day in days[:10])
     return f"""<section class="panel" aria-label="Recent availability changes">
       <div class="panel-header">
-        <h2>Recent Changes</h2>
-        <div class="panel-subtitle">Today plus previous change days</div>
+        <h2>Recent Availability Signals</h2>
+        <div class="panel-subtitle">Today plus previous clear signal days; unknown transitions are parked</div>
       </div>
       <div class="table-wrap">
         <table>
           <thead>
             <tr>
               <th>Date</th>
-              <th class="number">Changes</th>
-              <th class="number">New</th>
+              <th class="number">Signals</th>
+              <th class="number">New availability</th>
               <th class="number">Regressions</th>
-              <th class="number">Status</th>
+              <th class="number">Parked unknown</th>
               <th>Highlights</th>
             </tr>
           </thead>
@@ -965,19 +1189,19 @@ def _render_recent_change_row(day: dict[str, Any]) -> str:
     counts = day.get("change_type_counts") if isinstance(day.get("change_type_counts"), dict) else {}
     date = str(day.get("date", ""))
     change_path = str(day.get("change_path", ""))
-    total_changes = int(day.get("total_changes", 0))
     new_availability = int(counts.get("new_availability", 0))
     regressions = int(counts.get("regression", 0))
-    status_changes = int(counts.get("status_change", 0))
+    parked_unknown = int(day.get("parked_unknown_changes", counts.get("status_change", 0)))
+    signal_changes = new_availability + regressions
     date_cell = html.escape(date)
     if change_path:
         date_cell = f'<a href="api/history/{html.escape(change_path)}">{date_cell}</a>'
     return f"""<tr>
                 <td>{date_cell}</td>
-                <td class="number">{total_changes:,}</td>
-                <td class="number">{new_availability:,}</td>
-                <td class="number">{regressions:,}</td>
-                <td class="number">{status_changes:,}</td>
+                <td class="number"><span class="change-count">{signal_changes:,}</span></td>
+                <td class="number"><span class="change-count change-count-new">{new_availability:,}</span></td>
+                <td class="number"><span class="change-count change-count-regression">{regressions:,}</span></td>
+                <td class="number"><span class="change-count change-count-parked">{parked_unknown:,}</span></td>
                 <td>{_render_change_highlights(day.get("highlights", []))}</td>
               </tr>"""
 
@@ -995,9 +1219,15 @@ def _render_change_highlights(highlights: object) -> str:
         feature = str(item.get("feature", ""))
         current = str(item.get("current", ""))
         previous = str(item.get("previous", ""))
+        change_type = str(item.get("change_type", ""))
         label = _compact_feature_label(feature, group)
+        css_class = "change-highlight"
+        if change_type == "new_availability":
+            css_class += " change-highlight-new"
+        elif change_type == "regression":
+            css_class += " change-highlight-regression"
         rendered.append(
-            '<span class="change-highlight">'
+            f'<span class="{css_class}">'
             f"{html.escape(region)} {html.escape(label)} "
             f"{html.escape(previous)} -> {html.escape(current)}"
             "</span>"

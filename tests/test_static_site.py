@@ -29,7 +29,7 @@ def test_build_static_site_writes_dashboard_and_latest_json(tmp_path):
     assert "Public Alpha" in index_html
     assert "Current scans cover" in index_html
     assert "configured Azure public cloud regions" in index_html
-    assert "unknown</span> usually means a probe failed, timed out" in index_html
+    assert "unknown</span> means the monitor parked that check" in index_html
     assert "GitHub repository" in index_html
     assert "https://github.com/sergey-goncharenko/azure-region-monitor" in index_html
     assert "swedencentral" in latest_json
@@ -113,6 +113,8 @@ def test_build_static_site_writes_status_methodology_page(tmp_path):
     assert "configured public Azure region list" in methodology_html
     assert "sovereign cloud" in methodology_html
     assert "not a quota result" in methodology_html
+    assert "History and signal changes" in methodology_html
+    assert "parked as probe-quality changes" in methodology_html
     assert "az functionapp list-flexconsumption-locations --output json" in methodology_html
     assert "Quota is separate" in methodology_html
     assert "AKS extensions" in methodology_html
@@ -169,12 +171,106 @@ def test_build_static_site_copies_history_and_renders_recent_changes(tmp_path):
 
     index_html = (output_dir / "index.html").read_text(encoding="utf-8")
 
-    assert "Recent Changes" in index_html
-    assert "Today plus previous change days" in index_html
+    assert "Recent Availability Signals" in index_html
+    assert "unknown transitions are parked" in index_html
+    assert "Parked unknown" in index_html
     assert 'href="api/history/changes/2026-05-10.json"' in index_html
     assert "eastus flux unavailable -> available" in index_html
+    assert "History baseline starts today" in index_html
     assert (output_dir / "api" / "history" / "recent-changes.json").exists()
     assert (output_dir / "api" / "history" / "changes" / "2026-05-10.json").exists()
+
+
+def test_build_static_site_renders_metric_trends_from_history(tmp_path):
+    output_dir = tmp_path / "public"
+    history_dir = tmp_path / "history"
+    snapshot_path = tmp_path / "snapshot.json"
+    snapshot_path.write_text(
+        json.dumps(
+            {
+                "timestamp": "2026-05-10T00:00:00Z",
+                "regions": {
+                    "eastus": {
+                        "aks": {
+                            "extensions.gitops": {"status": "available"},
+                            "extensions.monitor": {"status": "unavailable"},
+                        }
+                    },
+                    "westeurope": {
+                        "aks": {
+                            "extensions.gitops": {"status": "available"},
+                            "extensions.monitor": {"status": "available"},
+                        }
+                    },
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    (history_dir / "changes").mkdir(parents=True)
+    (history_dir / "recent-changes.json").write_text(
+        json.dumps(
+            {
+                "generated_at": "2026-05-10T00:00:00Z",
+                "days": [
+                    {
+                        "date": "2026-05-10",
+                        "change_path": "changes/2026-05-10.json",
+                        "total_changes": 2,
+                        "change_type_counts": {
+                            "new_availability": 2,
+                            "regression": 0,
+                            "status_change": 0,
+                        },
+                        "status_counts": {
+                            "available": 3,
+                            "unavailable": 1,
+                            "partial": 0,
+                            "unknown": 0,
+                        },
+                        "summary_counts": {"regions": 2, "features": 2, "checks": 4},
+                        "highlights": [],
+                    },
+                    {
+                        "date": "2026-05-09",
+                        "change_path": "changes/2026-05-09.json",
+                        "total_changes": 1,
+                        "change_type_counts": {
+                            "new_availability": 1,
+                            "regression": 0,
+                            "status_change": 0,
+                        },
+                        "status_counts": {
+                            "available": 1,
+                            "unavailable": 1,
+                            "partial": 0,
+                            "unknown": 0,
+                        },
+                        "summary_counts": {"regions": 2, "features": 1, "checks": 2},
+                        "highlights": [],
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (history_dir / "changes" / "2026-05-10.json").write_text("{}", encoding="utf-8")
+    (history_dir / "changes" / "2026-05-09.json").write_text("{}", encoding="utf-8")
+
+    build_static_site(
+        output_dir,
+        snapshot_path=snapshot_path,
+        diff_path=tmp_path / "missing-diff.json",
+        history_path=history_dir,
+    )
+
+    index_html = (output_dir / "index.html").read_text(encoding="utf-8")
+
+    assert "No change for 1 day" in index_html
+    assert "Up 1 since previous snapshot" in index_html
+    assert "Up 2 since previous snapshot" in index_html
+    assert "Up 25.0 pp since previous snapshot" in index_html
+    assert "sparkline" in index_html
 
 
 def test_build_static_site_shows_uniform_extension_availability(tmp_path):
@@ -239,7 +335,7 @@ def test_build_static_site_shows_uniform_extension_availability(tmp_path):
     assert '<details class="panel unknown-diagnostics" aria-label="Unknown diagnostics">' in index_html
     assert "Unknowns To Investigate" in index_html
     assert "1 unknown checks" in index_html
-    assert "Use this as a probe quality backlog" in index_html
+    assert "Unknown checks are parked as" in index_html
     assert "Catalog failed." in index_html
     assert "extensionCatalog" in index_html
     assert index_html.index("Large AKS Extension Groups") < index_html.index("Unknowns To Investigate")
