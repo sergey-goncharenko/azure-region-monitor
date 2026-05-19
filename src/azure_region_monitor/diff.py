@@ -44,8 +44,8 @@ def _flatten_statuses(snapshot: Snapshot) -> dict[FeatureKey, FeatureStatus]:
 
 
 def _classify_change(previous: FeatureStatus | None, current: FeatureStatus | None) -> ChangeType:
-    if previous in {None, "unavailable", "unknown"} and current == "available":
+    if previous in {None, "unavailable"} and current == "available":
         return "new_availability"
-    if previous == "available" and current in {None, "unavailable", "unknown"}:
+    if previous == "available" and current in {None, "unavailable"}:
         return "regression"
     return "status_change"

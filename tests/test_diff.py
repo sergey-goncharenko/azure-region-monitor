@@ -38,6 +38,38 @@ def test_build_diff_classifies_new_availability_and_regression():
     ]
 
 
+def test_build_diff_parks_unknown_transitions_as_status_changes():
+    previous = Snapshot(
+        timestamp=datetime(2026, 5, 7, tzinfo=timezone.utc),
+        regions={
+            "swedencentral": {
+                "aks": {
+                    "extensions.gitops": FeatureResult(status="unknown"),
+                    "extensions.monitor": FeatureResult(status="available"),
+                }
+            }
+        },
+    )
+    current = Snapshot(
+        timestamp=datetime(2026, 5, 8, tzinfo=timezone.utc),
+        regions={
+            "swedencentral": {
+                "aks": {
+                    "extensions.gitops": FeatureResult(status="available"),
+                    "extensions.monitor": FeatureResult(status="unknown"),
+                }
+            }
+        },
+    )
+
+    diff = build_diff(previous, current, timestamp=datetime(2026, 5, 8, tzinfo=timezone.utc))
+
+    assert [(change.feature, change.change_type) for change in diff.changes] == [
+        ("extensions.gitops", "status_change"),
+        ("extensions.monitor", "status_change"),
+    ]
+
+
 def test_run_probes_can_normalize_missing_catalog_features():
     class CatalogProbe:
         normalize_missing_features = True

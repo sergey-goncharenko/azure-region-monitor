@@ -97,6 +97,7 @@ def _build_day_summary(
     change_type_counts: dict[str, int] = {}
     for change in changes:
         change_type_counts[change.change_type] = change_type_counts.get(change.change_type, 0) + 1
+    status_counts = _status_counts(current)
 
     return {
         "date": current_date,
@@ -111,7 +112,9 @@ def _build_day_summary(
             "regression": change_type_counts.get("regression", 0),
             "status_change": change_type_counts.get("status_change", 0),
         },
-        "status_counts": _status_counts(current),
+        "parked_unknown_changes": _parked_unknown_change_count(changes),
+        "status_counts": status_counts,
+        "summary_counts": _summary_counts(current, status_counts),
         "modality_counts": _modality_counts(current),
         "highlights": [_summarize_change(change) for change in _highlight_changes(changes)],
     }
@@ -122,17 +125,27 @@ def _recent_change_days(days: list[dict[str, Any]], current_date: str) -> list[d
     previous_change_days = [
         day
         for day in days
-        if day.get("date") != current_date and int(day.get("total_changes", 0)) > 0
+        if day.get("date") != current_date and _clear_signal_count(day) > 0
     ]
     if current is None:
         return previous_change_days[:RECENT_CHANGE_DAYS]
     return [current, *previous_change_days][:RECENT_CHANGE_DAYS]
 
 
+def _clear_signal_count(day: dict[str, Any]) -> int:
+    counts = day.get("change_type_counts")
+    if not isinstance(counts, dict):
+        return 0
+    return int(counts.get("new_availability", 0)) + int(counts.get("regression", 0))
+
+
 def _highlight_changes(changes: list[Change]) -> list[Change]:
     priority = {"regression": 0, "new_availability": 1, "status_change": 2}
+    clear_signal_changes = [
+        change for change in changes if change.change_type in {"regression", "new_availability"}
+    ]
     return sorted(
-        changes,
+        clear_signal_changes,
         key=lambda change: (
             priority.get(change.change_type, 3),
             change.region,
@@ -140,6 +153,10 @@ def _highlight_changes(changes: list[Change]) -> list[Change]:
             change.feature,
         ),
     )[:CHANGE_HIGHLIGHTS]
+
+
+def _parked_unknown_change_count(changes: list[Change]) -> int:
+    return sum(1 for change in changes if "unknown" in {change.previous, change.current})
 
 
 def _summarize_change(change: Change) -> dict[str, Any]:
@@ -160,6 +177,15 @@ def _status_counts(snapshot: Snapshot) -> dict[str, int]:
     for _, _, _, status in _iter_statuses(snapshot):
         counts[status] = counts.get(status, 0) + 1
     return counts
+
+
+def _summary_counts(snapshot: Snapshot, status_counts: dict[str, int]) -> dict[str, int]:
+    features = {feature for _, _, feature, _ in _iter_statuses(snapshot)}
+    return {
+        "regions": len(snapshot.regions),
+        "features": len(features),
+        "checks": sum(status_counts.values()),
+    }
 
 
 def _modality_counts(snapshot: Snapshot) -> dict[str, dict[str, int]]:
