@@ -37,6 +37,16 @@ on:
         required: false
         type: string
         default: "all"
+      model_latency_models:
+        description: "Comma-separated model-latency feature=model pairs, or blank for defaults"
+        required: false
+        type: string
+        default: ""
+      model_latency_samples:
+        description: "Samples per model for the model-latency probe"
+        required: false
+        type: string
+        default: "5"
       container_apps_resource_features:
         description: "Comma-separated Container Apps feature=resourceType pairs to check"
         required: false
@@ -76,6 +86,7 @@ on:
 permissions:
   contents: read
   id-token: write
+  models: read
 
 jobs:
   run-probes:
@@ -87,6 +98,9 @@ jobs:
       AZURE_VM_SKUS: ${{ inputs.vm_skus }}
       FUNCTION_RUNTIME_FEATURES: ${{ inputs.function_runtime_features }}
       AI_MODEL_FEATURES: ${{ inputs.ai_model_features }}
+      MODEL_LATENCY_MODELS: ${{ inputs.model_latency_models }}
+      MODEL_LATENCY_SAMPLES: ${{ inputs.model_latency_samples }}
+      GITHUB_MODELS_TOKEN: ${{ secrets.GH_MODELS_TOKEN || github.token }}
       CONTAINER_APPS_RESOURCE_FEATURES: ${{ inputs.container_apps_resource_features }}
       AZURE_CLI_TIMEOUT_SECONDS: ${{ inputs.azure_cli_timeout_seconds }}
     steps:

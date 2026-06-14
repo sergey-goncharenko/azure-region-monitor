@@ -88,6 +88,20 @@ class AiModelFeature:
     model: str
 
 
+@dataclass(frozen=True)
+class LatencyModel:
+    feature: str
+    model: str
+
+
+DEFAULT_LATENCY_MODELS = [
+    LatencyModel(feature="modelLatency.openai.gpt-4o-mini", model="openai/gpt-4o-mini"),
+    LatencyModel(feature="modelLatency.openai.gpt-4o", model="openai/gpt-4o"),
+    LatencyModel(feature="modelLatency.openai.o4-mini", model="openai/o4-mini"),
+    LatencyModel(feature="modelLatency.openai.gpt-5-mini", model="openai/gpt-5-mini"),
+]
+
+
 DEFAULT_FUNCTION_RUNTIME_FEATURES = [
     FunctionRuntimeFeature(feature="runtimes.dotnet-isolated.10", runtime="DOTNET-ISOLATED|10"),
     FunctionRuntimeFeature(feature="runtimes.dotnet-isolated.9", runtime="DOTNET-ISOLATED|9"),
@@ -242,3 +256,19 @@ def parse_ai_model_features(raw: str | None) -> list[AiModelFeature]:
         features.append(AiModelFeature(feature=feature, model=model))
 
     return features
+
+
+def parse_latency_models(raw: str | None) -> list[LatencyModel]:
+    if not raw:
+        return DEFAULT_LATENCY_MODELS
+
+    models: list[LatencyModel] = []
+    for item in raw.split(","):
+        feature, separator, model = item.strip().partition("=")
+        if not separator or not feature or not model:
+            raise ValueError(
+                "Latency models must use 'feature=model' pairs separated by commas"
+            )
+        models.append(LatencyModel(feature=feature, model=model))
+
+    return models

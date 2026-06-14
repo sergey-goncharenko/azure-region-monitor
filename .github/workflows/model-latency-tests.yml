@@ -1,0 +1,47 @@
+name: Model latency tests
+
+on:
+  schedule:
+    - cron: "41 5 * * *"
+  workflow_dispatch:
+    inputs:
+      regions:
+        description: "Logical vantage label(s) for latency results"
+        required: false
+        default: "github-global"
+      previous_snapshot:
+        description: "Optional path to a previous snapshot in the repository for diff generation"
+        required: false
+        default: ""
+      model_latency_models:
+        description: "Comma-separated feature=model pairs, or blank for the default model set"
+        required: false
+        default: ""
+      model_latency_samples:
+        description: "Samples per model"
+        required: false
+        default: "5"
+      deploy_dashboard:
+        description: "Deploy this modality snapshot to Azure Static Web Apps"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  id-token: write
+  models: read
+
+jobs:
+  model-latency:
+    uses: ./.github/workflows/regional-probe-run.yml
+    with:
+      probes: "model-latency-cli"
+      regions: ${{ inputs.regions || 'github-global' }}
+      previous_snapshot: ${{ inputs.previous_snapshot || '' }}
+      model_latency_models: ${{ inputs.model_latency_models || '' }}
+      model_latency_samples: ${{ inputs.model_latency_samples || '5' }}
+      artifact_name: "azure-region-monitor-model-latency"
+      deploy_dashboard: ${{ inputs.deploy_dashboard || false }}
+      existing_snapshot_url: ${{ inputs.deploy_dashboard && 'https://azwatch.operator.lat/api/latest.json' || '' }}
+    secrets: inherit

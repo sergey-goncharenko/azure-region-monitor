@@ -54,6 +54,7 @@ The first implementation slice is a Python service with:
 - An Azure CLI-backed Azure AI model catalog probe for model/version regional rollout checks
 - An Azure CLI-backed Container Apps provider metadata probe for Microsoft.App resource type regional rollout checks
 - An Azure CLI-backed VM SKU probe for compute SKU regional availability
+- A GitHub Models-backed model latency probe for cross-model inference response-time evidence from a single global vantage
 - JSON snapshot and diff storage helpers
 - Daily static snapshot history and compact recent-change summaries
 - A human-readable methodology page explaining what each status means
@@ -140,6 +141,21 @@ azure-region-monitor run --probe ai-model-catalog-cli --output data/snapshots/la
 ```
 
 By default, the AI model probe tracks every model/version returned by `az cognitiveservices model list --location <region> --output json` and normalizes regional absences across the snapshot.
+
+Run the read-only model latency probe locally (uses GitHub Models global access, not an Azure region):
+
+```powershell
+$env:GITHUB_MODELS_TOKEN="<a token with models:read>"
+azure-region-monitor run --probe model-latency-cli --region github-global --output data/snapshots/latest.json
+```
+
+The model latency probe sends a small deterministic prompt to each configured model, takes several samples, and records p50/p95 round-trip latency, time-to-first-token, and output tokens/sec. It measures the GitHub Models global endpoint from wherever the probe runs, so results are cross-model speed evidence from a single vantage, not Azure per-region latency. Customize the model set and sample count:
+
+```powershell
+$env:MODEL_LATENCY_MODELS="modelLatency.openai.gpt-4o-mini=openai/gpt-4o-mini,modelLatency.openai.gpt-4o=openai/gpt-4o"
+$env:MODEL_LATENCY_SAMPLES="5"
+azure-region-monitor run --probe model-latency-cli --region github-global --output data/snapshots/latest.json
+```
 
 Run the read-only Container Apps provider metadata probe locally:
 
@@ -258,6 +274,8 @@ For Azure Functions Flex Consumption, `unavailable` means the region was absent 
 For Azure AI models, `available` means `az cognitiveservices model list --location <region> --output json` listed that model/version in the region. `unavailable` means the model/version was absent from the region's model catalog, or the regional `locations/models` endpoint reported that the region is outside its supported locations. This is catalog evidence; it does not test quota, provisioned throughput, content filtering, account approval, or a deployment invocation.
 
 For Container Apps, `available` means `az provider show --namespace Microsoft.App --expand resourceTypes/locations --output json` advertised the configured Microsoft.App resource type in that region. `unavailable` means the provider metadata call succeeded but did not advertise that resource type for that region; it is not a deployment, quota, or Dapr runtime version test.
+
+For model latency, `available` means at least one timed inference call to the model returned a trustworthy response, and the recorded `latency_ms` is the p50 round-trip over the samples (p95, time-to-first-token, and tokens/sec are in the message). `unknown` means every sample failed, timed out, or returned no tokens. This modality does not emit `unavailable`: it only measures models it was asked to probe. Latency is a measurement that depends on the network path and the vantage the probe runs from, not an availability verdict, SLA, or throughput guarantee. The default vantage label `github-global` reflects GitHub Models' single global access endpoint, which does not attribute timing to any Azure region.
 
 ## Next Engineering Steps
 

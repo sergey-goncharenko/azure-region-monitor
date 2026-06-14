@@ -1021,6 +1021,8 @@ def _compact_feature_label(feature: str, group: str) -> str:
         return feature.removeprefix("runtimes.")
     if feature.startswith("aiModels."):
       return feature.removeprefix("aiModels.")
+    if feature.startswith("modelLatency."):
+        return feature.removeprefix("modelLatency.")
     if feature.startswith("vmSkus."):
         return feature.removeprefix("vmSkus.")
     return feature
@@ -1037,6 +1039,8 @@ def _feature_category(feature: str) -> str:
       return "Azure Functions"
     if feature.startswith("aiModels."):
       return "Azure AI models"
+    if feature.startswith("modelLatency."):
+        return "Model latency"
     if feature.startswith("containerApps."):
         return "Container Apps"
     if feature.startswith("vmSkus."):
@@ -1060,6 +1064,9 @@ def _feature_group(feature: str) -> str:
     if feature.startswith("aiModels."):
       parts = feature.removeprefix("aiModels.").split(".")
       return parts[0] if parts else "unknown"
+    if feature.startswith("modelLatency."):
+        parts = feature.removeprefix("modelLatency.").split(".")
+        return parts[0] if parts else "unknown"
     if feature.startswith("containerApps."):
       if feature.endswith("daprComponents"):
         return "dapr"

@@ -13,6 +13,7 @@ from azure_region_monitor.config import (
     parse_ai_model_features,
     parse_container_apps_resource_features,
     parse_function_runtime_features,
+    parse_latency_models,
     parse_vm_skus,
 )
 from azure_region_monitor.diff import build_diff
@@ -23,6 +24,7 @@ from azure_region_monitor.probes.aks_versions import AksKubernetesVersionCliProb
 from azure_region_monitor.probes.ai_models import AiModelCatalogCliProbe
 from azure_region_monitor.probes.container_apps import ContainerAppsProviderCliProbe
 from azure_region_monitor.probes.functions import FunctionsFlexConsumptionCliProbe
+from azure_region_monitor.probes.model_latency import ModelLatencyProbe
 from azure_region_monitor.probes.sample import SampleAksExtensionProbe
 from azure_region_monitor.probes.vm_skus import VmSkuCliProbe
 from azure_region_monitor.runner import run_probes
@@ -48,6 +50,7 @@ def main() -> None:
             "ai-model-catalog-cli",
             "container-apps-provider-cli",
             "function-flex-cli",
+            "model-latency-cli",
             "vm-sku-cli",
         ],
         dest="probes",
@@ -204,6 +207,11 @@ def _build_probe(probe_name: str):
         )
     if probe_name == "vm-sku-cli":
         return VmSkuCliProbe(skus=parse_vm_skus(os.environ.get("AZURE_VM_SKUS")))
+    if probe_name == "model-latency-cli":
+        return ModelLatencyProbe(
+            models=parse_latency_models(os.environ.get("MODEL_LATENCY_MODELS")),
+            samples=int(os.environ.get("MODEL_LATENCY_SAMPLES", "5")),
+        )
     raise ValueError(f"Unsupported probe: {probe_name}")
 
 
