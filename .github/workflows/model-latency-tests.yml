@@ -1,8 +1,10 @@
 name: Model latency tests
 
 on:
-  schedule:
-    - cron: "41 5 * * *"
+  # Daily schedule intentionally disabled until the first manual run is validated.
+  # Re-enable after confirming cost/behavior:
+  # schedule:
+  #   - cron: "41 5 * * *"
   workflow_dispatch:
     inputs:
       regions:
@@ -16,11 +18,11 @@ on:
       model_latency_models:
         description: "Comma-separated feature=model pairs, or blank for the default model set"
         required: false
-        default: ""
+        default: "modelLatency.openai.gpt-4o-mini=openai/gpt-4o-mini"
       model_latency_samples:
         description: "Samples per model"
         required: false
-        default: "5"
+        default: "2"
       deploy_dashboard:
         description: "Deploy this modality snapshot to Azure Static Web Apps"
         required: false
@@ -40,7 +42,8 @@ jobs:
       regions: ${{ inputs.regions || 'github-global' }}
       previous_snapshot: ${{ inputs.previous_snapshot || '' }}
       model_latency_models: ${{ inputs.model_latency_models || '' }}
-      model_latency_samples: ${{ inputs.model_latency_samples || '5' }}
+      model_latency_samples: ${{ inputs.model_latency_samples || '2' }}
+      azure_login: false
       artifact_name: "azure-region-monitor-model-latency"
       deploy_dashboard: ${{ inputs.deploy_dashboard || false }}
       existing_snapshot_url: ${{ inputs.deploy_dashboard && 'https://azwatch.operator.lat/api/latest.json' || '' }}
