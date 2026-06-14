@@ -37,6 +37,16 @@ on:
         required: false
         type: string
         default: "all"
+      model_latency_models:
+        description: "Comma-separated model-latency feature=model pairs, or blank for defaults"
+        required: false
+        type: string
+        default: ""
+      model_latency_samples:
+        description: "Samples per model for the model-latency probe"
+        required: false
+        type: string
+        default: "5"
       container_apps_resource_features:
         description: "Comma-separated Container Apps feature=resourceType pairs to check"
         required: false
@@ -52,6 +62,11 @@ on:
         required: false
         type: boolean
         default: false
+      azure_login:
+        description: "Log in to Azure before running probes (disable for probes that do not use Azure)"
+        required: false
+        type: boolean
+        default: true
       artifact_name:
         description: "Name for uploaded synthetic data artifacts"
         required: false
@@ -76,6 +91,7 @@ on:
 permissions:
   contents: read
   id-token: write
+  models: read
 
 jobs:
   run-probes:
@@ -87,6 +103,9 @@ jobs:
       AZURE_VM_SKUS: ${{ inputs.vm_skus }}
       FUNCTION_RUNTIME_FEATURES: ${{ inputs.function_runtime_features }}
       AI_MODEL_FEATURES: ${{ inputs.ai_model_features }}
+      MODEL_LATENCY_MODELS: ${{ inputs.model_latency_models }}
+      MODEL_LATENCY_SAMPLES: ${{ inputs.model_latency_samples }}
+      GITHUB_MODELS_TOKEN: ${{ secrets.GH_MODELS_TOKEN || github.token }}
       CONTAINER_APPS_RESOURCE_FEATURES: ${{ inputs.container_apps_resource_features }}
       AZURE_CLI_TIMEOUT_SECONDS: ${{ inputs.azure_cli_timeout_seconds }}
     steps:
@@ -94,6 +113,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Azure login
+        if: inputs.azure_login
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -163,7 +183,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Azure logout
-        if: always()
+        if: always() && inputs.azure_login
         run: az logout || true
 
   deploy-dashboard:
