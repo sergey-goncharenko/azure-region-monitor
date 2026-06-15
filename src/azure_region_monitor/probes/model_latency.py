@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import statistics
+import time
 from dataclasses import dataclass
 from typing import Callable, Protocol
 
@@ -11,6 +12,8 @@ from azure_region_monitor.probes.base import ProbeResult
 DEFAULT_PROMPT = "Count from 1 to 50. Output only the numbers separated by single spaces."
 DEFAULT_MAX_TOKENS = 256
 DEFAULT_SAMPLES = 5
+DEFAULT_RATE_LIMIT_RETRIES = 5
+DEFAULT_RATE_LIMIT_BACKOFF_SECONDS = 20.0
 SERVICE = "model-latency"
 
 
@@ -28,10 +31,11 @@ class LatencyMeasurement:
 
 
 class LatencyClientError(Exception):
-    def __init__(self, error_code: str, message: str) -> None:
+    def __init__(self, error_code: str, message: str, retry_after: float | None = None) -> None:
         super().__init__(message)
         self.error_code = error_code
         self.message = message
+        self.retry_after = retry_after
 
 
 class InferenceLatencyClient(Protocol):
@@ -61,6 +65,9 @@ class ModelLatencyProbe:
         prompt: str = DEFAULT_PROMPT,
         max_tokens: int = DEFAULT_MAX_TOKENS,
         client_factory: ClientFactory | None = None,
+        rate_limit_retries: int = DEFAULT_RATE_LIMIT_RETRIES,
+        rate_limit_backoff_seconds: float = DEFAULT_RATE_LIMIT_BACKOFF_SECONDS,
+        sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         self._models = models or DEFAULT_LATENCY_MODELS
         self._client = client
@@ -68,6 +75,9 @@ class ModelLatencyProbe:
         self._prompt = prompt
         self._max_tokens = max_tokens
         self._client_factory = client_factory
+        self._rate_limit_retries = max(0, rate_limit_retries)
+        self._rate_limit_backoff_seconds = max(0.0, rate_limit_backoff_seconds)
+        self._sleep = sleep
 
     def run(self, region: str):
         client = self._get_client()
@@ -89,16 +99,9 @@ class ModelLatencyProbe:
         measurements: list[LatencyMeasurement] = []
         last_error: LatencyClientError | None = None
         for _ in range(self._samples):
-            try:
-                measurements.append(
-                    client.measure(
-                        model.model,
-                        prompt=self._prompt,
-                        max_tokens=self._max_tokens,
-                    )
-                )
-            except LatencyClientError as error:
-                last_error = error
+            measurement, last_error = self._collect_one_sample(client, model, last_error)
+            if measurement is not None:
+                measurements.append(measurement)
 
         if not measurements:
             return ProbeResult(
@@ -120,6 +123,33 @@ class ModelLatencyProbe:
             feature=model.feature,
             result=_aggregate_result(region, model, measurements, self._samples),
         )
+
+    def _collect_one_sample(
+        self,
+        client: InferenceLatencyClient,
+        model: LatencyModel,
+        last_error: LatencyClientError | None,
+    ) -> tuple[LatencyMeasurement | None, LatencyClientError | None]:
+        for attempt in range(self._rate_limit_retries + 1):
+            try:
+                measurement = client.measure(
+                    model.model,
+                    prompt=self._prompt,
+                    max_tokens=self._max_tokens,
+                )
+                return measurement, last_error
+            except LatencyClientError as error:
+                last_error = error
+                has_retries_left = attempt < self._rate_limit_retries
+                if _is_rate_limited(error) and has_retries_left:
+                    self._sleep(error.retry_after or self._rate_limit_backoff_seconds)
+                    continue
+                return None, last_error
+        return None, last_error
+
+
+def _is_rate_limited(error: LatencyClientError) -> bool:
+    return error.retry_after is not None or "429" in (error.error_code or "")
 
 
 def _aggregate_result(
