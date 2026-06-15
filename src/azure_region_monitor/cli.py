@@ -211,6 +211,10 @@ def _build_probe(probe_name: str):
         return ModelLatencyProbe(
             models=parse_latency_models(os.environ.get("MODEL_LATENCY_MODELS")),
             samples=int(os.environ.get("MODEL_LATENCY_SAMPLES", "5")),
+            rate_limit_retries=int(os.environ.get("MODEL_LATENCY_RATE_LIMIT_RETRIES", "5")),
+            rate_limit_backoff_seconds=float(
+                os.environ.get("MODEL_LATENCY_RATE_LIMIT_BACKOFF_SECONDS", "20")
+            ),
         )
     raise ValueError(f"Unsupported probe: {probe_name}")
 

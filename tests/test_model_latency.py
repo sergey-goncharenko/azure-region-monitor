@@ -54,6 +54,8 @@ def test_probe_marks_model_unknown_when_all_samples_fail():
         models=[LatencyModel(feature="modelLatency.openai.gpt-4o", model="openai/gpt-4o")],
         client=client,
         samples=2,
+        rate_limit_retries=0,
+        sleep=lambda _seconds: None,
     )
 
     result = list(probe.run("github-global"))[0]
@@ -84,6 +86,81 @@ def test_probe_keeps_partial_samples_and_reports_count():
 
     assert result.result.status == "available"
     assert "2/3 samples" in result.result.message
+
+
+def test_probe_retries_rate_limited_sample_then_succeeds():
+    class _RateLimitedClient:
+        def __init__(self):
+            self.attempts = 0
+
+        def measure(self, model, *, prompt, max_tokens):
+            self.attempts += 1
+            if self.attempts == 1:
+                raise LatencyClientError("GitHubModelsHttp429", "Too many requests", retry_after=7)
+            return LatencyMeasurement(ttft_ms=120, total_ms=500, output_tokens=50)
+
+    slept = []
+    probe = ModelLatencyProbe(
+        models=[LatencyModel(feature="modelLatency.openai.gpt-5-mini", model="openai/gpt-5-mini")],
+        client=_RateLimitedClient(),
+        samples=1,
+        rate_limit_retries=3,
+        rate_limit_backoff_seconds=20,
+        sleep=slept.append,
+    )
+
+    result = list(probe.run("github-global"))[0]
+
+    assert result.result.status == "available"
+    assert slept == [7]  # honored Retry-After, not the 20s floor
+
+
+def test_probe_gives_up_after_exhausting_rate_limit_retries():
+    class _AlwaysLimited:
+        def measure(self, model, *, prompt, max_tokens):
+            raise LatencyClientError("GitHubModelsHttp429", "Too many requests")
+
+    slept = []
+    probe = ModelLatencyProbe(
+        models=[LatencyModel(feature="modelLatency.openai.o4-mini", model="openai/o4-mini")],
+        client=_AlwaysLimited(),
+        samples=1,
+        rate_limit_retries=2,
+        rate_limit_backoff_seconds=5,
+        sleep=slept.append,
+    )
+
+    result = list(probe.run("github-global"))[0]
+
+    assert result.result.status == "unknown"
+    assert result.result.error_code == "GitHubModelsHttp429"
+    assert slept == [5, 5]  # backoff floor used twice, then gave up
+
+
+def test_probe_does_not_retry_non_rate_limit_errors():
+    class _ServerError:
+        def __init__(self):
+            self.attempts = 0
+
+        def measure(self, model, *, prompt, max_tokens):
+            self.attempts += 1
+            raise LatencyClientError("GitHubModelsHttp500", "boom")
+
+    client = _ServerError()
+    slept = []
+    probe = ModelLatencyProbe(
+        models=[LatencyModel(feature="modelLatency.openai.gpt-4o", model="openai/gpt-4o")],
+        client=client,
+        samples=1,
+        rate_limit_retries=3,
+        sleep=slept.append,
+    )
+
+    result = list(probe.run("github-global"))[0]
+
+    assert result.result.status == "unknown"
+    assert client.attempts == 1  # no retry for non-429
+    assert slept == []
 
 
 def test_percentile_interpolates_between_ranks():

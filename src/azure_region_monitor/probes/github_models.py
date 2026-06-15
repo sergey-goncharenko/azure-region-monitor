@@ -102,9 +102,11 @@ class GitHubModelsClient(InferenceLatencyClient):
                         usage_output_tokens = tokens
         except urllib.error.HTTPError as error:
             detail = error.read().decode("utf-8", errors="replace").strip()
+            retry_after = _parse_retry_after(error.headers.get("Retry-After"))
             raise LatencyClientError(
                 f"GitHubModelsHttp{error.code}",
                 detail or f"GitHub Models returned HTTP {error.code} for '{model}'.",
+                retry_after=retry_after,
             ) from error
         except (urllib.error.URLError, TimeoutError) as error:
             raise LatencyClientError(
@@ -126,6 +128,15 @@ class GitHubModelsClient(InferenceLatencyClient):
             total_ms=total_ms,
             output_tokens=output_tokens,
         )
+
+
+def _parse_retry_after(value: str | None) -> float | None:
+    if not value:
+        return None
+    try:
+        return max(0.0, float(value.strip()))
+    except (TypeError, ValueError):
+        return None
 
 
 def _safe_json(payload: str) -> dict | None:
