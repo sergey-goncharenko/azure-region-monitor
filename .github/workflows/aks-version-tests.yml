@@ -24,6 +24,7 @@ on:
 permissions:
   contents: read
   id-token: write
+  models: read
 
 jobs:
   aks-versions:

@@ -41,6 +41,7 @@ on:
 permissions:
   contents: read
   id-token: write
+  models: read
 
 jobs:
   all-modalities:
