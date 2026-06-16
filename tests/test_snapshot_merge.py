@@ -187,3 +187,38 @@ def test_merge_snapshot_overlay_replaces_ai_model_features_as_one_modality():
     assert "aiModels.openai.gpt-4o-mini.2024-07-18" not in merged.regions["eastus"]["ai"]
     assert merged.regions["eastus"]["ai"]["aiModels.openai.gpt-5.2025-08-07"].status == "available"
     assert merged.regions["eastus"]["ai"]["otherAi.signal"].status == "unknown"
+
+
+def test_merge_snapshot_overlay_preserves_regions_absent_from_overlay():
+    base = Snapshot(
+        regions={
+            "eastus": {
+                "ai": {
+                    "aiModels.openai.gpt-4o.2024-08-06": FeatureResult(status="available"),
+                },
+            },
+            "github-global": {
+                "model-latency": {
+                    "modelLatency.openai.gpt-4o-mini": FeatureResult(
+                        status="available", latency_ms=1700
+                    ),
+                },
+            },
+        },
+    )
+    overlay = Snapshot(
+        regions={
+            "eastus": {
+                "ai": {
+                    "aiModels.openai.gpt-5.2025-08-07": FeatureResult(status="available"),
+                }
+            }
+        },
+    )
+
+    merged = merge_snapshot_overlay(base, overlay)
+
+    latency = merged.regions["github-global"]["model-latency"]
+    assert latency["modelLatency.openai.gpt-4o-mini"].status == "available"
+    assert latency["modelLatency.openai.gpt-4o-mini"].latency_ms == 1700
+    assert merged.regions["eastus"]["ai"]["aiModels.openai.gpt-5.2025-08-07"].status == "available"

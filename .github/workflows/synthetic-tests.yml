@@ -59,4 +59,5 @@ jobs:
       install_k8s_extension: true
       artifact_name: "azure-region-monitor-synthetic-data"
       deploy_dashboard: true
+      existing_snapshot_url: "https://azwatch.operator.lat/api/latest.json"
     secrets: inherit
