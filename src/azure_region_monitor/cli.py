@@ -145,11 +145,30 @@ def _update_history(args: argparse.Namespace) -> None:
         snapshot_path=args.snapshot,
         history_dir=args.history_dir,
         base_url=args.base_url or None,
+        narrative_client=_build_narrative_client(),
     )
     print(
         f"Updated history in {args.history_dir} with "
         f"{len(recent_changes.get('days', []))} recent change days"
     )
+
+
+def _build_narrative_client():
+    token = os.environ.get("GITHUB_MODELS_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    if not token:
+        return None
+    if os.environ.get("AI_SUMMARY_ENABLED", "1") == "0":
+        return None
+    try:
+        from azure_region_monitor.probes.github_models import (
+            GitHubModelsClient,
+            GitHubModelsNarrativeClient,
+        )
+
+        model = os.environ.get("AI_SUMMARY_MODEL", "openai/gpt-4o-mini")
+        return GitHubModelsNarrativeClient(GitHubModelsClient.from_env(), model=model)
+    except Exception:
+        return None
 
 
 def _merge_snapshot(args: argparse.Namespace) -> None:

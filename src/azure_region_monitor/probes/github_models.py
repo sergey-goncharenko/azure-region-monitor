@@ -122,6 +122,78 @@ class GitHubModelsClient(InferenceLatencyClient):
             output_tokens=output_tokens,
         )
 
+    def complete(self, *, model: str, system: str, user: str, max_tokens: int = 220) -> str:
+        """Return the text of a non-streaming chat completion.
+
+        Used for short text generation (such as a daily change digest). Raises
+        LatencyClientError on transport or HTTP failures so callers can fall back.
+        """
+
+        body = json.dumps(
+            {
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                "max_tokens": max_tokens,
+                "temperature": 0,
+            }
+        ).encode("utf-8")
+
+        request = urllib.request.Request(
+            f"{self._endpoint}/chat/completions",
+            data=body,
+            method="POST",
+            headers={
+                "Authorization": f"Bearer {self._token}",
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+            },
+        )
+
+        try:
+            with self._opener.open(request, timeout=self._timeout_seconds) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as error:
+            detail = error.read().decode("utf-8", errors="replace").strip()
+            raise LatencyClientError(
+                f"GitHubModelsHttp{error.code}",
+                detail or f"GitHub Models returned HTTP {error.code} for '{model}'.",
+            ) from error
+        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as error:
+            raise LatencyClientError(
+                "GitHubModelsUnreachable",
+                f"GitHub Models completion failed for '{model}': {error}",
+            ) from error
+
+        return _completion_text(payload)
+
+
+class GitHubModelsNarrativeClient:
+    """Adapts GitHubModelsClient to the summary NarrativeClient protocol."""
+
+    def __init__(self, client: GitHubModelsClient, model: str, max_tokens: int = 220) -> None:
+        self._client = client
+        self._model = model
+        self._max_tokens = max_tokens
+
+    def generate(self, *, system: str, user: str) -> str:
+        return self._client.complete(
+            model=self._model, system=system, user=user, max_tokens=self._max_tokens
+        )
+
+
+def _completion_text(payload: object) -> str:
+    if not isinstance(payload, dict):
+        return ""
+    choices = payload.get("choices")
+    if not isinstance(choices, list) or not choices:
+        return ""
+    message = choices[0].get("message") if isinstance(choices[0], dict) else None
+    content = message.get("content") if isinstance(message, dict) else None
+    return content.strip() if isinstance(content, str) else ""
+
 
 def _is_reasoning_model(model: str) -> bool:
     name = model.split("/")[-1].lower()

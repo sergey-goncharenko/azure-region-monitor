@@ -13,6 +13,7 @@ from typing import Any
 from azure_region_monitor.diff import build_diff
 from azure_region_monitor.models import Change, Snapshot
 from azure_region_monitor.storage import load_snapshot
+from azure_region_monitor.summary import NarrativeClient, build_change_narrative
 
 RECENT_CHANGE_DAYS = 10
 CHANGE_HIGHLIGHTS = 10
@@ -32,7 +33,12 @@ def fetch_history(history_dir: Path, base_url: str) -> bool:
     return True
 
 
-def update_history(snapshot_path: Path, history_dir: Path, base_url: str | None = None) -> dict[str, Any]:
+def update_history(
+    snapshot_path: Path,
+    history_dir: Path,
+    base_url: str | None = None,
+    narrative_client: NarrativeClient | None = None,
+) -> dict[str, Any]:
     history_dir.mkdir(parents=True, exist_ok=True)
     if base_url:
         fetch_history(history_dir, base_url)
@@ -47,6 +53,7 @@ def update_history(snapshot_path: Path, history_dir: Path, base_url: str | None 
     previous_entry = _previous_snapshot_entry(existing_index, current_date)
     previous = _load_previous_snapshot(history_dir, previous_entry)
     diff = build_diff(previous, current) if previous else None
+    changes = diff.changes if diff else []
 
     _write_snapshot_gzip(history_dir / snapshot_history_path, current)
     day_summary = _build_day_summary(
@@ -55,7 +62,8 @@ def update_history(snapshot_path: Path, history_dir: Path, base_url: str | None 
         snapshot_path=snapshot_history_path,
         change_path=change_history_path,
         previous_entry=previous_entry,
-        changes=diff.changes if diff else [],
+        changes=changes,
+        narrative=build_change_narrative(changes, client=narrative_client),
     )
     _write_json(history_dir / change_history_path, day_summary)
 
@@ -93,6 +101,7 @@ def _build_day_summary(
     change_path: Path,
     previous_entry: dict[str, Any] | None,
     changes: list[Change],
+    narrative: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     change_type_counts: dict[str, int] = {}
     for change in changes:
@@ -116,6 +125,8 @@ def _build_day_summary(
         "status_counts": status_counts,
         "summary_counts": _summary_counts(current, status_counts),
         "modality_counts": _modality_counts(current),
+        "narrative": (narrative or {}).get("narrative", ""),
+        "narrative_source": (narrative or {}).get("narrative_source", "rule"),
         "highlights": [_summarize_change(change) for change in _highlight_changes(changes)],
     }
 
