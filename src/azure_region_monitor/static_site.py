@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from azure_region_monitor.history import copy_history_to_api
+from azure_region_monitor.latency_view import build_latency_rows
 from azure_region_monitor.models import Snapshot
 from azure_region_monitor.storage import load_snapshot
 
@@ -113,7 +114,9 @@ def build_static_site(
         _render_index(snapshot, recent_changes=recent_changes), encoding="utf-8"
     )
     (output_dir / "heatmap.html").write_text(_render_heatmap_page(snapshot), encoding="utf-8")
+    (output_dir / "latency.html").write_text(_render_latency_page(snapshot), encoding="utf-8")
     (output_dir / "methodology.html").write_text(_render_methodology_page(snapshot), encoding="utf-8")
+    _write_latency_api(api_dir, snapshot)
     _write_discovery_assets(output_dir, snapshot, recent_changes=recent_changes)
     _write_static_web_app_config(output_dir)
 
@@ -178,10 +181,12 @@ def _render_sitemap(snapshot: Snapshot) -> str:
     urls = [
         ("/", "1.0"),
         ("/heatmap.html", "0.9"),
+        ("/latency.html", "0.8"),
         ("/methodology.html", "0.8"),
         ("/llms.txt", "0.7"),
         ("/llms-full.txt", "0.7"),
         ("/api/latest.json", "0.6"),
+        ("/api/latency.json", "0.6"),
         ("/api/history/index.json", "0.5"),
     ]
     entries = "\n".join(
@@ -215,6 +220,7 @@ Latest snapshot: {snapshot.timestamp.isoformat()}
 
 - [{_SITE_URL}/]({_SITE_URL}/): summary dashboard with modality and regional group availability.
 - [{_SITE_URL}/heatmap.html]({_SITE_URL}/heatmap.html): paged, filterable heatmap backed by the latest JSON snapshot.
+- [{_SITE_URL}/latency.html]({_SITE_URL}/latency.html): LLM model response-latency leaderboard measured from the GitHub Models global vantage.
 - [{_SITE_URL}/methodology.html]({_SITE_URL}/methodology.html): status semantics and probe evidence notes.
 - [{_SITE_URL}/api/latest.json]({_SITE_URL}/api/latest.json): complete current machine-readable snapshot.
 - [{_SITE_URL}/api/history/index.json]({_SITE_URL}/api/history/index.json): compact history index with daily snapshot and change links.
@@ -373,6 +379,7 @@ def _render_index(snapshot: Snapshot, recent_changes: dict[str, Any] | None = No
       <nav class="links" aria-label="Dashboard links">
         <a href="methodology.html">Status meanings</a>
         <a href="heatmap.html">Detailed heatmap</a>
+        <a href="latency.html">Model latency</a>
         <a href="api/latest.json" download="azure-region-monitor-latest.json">Download latest JSON</a>
         <a href="{_REPOSITORY_URL}">GitHub repository</a>
       </nav>
@@ -494,6 +501,7 @@ def _render_heatmap_page(snapshot: Snapshot) -> str:
       <nav class="links" aria-label="Dashboard links">
         <a href="index.html">Summary</a>
         <a href="methodology.html">Status meanings</a>
+        <a href="latency.html">Model latency</a>
         <a href="api/latest.json" download="azure-region-monitor-latest.json">Download latest JSON</a>
       </nav>
     </header>
@@ -594,6 +602,7 @@ def _render_methodology_page(snapshot: Snapshot) -> str:
       <nav class="links" aria-label="Dashboard links">
         <a href="index.html">Summary</a>
         <a href="heatmap.html">Detailed heatmap</a>
+        <a href="latency.html">Model latency</a>
         <a href="api/latest.json" download="azure-region-monitor-latest.json">Download latest JSON</a>
       </nav>
     </header>
@@ -641,6 +650,130 @@ def _render_methodology_page(snapshot: Snapshot) -> str:
 </body>
 </html>
 """
+
+
+def _write_latency_api(api_dir: Path, snapshot: Snapshot) -> None:
+    rows = build_latency_rows(snapshot)
+    payload = {
+        "generated_from": snapshot.timestamp.isoformat(),
+        "vantage": "GitHub Models global access endpoint",
+        "models": rows,
+    }
+    (api_dir / "latency.json").write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+
+
+def _render_latency_page(snapshot: Snapshot) -> str:
+    rows = build_latency_rows(snapshot)
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="LLM model response latency measured through GitHub Models from a single global vantage.">
+  <title>LLM Model Latency</title>
+  <link rel="canonical" href="{_SITE_URL}/latency.html">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="alternate" href="/llms.txt" type="text/plain" title="LLM guide">
+  {_style_block()}
+</head>
+<body>
+  <main class="content-page">
+    <header>
+      <div>
+        <h1>LLM Model Latency</h1>
+        <div class="timestamp">Latest snapshot: {html.escape(snapshot.timestamp.isoformat())}</div>
+      </div>
+      <nav class="links" aria-label="Dashboard links">
+        <a href="index.html">Summary</a>
+        <a href="heatmap.html">Detailed heatmap</a>
+        <a href="methodology.html">Status meanings</a>
+        <a href="api/latency.json" download="azure-region-monitor-latency.json">Download latency JSON</a>
+      </nav>
+    </header>
+    <section class="panel" aria-label="Model latency leaderboard">
+      <div class="panel-header">
+        <h2>Response Latency Leaderboard</h2>
+        <div class="panel-subtitle">Fastest p50 first; measured from the GitHub Models global vantage</div>
+      </div>
+      {_render_latency_table(rows)}
+    </section>
+    <section class="panel prose" aria-label="Model latency methodology">
+      <div class="panel-header">
+        <h2>How to read this</h2>
+        <div class="panel-subtitle">What the latency numbers do and do not mean</div>
+      </div>
+      <div class="prose-body">
+        <p>Each model is sent a small deterministic prompt several times. We record
+        <strong>p50</strong> and <strong>p95</strong> round-trip time, <strong>TTFT</strong>
+        (time to first token), and output <strong>tokens per second</strong>, then publish the
+        medians. <code>p50</code> is the headline number used for ranking.</p>
+        <p>These are measurements from a <strong>single global vantage</strong> &mdash; the GitHub
+        Models access endpoint &mdash; taken from wherever the probe runs. They mix model speed with
+        network distance, so treat them as cross-model speed evidence, <em>not</em> as Azure
+        per-region latency, an SLA, or a throughput guarantee. Reasoning models spend hidden tokens
+        before their first visible token, so their TTFT is expected to be higher.</p>
+        <p><span class="status status-available">available</span> means at least one timed call
+        returned a trustworthy response. <span class="status status-unknown">unknown</span> means
+        every sample failed, timed out, or returned no tokens.</p>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
+"""
+
+
+def _render_latency_table(rows: list[dict[str, Any]]) -> str:
+    if not rows:
+        return """<div class="table-wrap"><p class="panel-subtitle" style="padding: 16px;">No model latency data in the latest snapshot yet. Run the model latency workflow to populate this view.</p></div>"""
+
+    body = "\n".join(_render_latency_row(row) for row in rows)
+    return f"""<div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Model</th>
+              <th>Status</th>
+              <th class="number">p50 (ms)</th>
+              <th class="number">p95 (ms)</th>
+              <th class="number">TTFT p50 (ms)</th>
+              <th class="number">Tokens/sec</th>
+              <th class="number">Samples</th>
+            </tr>
+          </thead>
+          <tbody>{body}</tbody>
+        </table>
+      </div>"""
+
+
+def _render_latency_row(row: dict[str, Any]) -> str:
+    status = str(row.get("status", "unknown"))
+    samples = ""
+    if row.get("samples_collected") is not None and row.get("samples_requested") is not None:
+        samples = f"{row['samples_collected']}/{row['samples_requested']}"
+    return f"""<tr>
+                <td>{html.escape(str(row.get("model", "")))}</td>
+                <td><span class="status status-{html.escape(status)}">{html.escape(status)}</span></td>
+                <td class="number">{_latency_cell(row.get("latency_ms"))}</td>
+                <td class="number">{_latency_cell(row.get("p95_ms"))}</td>
+                <td class="number">{_latency_cell(row.get("ttft_ms"))}</td>
+                <td class="number">{_tokens_cell(row.get("tokens_per_second"))}</td>
+                <td class="number">{html.escape(samples) or "&mdash;"}</td>
+              </tr>"""
+
+
+def _latency_cell(value: object) -> str:
+    if isinstance(value, (int, float)):
+        return f"{round(value):,}"
+    return "&mdash;"
+
+
+def _tokens_cell(value: object) -> str:
+    if isinstance(value, (int, float)):
+        return f"{value:.1f}"
+    return "&mdash;"
 
 
 def _render_alpha_notice(region_count: int) -> str:
