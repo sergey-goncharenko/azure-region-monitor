@@ -251,6 +251,10 @@ def _render_llms_full_txt(snapshot: Snapshot, recent_changes: dict[str, Any] | N
     history_note = "No recent change summary is currently published."
     if recent_changes and isinstance(recent_changes.get("days"), list):
         history_note = f"Recent change days in published summary: {len(recent_changes['days']):,}."
+        days = [day for day in recent_changes["days"] if isinstance(day, dict)]
+        latest_narrative = str(days[0].get("narrative", "")).strip() if days else ""
+        if latest_narrative:
+            history_note += f"\nLatest change digest: {latest_narrative}"
     return f"""# Azure Regional Feature Availability Monitor - LLM Reference
 
 This project publishes public, read-only evidence about Azure regional feature rollout. It does not perform create/delete deployment probes, quota checks, inference tests, or private subscription capacity validation.
@@ -881,6 +885,9 @@ def _style_block() -> str:
     .change-count-new, .change-highlight-new { color: var(--available-text); }
     .change-count-regression, .change-highlight-regression { color: var(--unavailable-text); }
     .change-count-parked { color: var(--unknown-text); }
+    .narrative { display: flex; gap: 12px; align-items: flex-start; background: #eef5ff; border: 1px solid #bcd4f6; border-radius: 8px; padding: 12px 14px; margin: 0 0 14px; }
+    .narrative p { margin: 0; color: #163a63; font-size: 15px; line-height: 1.5; }
+    .narrative-badge { flex: none; background: #0f4c81; color: #fff; border-radius: 999px; padding: 3px 10px; font-size: 12px; font-weight: 700; letter-spacing: 0.02em; }
     .status-dot { display: inline-flex; width: 22px; height: 22px; border-radius: 50%; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; line-height: 1; }
     .availability-section .panel-header { padding-bottom: 10px; }
     .matrix-scroll-top { overflow-x: auto; overflow-y: hidden; height: 16px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: #f9fbfd; }
@@ -1274,12 +1281,14 @@ def _render_recent_changes_panel(recent_changes: dict[str, Any] | None) -> str:
     if not days:
         return ""
 
+    narrative_banner = _render_narrative_banner(days[0])
     rows = "\n".join(_render_recent_change_row(day) for day in days[:10])
     return f"""<section class="panel" aria-label="Recent availability changes">
       <div class="panel-header">
         <h2>Recent Availability Signals</h2>
         <div class="panel-subtitle">Today plus previous clear signal days; unknown transitions are parked</div>
       </div>
+      {narrative_banner}
       <div class="table-wrap">
         <table>
           <thead>
@@ -1296,6 +1305,18 @@ def _render_recent_changes_panel(recent_changes: dict[str, Any] | None) -> str:
         </table>
       </div>
     </section>"""
+
+
+def _render_narrative_banner(day: dict[str, Any]) -> str:
+    narrative = str(day.get("narrative", "")).strip()
+    if not narrative:
+        return ""
+    source = str(day.get("narrative_source", "rule"))
+    label = "AI summary" if source == "ai" else "Auto summary"
+    return f"""<div class="narrative" aria-label="Latest change summary">
+        <span class="narrative-badge">{html.escape(label)}</span>
+        <p>{html.escape(narrative)}</p>
+      </div>"""
 
 
 def _render_history_resources_panel(recent_changes: dict[str, Any] | None) -> str:

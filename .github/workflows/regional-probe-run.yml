@@ -227,6 +227,7 @@ jobs:
       - name: Update snapshot history
         env:
           HISTORY_BASE_URL: ${{ inputs.history_base_url }}
+          GITHUB_MODELS_TOKEN: ${{ secrets.GH_MODELS_TOKEN || github.token }}
         run: |
           azure-region-monitor update-history \
             --snapshot data/snapshots/latest.json \
