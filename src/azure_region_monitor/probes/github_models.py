@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 import urllib.error
 import urllib.request
@@ -14,6 +15,7 @@ from azure_region_monitor.probes.model_latency import (
 
 DEFAULT_ENDPOINT = "https://models.github.ai/inference"
 DEFAULT_TIMEOUT_SECONDS = 60
+REASONING_MIN_COMPLETION_TOKENS = 512
 
 
 class GitHubModelsClient(InferenceLatencyClient):
@@ -51,16 +53,7 @@ class GitHubModelsClient(InferenceLatencyClient):
         return cls(token=token, endpoint=endpoint, timeout_seconds=timeout_seconds)
 
     def measure(self, model: str, *, prompt: str, max_tokens: int) -> LatencyMeasurement:
-        body = json.dumps(
-            {
-                "model": model,
-                "messages": [{"role": "user", "content": prompt}],
-                "max_tokens": max_tokens,
-                "temperature": 0,
-                "stream": True,
-                "stream_options": {"include_usage": True},
-            }
-        ).encode("utf-8")
+        body = json.dumps(_build_request_payload(model, prompt, max_tokens)).encode("utf-8")
 
         request = urllib.request.Request(
             f"{self._endpoint}/chat/completions",
@@ -128,6 +121,34 @@ class GitHubModelsClient(InferenceLatencyClient):
             total_ms=total_ms,
             output_tokens=output_tokens,
         )
+
+
+def _is_reasoning_model(model: str) -> bool:
+    name = model.split("/")[-1].lower()
+    if "gpt-5-chat" in name:
+        return False
+    if name.startswith("gpt-5"):
+        return True
+    return bool(re.match(r"o\d", name))
+
+
+def _build_request_payload(model: str, prompt: str, max_tokens: int) -> dict:
+    payload: dict = {
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+        "stream": True,
+        "stream_options": {"include_usage": True},
+    }
+    if _is_reasoning_model(model):
+        # Reasoning models reject 'max_tokens' and a non-default temperature, and
+        # they spend part of the budget on hidden reasoning tokens, so give them a
+        # larger completion budget and the lowest reasoning effort for a quick answer.
+        payload["max_completion_tokens"] = max(max_tokens, REASONING_MIN_COMPLETION_TOKENS)
+        payload["reasoning_effort"] = "low"
+    else:
+        payload["max_tokens"] = max_tokens
+        payload["temperature"] = 0
+    return payload
 
 
 def _parse_retry_after(value: str | None) -> float | None:
