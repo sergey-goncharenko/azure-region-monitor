@@ -78,11 +78,50 @@ def build_latency_rows(snapshot: Snapshot) -> list[dict[str, Any]]:
     return rows
 
 
+def extract_latency_metrics(snapshot: Snapshot) -> dict[str, dict[str, Any]]:
+    """Return per-model latency metrics keyed by model label for history storage."""
+
+    metrics: dict[str, dict[str, Any]] = {}
+    for row in build_latency_rows(snapshot):
+        metrics[row["model"]] = {
+            "status": row["status"],
+            "p50_ms": row["latency_ms"],
+            "ttft_ms": row["ttft_ms"],
+            "tokens_per_second": row["tokens_per_second"],
+        }
+    return metrics
+
+
+def build_latency_series(history: dict[str, Any] | None) -> dict[str, list[dict[str, Any]]]:
+    """Build per-model ascending time series of p50 latency from latency history.
+
+    Accepts a latency-history payload (with a 'days' list) and returns a mapping
+    of model label to a list of {date, p50_ms} points ordered oldest-first.
+    Points without a numeric p50 are skipped.
+    """
+
+    days = history.get("days", []) if isinstance(history, dict) else []
+    valid_days = [day for day in days if isinstance(day, dict) and day.get("date")]
+    series: dict[str, list[dict[str, Any]]] = {}
+    for day in sorted(valid_days, key=lambda item: str(item["date"])):
+        models = day.get("models")
+        if not isinstance(models, dict):
+            continue
+        for model, metrics in models.items():
+            if not isinstance(metrics, dict):
+                continue
+            p50 = metrics.get("p50_ms")
+            if not isinstance(p50, (int, float)) or isinstance(p50, bool):
+                continue
+            series.setdefault(model, []).append({"date": str(day["date"]), "p50_ms": p50})
+    return series
+
+
 def _model_label(feature: str) -> str:
     label = feature
     if label.startswith("modelLatency."):
         label = label.removeprefix("modelLatency.")
-    parts = label.split(".")
-    if len(parts) >= 2:
-        return "/".join(parts[-2:]) if parts[-1] else parts[-2]
+    publisher, separator, rest = label.partition(".")
+    if separator and rest:
+        return f"{publisher}/{rest}"
     return label
