@@ -1,6 +1,11 @@
 from datetime import datetime, timezone
 
-from azure_region_monitor.latency_view import build_latency_rows, parse_latency_message
+from azure_region_monitor.latency_view import (
+    build_latency_rows,
+    build_latency_series,
+    extract_latency_metrics,
+    parse_latency_message,
+)
 from azure_region_monitor.models import FeatureResult, Snapshot
 
 
@@ -98,3 +103,67 @@ def test_build_latency_rows_handles_unknown_without_metrics():
 def test_build_latency_rows_empty_when_no_modality():
     snapshot = Snapshot(regions={"eastus": {"ai": {"aiModels.openai.gpt-4o.2024": FeatureResult(status="available")}}})
     assert build_latency_rows(snapshot) == []
+
+
+def test_model_label_handles_dotted_versions():
+    snapshot = Snapshot(
+        regions={
+            "github-global": {
+                "model-latency": {
+                    "modelLatency.openai.gpt-4.1": FeatureResult(
+                        status="available",
+                        latency_ms=900,
+                        message="openai/gpt-4.1 from github-global: p50 900ms, p95 950ms, TTFT p50 800ms, 70.0 tok/s over 3/3 samples.",
+                    ),
+                    "modelLatency.meta.llama-3.3-70b": FeatureResult(status="unknown", message="boom"),
+                }
+            }
+        }
+    )
+    rows = build_latency_rows(snapshot)
+    models = {row["model"] for row in rows}
+    assert "openai/gpt-4.1" in models
+    assert "meta/llama-3.3-70b" in models
+
+
+def test_extract_latency_metrics_keys_by_model():
+    snapshot = Snapshot(
+        regions={
+            "github-global": {
+                "model-latency": {
+                    "modelLatency.openai.gpt-4o": FeatureResult(
+                        status="available",
+                        latency_ms=1607,
+                        message="openai/gpt-4o from github-global: p50 1607ms, p95 1610ms, TTFT p50 1478ms, 62.2 tok/s over 3/3 samples.",
+                    ),
+                    "modelLatency.openai.o4-mini": FeatureResult(status="unknown", message="429"),
+                }
+            }
+        }
+    )
+    metrics = extract_latency_metrics(snapshot)
+    assert metrics["openai/gpt-4o"]["p50_ms"] == 1607
+    assert metrics["openai/gpt-4o"]["status"] == "available"
+    assert metrics["openai/o4-mini"]["status"] == "unknown"
+    assert metrics["openai/o4-mini"]["p50_ms"] is None
+
+
+def test_build_latency_series_orders_and_filters():
+    history = {
+        "days": [
+            {"date": "2026-06-17", "models": {"openai/gpt-4o": {"p50_ms": 1500}, "openai/o4-mini": {"p50_ms": None}}},
+            {"date": "2026-06-15", "models": {"openai/gpt-4o": {"p50_ms": 1700}}},
+            {"date": "2026-06-16", "models": {"openai/gpt-4o": {"p50_ms": 1600}}},
+            {"not": "a dict day"},
+        ]
+    }
+    series = build_latency_series(history)
+    assert [point["p50_ms"] for point in series["openai/gpt-4o"]] == [1700, 1600, 1500]
+    assert [point["date"] for point in series["openai/gpt-4o"]] == ["2026-06-15", "2026-06-16", "2026-06-17"]
+    assert "openai/o4-mini" not in series
+
+
+def test_build_latency_series_empty_for_missing_history():
+    assert build_latency_series(None) == {}
+    assert build_latency_series({}) == {}
+

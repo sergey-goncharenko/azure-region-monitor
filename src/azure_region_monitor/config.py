@@ -97,8 +97,18 @@ class LatencyModel:
 DEFAULT_LATENCY_MODELS = [
     LatencyModel(feature="modelLatency.openai.gpt-4o-mini", model="openai/gpt-4o-mini"),
     LatencyModel(feature="modelLatency.openai.gpt-4o", model="openai/gpt-4o"),
+    LatencyModel(feature="modelLatency.openai.gpt-4.1-mini", model="openai/gpt-4.1-mini"),
+    LatencyModel(feature="modelLatency.openai.gpt-4.1", model="openai/gpt-4.1"),
     LatencyModel(feature="modelLatency.openai.o4-mini", model="openai/o4-mini"),
     LatencyModel(feature="modelLatency.openai.gpt-5-mini", model="openai/gpt-5-mini"),
+    LatencyModel(feature="modelLatency.openai.gpt-5-nano", model="openai/gpt-5-nano"),
+    LatencyModel(feature="modelLatency.microsoft.phi-4", model="microsoft/Phi-4"),
+    LatencyModel(
+        feature="modelLatency.deepseek.deepseek-v3-0324", model="deepseek/DeepSeek-V3-0324"
+    ),
+    LatencyModel(
+        feature="modelLatency.meta.llama-3.3-70b-instruct", model="meta/Llama-3.3-70B-Instruct"
+    ),
 ]
 
 

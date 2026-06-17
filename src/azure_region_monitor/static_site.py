@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from azure_region_monitor.history import copy_history_to_api
-from azure_region_monitor.latency_view import build_latency_rows
+from azure_region_monitor.latency_view import build_latency_rows, build_latency_series
 from azure_region_monitor.models import Snapshot
 from azure_region_monitor.storage import load_snapshot
 
@@ -110,11 +110,14 @@ def build_static_site(
     copy_history_to_api(history_path, api_dir / "history")
 
     recent_changes = _load_recent_changes(history_path)
+    latency_series = build_latency_series(_load_latency_history(history_path))
     (output_dir / "index.html").write_text(
         _render_index(snapshot, recent_changes=recent_changes), encoding="utf-8"
     )
     (output_dir / "heatmap.html").write_text(_render_heatmap_page(snapshot), encoding="utf-8")
-    (output_dir / "latency.html").write_text(_render_latency_page(snapshot), encoding="utf-8")
+    (output_dir / "latency.html").write_text(
+        _render_latency_page(snapshot, latency_series), encoding="utf-8"
+    )
     (output_dir / "methodology.html").write_text(_render_methodology_page(snapshot), encoding="utf-8")
     _write_latency_api(api_dir, snapshot)
     _write_discovery_assets(output_dir, snapshot, recent_changes=recent_changes)
@@ -668,8 +671,11 @@ def _write_latency_api(api_dir: Path, snapshot: Snapshot) -> None:
     )
 
 
-def _render_latency_page(snapshot: Snapshot) -> str:
+def _render_latency_page(
+    snapshot: Snapshot, latency_series: dict[str, list[dict[str, Any]]] | None = None
+) -> str:
     rows = build_latency_rows(snapshot)
+    series = latency_series or {}
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -701,7 +707,7 @@ def _render_latency_page(snapshot: Snapshot) -> str:
         <h2>Response Latency Leaderboard</h2>
         <div class="panel-subtitle">Fastest p50 first; measured from the GitHub Models global vantage</div>
       </div>
-      {_render_latency_table(rows)}
+      {_render_latency_table(rows, series)}
     </section>
     <section class="panel prose" aria-label="Model latency methodology">
       <div class="panel-header">
@@ -721,6 +727,10 @@ def _render_latency_page(snapshot: Snapshot) -> str:
         <p><span class="status status-available">available</span> means at least one timed call
         returned a trustworthy response. <span class="status status-unknown">unknown</span> means
         every sample failed, timed out, or returned no tokens.</p>
+        <p>The <strong>Trend</strong> column sparkline shows each model&rsquo;s daily p50 over recent
+        days. A <span class="spark-down">&#9660;</span> means the model got faster, a
+        <span class="spark-up">&#9650;</span> means it got slower; new models show
+        &ldquo;collecting&rdquo; until a few days of history accumulate.</p>
       </div>
     </section>
   </main>
@@ -729,11 +739,14 @@ def _render_latency_page(snapshot: Snapshot) -> str:
 """
 
 
-def _render_latency_table(rows: list[dict[str, Any]]) -> str:
+def _render_latency_table(
+    rows: list[dict[str, Any]], series: dict[str, list[dict[str, Any]]] | None = None
+) -> str:
     if not rows:
         return """<div class="table-wrap"><p class="panel-subtitle" style="padding: 16px;">No model latency data in the latest snapshot yet. Run the model latency workflow to populate this view.</p></div>"""
 
-    body = "\n".join(_render_latency_row(row) for row in rows)
+    series = series or {}
+    body = "\n".join(_render_latency_row(row, series.get(str(row.get("model", "")))) for row in rows)
     return f"""<div class="table-wrap">
         <table>
           <thead>
@@ -745,6 +758,7 @@ def _render_latency_table(rows: list[dict[str, Any]]) -> str:
               <th class="number">TTFT p50 (ms)</th>
               <th class="number">Tokens/sec</th>
               <th class="number">Samples</th>
+              <th>Trend (p50)</th>
             </tr>
           </thead>
           <tbody>{body}</tbody>
@@ -752,7 +766,9 @@ def _render_latency_table(rows: list[dict[str, Any]]) -> str:
       </div>"""
 
 
-def _render_latency_row(row: dict[str, Any]) -> str:
+def _render_latency_row(
+    row: dict[str, Any], points: list[dict[str, Any]] | None = None
+) -> str:
     status = str(row.get("status", "unknown"))
     samples = ""
     if row.get("samples_collected") is not None and row.get("samples_requested") is not None:
@@ -765,7 +781,58 @@ def _render_latency_row(row: dict[str, Any]) -> str:
                 <td class="number">{_latency_cell(row.get("ttft_ms"))}</td>
                 <td class="number">{_tokens_cell(row.get("tokens_per_second"))}</td>
                 <td class="number">{html.escape(samples) or "&mdash;"}</td>
+                <td>{_render_latency_sparkline(points)}</td>
               </tr>"""
+
+
+def _render_latency_sparkline(points: list[dict[str, Any]] | None) -> str:
+    values = [
+        float(point["p50_ms"])
+        for point in (points or [])
+        if isinstance(point, dict) and isinstance(point.get("p50_ms"), (int, float))
+    ]
+    if len(values) < 2:
+        return '<span class="spark-empty">collecting&hellip;</span>'
+
+    width, height = 96, 24
+    low, high = min(values), max(values)
+    span = high - low or 1.0
+    last_index = len(values) - 1
+    coords = []
+    for index, value in enumerate(values):
+        x = round(index * (width - 2) / last_index + 1, 1)
+        y = round((height - 2) - (value - low) / span * (height - 4), 1)
+        coords.append(f"{x},{y}")
+    polyline = " ".join(coords)
+
+    first, last = values[0], values[-1]
+    delta = last - first
+    if delta > 0:
+        trend_class, arrow = "spark-up", "&#9650;"
+    elif delta < 0:
+        trend_class, arrow = "spark-down", "&#9660;"
+    else:
+        trend_class, arrow = "spark-flat", "&rarr;"
+    pct = f"{abs(delta) / first * 100:.0f}%" if first else ""
+    title = f"p50 over last {len(values)} days: {round(first):,}ms to {round(last):,}ms"
+    return (
+        f'<span class="spark" title="{html.escape(title)}">'
+        f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" '
+        f'role="img" aria-label="{html.escape(title)}">'
+        f'<polyline points="{polyline}" fill="none" stroke="currentColor" '
+        f'stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/></svg>'
+        f'<span class="{trend_class}">{arrow} {pct}</span></span>'
+    )
+
+
+def _load_latency_history(history_path: Path) -> dict[str, Any] | None:
+    latency_path = history_path / "latency-history.json"
+    if not latency_path.exists():
+        return None
+    try:
+        return json.loads(latency_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
 
 
 def _latency_cell(value: object) -> str:
@@ -888,6 +955,12 @@ def _style_block() -> str:
     .narrative { display: flex; gap: 12px; align-items: flex-start; background: #eef5ff; border: 1px solid #bcd4f6; border-radius: 8px; padding: 12px 14px; margin: 0 0 14px; }
     .narrative p { margin: 0; color: #163a63; font-size: 15px; line-height: 1.5; }
     .narrative-badge { flex: none; background: #0f4c81; color: #fff; border-radius: 999px; padding: 3px 10px; font-size: 12px; font-weight: 700; letter-spacing: 0.02em; }
+    .spark { display: inline-flex; align-items: center; gap: 6px; color: #5878a8; }
+    .spark svg { display: block; }
+    .spark-up { color: var(--unavailable-text); font-size: 12px; font-weight: 600; }
+    .spark-down { color: var(--available-text); font-size: 12px; font-weight: 600; }
+    .spark-flat { color: var(--muted); font-size: 12px; font-weight: 600; }
+    .spark-empty { color: var(--muted); font-size: 12px; }
     .status-dot { display: inline-flex; width: 22px; height: 22px; border-radius: 50%; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; line-height: 1; }
     .availability-section .panel-header { padding-bottom: 10px; }
     .matrix-scroll-top { overflow-x: auto; overflow-y: hidden; height: 16px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: #f9fbfd; }

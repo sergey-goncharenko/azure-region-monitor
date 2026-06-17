@@ -11,12 +11,14 @@ from pathlib import Path
 from typing import Any
 
 from azure_region_monitor.diff import build_diff
+from azure_region_monitor.latency_view import extract_latency_metrics
 from azure_region_monitor.models import Change, Snapshot
 from azure_region_monitor.storage import load_snapshot
 from azure_region_monitor.summary import NarrativeClient, build_change_narrative
 
 RECENT_CHANGE_DAYS = 10
 CHANGE_HIGHLIGHTS = 10
+LATENCY_HISTORY_DAYS = 60
 
 
 def fetch_history(history_dir: Path, base_url: str) -> bool:
@@ -90,7 +92,56 @@ def update_history(
 
     _write_json(history_dir / "index.json", index)
     _write_json(history_dir / "recent-changes.json", recent_changes)
+    _update_latency_history(history_dir, current, current_date, generated_at)
     return recent_changes
+
+
+def _update_latency_history(
+    history_dir: Path, snapshot: Snapshot, current_date: str, generated_at: str
+) -> None:
+    path = history_dir / "latency-history.json"
+    existing = _read_json(path) or {}
+    days_by_date = {
+        str(day.get("date")): day
+        for day in existing.get("days", [])
+        if isinstance(day, dict) and day.get("date")
+    }
+    if not days_by_date:
+        days_by_date.update(_backfill_latency_history(history_dir))
+
+    entry = _latency_history_entry(snapshot, current_date)
+    if entry is not None:
+        days_by_date[current_date] = entry
+
+    days = sorted(days_by_date.values(), key=lambda day: str(day["date"]), reverse=True)
+    _write_json(
+        path,
+        {"generated_at": generated_at, "days": days[:LATENCY_HISTORY_DAYS]},
+    )
+
+
+def _latency_history_entry(snapshot: Snapshot, date: str) -> dict[str, Any] | None:
+    metrics = extract_latency_metrics(snapshot)
+    if not metrics:
+        return None
+    return {"date": date, "models": metrics}
+
+
+def _backfill_latency_history(history_dir: Path) -> dict[str, dict[str, Any]]:
+    snapshots_dir = history_dir / "snapshots"
+    if not snapshots_dir.exists():
+        return {}
+    result: dict[str, dict[str, Any]] = {}
+    for gz_path in sorted(snapshots_dir.glob("*.json.gz"))[-LATENCY_HISTORY_DAYS:]:
+        try:
+            snapshot = _load_history_snapshot(gz_path)
+        except (OSError, ValueError):
+            continue
+        date = _snapshot_date(snapshot)
+        entry = _latency_history_entry(snapshot, date)
+        if entry is not None:
+            result[date] = entry
+    return result
 
 
 def _build_day_summary(
@@ -361,7 +412,7 @@ def copy_history_to_api(history_dir: Path, api_history_dir: Path) -> None:
         shutil.rmtree(api_history_dir)
     api_history_dir.mkdir(parents=True, exist_ok=True)
 
-    paths = {"recent-changes.json"}
+    paths = {"recent-changes.json", "latency-history.json"}
 
     index_path = history_dir / "index.json"
     if index_path.exists():
