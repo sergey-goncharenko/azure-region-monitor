@@ -10,6 +10,7 @@ from pathlib import Path
 
 from azure_region_monitor.config import (
     DEFAULT_REGIONS,
+    parse_ai_latency_targets,
     parse_aks_extension_features,
     parse_aks_kubernetes_version_prefixes,
     parse_ai_model_features,
@@ -20,6 +21,7 @@ from azure_region_monitor.config import (
 )
 from azure_region_monitor.diff import build_diff
 from azure_region_monitor.history import fetch_history, update_history
+from azure_region_monitor.probes.ai_model_latency import AzureOpenAiLatencyProbe
 from azure_region_monitor.probes.aks_extension import AksExtensionCliProbe
 from azure_region_monitor.probes.aks_extension_catalog import AksExtensionCatalogCliProbe
 from azure_region_monitor.probes.aks_versions import AksKubernetesVersionCliProbe
@@ -53,6 +55,7 @@ def main() -> None:
             "container-apps-provider-cli",
             "function-flex-cli",
             "model-latency-cli",
+            "ai-model-latency-cli",
             "vm-sku-cli",
         ],
         dest="probes",
@@ -253,6 +256,11 @@ def _build_probe(probe_name: str):
             rate_limit_backoff_seconds=float(
                 os.environ.get("MODEL_LATENCY_RATE_LIMIT_BACKOFF_SECONDS", "20")
             ),
+        )
+    if probe_name == "ai-model-latency-cli":
+        return AzureOpenAiLatencyProbe(
+            targets=parse_ai_latency_targets(os.environ.get("AI_LATENCY_TARGETS")),
+            samples=int(os.environ.get("AI_LATENCY_SAMPLES", "5")),
         )
     raise ValueError(f"Unsupported probe: {probe_name}")
 

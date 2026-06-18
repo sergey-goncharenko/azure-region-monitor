@@ -1517,6 +1517,8 @@ def _compact_feature_label(feature: str, group: str) -> str:
       return feature.removeprefix("aiModels.")
     if feature.startswith("modelLatency."):
         return feature.removeprefix("modelLatency.")
+    if feature.startswith("aiLatency."):
+        return feature.removeprefix("aiLatency.")
     if feature.startswith("vmSkus."):
         return feature.removeprefix("vmSkus.")
     return feature
@@ -1535,6 +1537,8 @@ def _feature_category(feature: str) -> str:
       return "Azure AI models"
     if feature.startswith("modelLatency."):
         return "Model latency"
+    if feature.startswith("aiLatency."):
+        return "Azure model latency"
     if feature.startswith("containerApps."):
         return "Container Apps"
     if feature.startswith("vmSkus."):
@@ -1560,6 +1564,9 @@ def _feature_group(feature: str) -> str:
       return parts[0] if parts else "unknown"
     if feature.startswith("modelLatency."):
         parts = feature.removeprefix("modelLatency.").split(".")
+        return parts[0] if parts else "unknown"
+    if feature.startswith("aiLatency."):
+        parts = feature.removeprefix("aiLatency.").split(".")
         return parts[0] if parts else "unknown"
     if feature.startswith("containerApps."):
       if feature.endswith("daprComponents"):
@@ -2061,6 +2068,7 @@ def _index_script() -> str:
       if (feature.startsWith('kubernetesVersions.')) return 'AKS Kubernetes versions';
       if (feature.startsWith('hostingPlans.') || feature.startsWith('runtimes.')) return 'Azure Functions';
       if (feature.startsWith('aiModels.')) return 'Azure AI models';
+      if (feature.startsWith('aiLatency.')) return 'Azure model latency';
       if (feature.startsWith('containerApps.')) return 'Container Apps';
       if (feature.startsWith('vmSkus.')) return 'VM SKUs';
       return feature.split('.')[0];
@@ -2072,6 +2080,7 @@ def _index_script() -> str:
       if (feature.startsWith('hostingPlans.')) return 'hosting plans';
       if (feature.startsWith('runtimes.')) return feature.replace('runtimes.', '').split('.')[0] || 'runtime';
       if (feature.startsWith('aiModels.')) return feature.replace('aiModels.', '').split('.')[0] || 'unknown';
+      if (feature.startsWith('aiLatency.')) return feature.replace('aiLatency.', '').split('.')[0] || 'unknown';
       if (feature.startsWith('containerApps.')) {
         if (feature.endsWith('daprComponents')) return 'dapr';
         if (feature.endsWith('connectedEnvironments')) return 'connected environments';
@@ -2572,6 +2581,7 @@ def _heatmap_script() -> str:
       if (feature.startsWith('kubernetesVersions.')) return 'AKS Kubernetes versions';
       if (feature.startsWith('hostingPlans.') || feature.startsWith('runtimes.')) return 'Azure Functions';
       if (feature.startsWith('aiModels.')) return 'Azure AI models';
+      if (feature.startsWith('aiLatency.')) return 'Azure model latency';
       if (feature.startsWith('containerApps.')) return 'Container Apps';
       if (feature.startsWith('vmSkus.')) return 'VM SKUs';
       return feature.split('.')[0];
@@ -2583,6 +2593,7 @@ def _heatmap_script() -> str:
       if (feature.startsWith('hostingPlans.')) return 'hosting plans';
       if (feature.startsWith('runtimes.')) return feature.replace('runtimes.', '').split('.')[0] || 'runtime';
       if (feature.startsWith('aiModels.')) return feature.replace('aiModels.', '').split('.')[0] || 'unknown';
+      if (feature.startsWith('aiLatency.')) return feature.replace('aiLatency.', '').split('.')[0] || 'unknown';
       if (feature.startsWith('containerApps.')) {
         if (feature.endsWith('daprComponents')) return 'dapr';
         if (feature.endsWith('connectedEnvironments')) return 'connected environments';
