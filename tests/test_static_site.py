@@ -38,6 +38,37 @@ def test_build_static_site_writes_dashboard_and_latest_json(tmp_path):
     assert not (output_dir / "api" / "diff.json").exists()
 
 
+def test_build_static_site_writes_modality_shards_and_summary(tmp_path):
+    output_dir = tmp_path / "public"
+
+    build_static_site(
+        output_dir,
+        snapshot_path=Path("data/snapshots/2026-05-08.json"),
+        diff_path=tmp_path / "missing-diff.json",
+    )
+
+    api_dir = output_dir / "api"
+    # Monolithic snapshot is preserved for downloads/tooling.
+    assert (api_dir / "latest.json").exists()
+    # Tiny summary headline.
+    summary = json.loads((api_dir / "summary.json").read_text(encoding="utf-8"))
+    assert summary["checks"] > 0
+    assert "status_counts" in summary and "modality_counts" in summary
+
+    # Manifest plus a shard file per modality.
+    manifest = json.loads((api_dir / "modalities" / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["modalities"]
+    total_rows = 0
+    for modality in manifest["modalities"]:
+        shard_path = api_dir / "modalities" / f"{modality['slug']}.json"
+        assert shard_path.exists()
+        shard = json.loads(shard_path.read_text(encoding="utf-8"))
+        assert len(shard["rows"]) == modality["rows"]
+        total_rows += len(shard["rows"])
+    # Full fidelity: shard rows sum to the summary check count.
+    assert total_rows == summary["checks"]
+
+
 def test_build_static_site_writes_crawl_and_llm_resources(tmp_path):
     output_dir = tmp_path / "public"
 
@@ -470,7 +501,7 @@ def test_build_static_site_color_codes_regional_modality_groups(tmp_path):
 
     index_html = (output_dir / "index.html").read_text(encoding="utf-8")
 
-    assert "Loading group / region matrices from api/latest.json" in index_html
+    assert "Loading group / region matrices from the per-modality API" in index_html
     assert "regional-availability-root" in index_html
     assert "renderRegionalAvailability" in index_html
     assert "renderAvailabilityCell" in index_html
@@ -478,7 +509,7 @@ def test_build_static_site_color_codes_regional_modality_groups(tmp_path):
     assert "region-flag-fallback" in index_html
     assert "regionShortLabel" in index_html
     assert "availability-single" in index_html
-    assert "Groups by Azure region, rendered from api/latest.json" in index_html
+    assert "Groups by Azure region, rendered from the per-modality API" in index_html
     assert "circle-flags" not in index_html
     assert "\U0001f1fa\U0001f1f8" not in index_html
     assert "availability-good" in index_html
@@ -531,7 +562,7 @@ def test_build_static_site_uses_paged_detail_page_for_heavy_tables(tmp_path):
     assert "Check Details" in heatmap_html
     assert "heatmap-prev" in heatmap_html
     assert "details-next" in heatmap_html
-    assert "fetch('api/latest.json'" in heatmap_html
+    assert "fetch('api/modalities/manifest.json'" in heatmap_html
     assert index_html.count("vmSkus.standard.test") == 0
 
 
@@ -568,7 +599,7 @@ def test_build_static_site_splits_large_extension_groups_into_detail_tables(tmp_
     index_html = (output_dir / "index.html").read_text(encoding="utf-8")
 
     assert "Large AKS Extension Groups" in index_html
-    assert "Loading extension groups from api/latest.json" in index_html
+    assert "Loading extension groups from the per-modality API" in index_html
     assert "renderLargeExtensionGroups" in index_html
     assert "largeExtensionGroups" in index_html
     assert "extension-group-collapsed" in index_html

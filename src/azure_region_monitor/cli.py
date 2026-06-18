@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import argparse
+import gzip
 import os
+import time
 import urllib.request
 from datetime import datetime
 from pathlib import Path
@@ -172,11 +174,28 @@ def _build_narrative_client():
 
 
 def _merge_snapshot(args: argparse.Namespace) -> None:
-    with urllib.request.urlopen(args.base_url, timeout=30) as response:
-        base = load_snapshot_from_text(response.read().decode("utf-8"))
+    raw = _fetch_url_text(args.base_url)
+    base = load_snapshot_from_text(raw)
     overlay = load_snapshot(args.overlay)
     write_snapshot(args.output, merge_snapshot_overlay(base, overlay))
     print(f"Merged focused snapshot into {args.output}")
+
+
+def _fetch_url_text(url: str, attempts: int = 4, timeout: int = 60) -> str:
+    last_error: Exception | None = None
+    for attempt in range(attempts):
+        try:
+            request = urllib.request.Request(url, headers={"Accept-Encoding": "gzip"})
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                payload = response.read()
+                if response.headers.get("Content-Encoding") == "gzip":
+                    payload = gzip.decompress(payload)
+                return payload.decode("utf-8")
+        except Exception as error:  # noqa: BLE001 - retried below, re-raised if final
+            last_error = error
+            if attempt < attempts - 1:
+                time.sleep(2 ** attempt)
+    raise RuntimeError(f"Failed to fetch {url} after {attempts} attempts: {last_error}")
 
 
 def load_snapshot_from_text(raw: str):
