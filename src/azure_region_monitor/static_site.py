@@ -681,8 +681,8 @@ def _render_latency_page(
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="LLM model response latency measured through GitHub Models from a single global vantage.">
-  <title>LLM Model Latency</title>
+  <meta name="description" content="Response latency of GitHub Models, measured through a single global access endpoint. Cross-model speed evidence, not Azure per-region latency.">
+  <title>LLM Model Latency via GitHub Models</title>
   <link rel="canonical" href="{_SITE_URL}/latency.html">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="alternate" href="/llms.txt" type="text/plain" title="LLM guide">
@@ -692,7 +692,7 @@ def _render_latency_page(
   <main class="content-page">
     <header>
       <div>
-        <h1>LLM Model Latency</h1>
+        <h1>LLM Model Latency via GitHub Models</h1>
         <div class="timestamp">Latest snapshot: {html.escape(snapshot.timestamp.isoformat())}</div>
       </div>
       <nav class="links" aria-label="Dashboard links">
@@ -702,10 +702,19 @@ def _render_latency_page(
         <a href="api/latency.json" download="azure-region-monitor-latency.json">Download latency JSON</a>
       </nav>
     </header>
+    <div class="note" role="note">
+      <strong>What this measures:</strong> response latency of models served by
+      <a href="https://github.com/marketplace/models">GitHub Models</a>, called through its
+      <strong>single global access endpoint</strong> (<code>models.github.ai</code>). GitHub Models
+      does not expose a region selector, so these numbers are <strong>not</strong> Azure
+      per-region latency &mdash; they are cross-model speed evidence from one global vantage
+      (labelled <code>github-global</code>), and they include network distance from wherever the
+      probe runs.
+    </div>
     <section class="panel" aria-label="Model latency leaderboard">
       <div class="panel-header">
         <h2>Response Latency Leaderboard</h2>
-        <div class="panel-subtitle">Fastest p50 first; measured from the GitHub Models global vantage</div>
+        <div class="panel-subtitle">Fastest p50 first &middot; GitHub Models global endpoint (<code>github-global</code>) &middot; not Azure per-region latency</div>
       </div>
       {_render_latency_table(rows, series)}
     </section>
