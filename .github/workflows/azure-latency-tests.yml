@@ -1,9 +1,8 @@
 name: Azure model latency tests
 
 on:
-  # Daily schedule intentionally disabled until the first manual run is validated.
-  # schedule:
-  #   - cron: "47 5 * * *"
+  schedule:
+    - cron: "47 5 * * *"
   workflow_dispatch:
     inputs:
       resource_group:
@@ -107,7 +106,7 @@ jobs:
 
   deploy-dashboard:
     name: Deploy dashboard
-    if: inputs.deploy_dashboard
+    if: inputs.deploy_dashboard || github.event_name == 'schedule'
     needs: azure-latency
     runs-on: ubuntu-latest
     steps:
