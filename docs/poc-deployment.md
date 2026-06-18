@@ -38,6 +38,7 @@ The PoC proves that synthetic checks can produce structured, region-by-region Az
   - `.github/workflows/container-apps-tests.yml`
   - `.github/workflows/vm-sku-tests.yml`
   - `.github/workflows/model-latency-tests.yml`
+  - `.github/workflows/azure-latency-tests.yml`
 - Shared runner workflow: `.github/workflows/regional-probe-run.yml`
 - Static host: Azure Static Web Apps
 - Current hostname: `azwatch.operator.lat`
@@ -178,6 +179,7 @@ For a faster modality-specific run, select one of the focused workflows instead:
 - `Container Apps regional tests` runs `container-apps-provider-cli` only.
 - `VM SKU regional tests` runs `vm-sku-cli` only.
 - `Model latency tests` runs `model-latency-cli` only, against the `github-global` vantage.
+- `Azure model latency tests` runs `ai-model-latency-cli` against the per-region Azure OpenAI deployments from `infra/regional-latency`, measuring real Azure regional latency.
 
 Focused workflows upload modality-specific artifacts and do not deploy the public dashboard by default. When `deploy_dashboard` is enabled, focused deployments merge the fresh modality snapshot into the current live dashboard snapshot before publishing, so other modality sections remain visible.
 

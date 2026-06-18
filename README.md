@@ -157,6 +157,16 @@ $env:MODEL_LATENCY_SAMPLES="5"
 azure-region-monitor run --probe model-latency-cli --region github-global --output data/snapshots/latest.json
 ```
 
+Run the Azure per-region model latency probe (real Azure regional latency, requires the regional deployments from `infra/regional-latency`):
+
+```powershell
+$env:AI_LATENCY_TARGETS = (az deployment group show -g azure-region-monitor-latency -n regional-latency --query "properties.outputs.targets.value" -o json)
+$env:AZURE_OPENAI_TOKEN = (az account get-access-token --resource https://cognitiveservices.azure.com --query accessToken -o tsv)
+azure-region-monitor run --probe ai-model-latency-cli --region eastus --region westus3 --region swedencentral --output data/snapshots/latest.json
+```
+
+Unlike the GitHub Models probe, this one targets a single-region Standard Azure OpenAI deployment per region, so the latency is attributable to each Azure region. See `infra/regional-latency/README.md` for setup and cost.
+
 Run the read-only Container Apps provider metadata probe locally:
 
 ```powershell
@@ -276,6 +286,8 @@ For Azure AI models, `available` means `az cognitiveservices model list --locati
 For Container Apps, `available` means `az provider show --namespace Microsoft.App --expand resourceTypes/locations --output json` advertised the configured Microsoft.App resource type in that region. `unavailable` means the provider metadata call succeeded but did not advertise that resource type for that region; it is not a deployment, quota, or Dapr runtime version test.
 
 For model latency, `available` means at least one timed inference call to the model returned a trustworthy response, and the recorded `latency_ms` is the p50 round-trip over the samples (p95, time-to-first-token, and tokens/sec are in the message). `unknown` means every sample failed, timed out, or returned no tokens. This modality does not emit `unavailable`: it only measures models it was asked to probe. Latency is a measurement that depends on the network path and the vantage the probe runs from, not an availability verdict, SLA, or throughput guarantee. The default vantage label `github-global` reflects GitHub Models' single global access endpoint, which does not attribute timing to any Azure region.
+
+For Azure model latency (the `ai-latency` modality), `available` means a timed Azure OpenAI inference call succeeded for that region; `unknown` means every sample failed. Unlike the GitHub Models modality, this one is keyed by real Azure regions, because each measured deployment is a single-region Standard Azure OpenAI deployment processed in that region. The latency is therefore attributable to the region, though it still includes network distance from the probe runner's vantage. It is not an SLA or throughput guarantee.
 
 ## Next Engineering Steps
 
