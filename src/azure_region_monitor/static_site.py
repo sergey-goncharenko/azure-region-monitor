@@ -10,6 +10,7 @@ from typing import Any
 from azure_region_monitor.history import copy_history_to_api
 from azure_region_monitor.latency_view import build_latency_rows, build_latency_series
 from azure_region_monitor.models import Snapshot
+from azure_region_monitor.snapshot_shards import build_modality_shards, build_summary
 from azure_region_monitor.storage import load_snapshot
 
 
@@ -108,6 +109,7 @@ def build_static_site(
     if diff_path.exists():
         shutil.copyfile(diff_path, api_dir / "diff.json")
     copy_history_to_api(history_path, api_dir / "history")
+    _write_snapshot_shards(api_dir, snapshot)
 
     recent_changes = _load_recent_changes(history_path)
     latency_series = build_latency_series(_load_latency_history(history_path))
@@ -189,7 +191,9 @@ def _render_sitemap(snapshot: Snapshot) -> str:
         ("/llms.txt", "0.7"),
         ("/llms-full.txt", "0.7"),
         ("/api/latest.json", "0.6"),
+        ("/api/summary.json", "0.6"),
         ("/api/latency.json", "0.6"),
+        ("/api/modalities/manifest.json", "0.6"),
         ("/api/history/index.json", "0.5"),
     ]
     entries = "\n".join(
@@ -226,6 +230,8 @@ Latest snapshot: {snapshot.timestamp.isoformat()}
 - [{_SITE_URL}/latency.html]({_SITE_URL}/latency.html): LLM model response-latency leaderboard measured from the GitHub Models global vantage.
 - [{_SITE_URL}/methodology.html]({_SITE_URL}/methodology.html): status semantics and probe evidence notes.
 - [{_SITE_URL}/api/latest.json]({_SITE_URL}/api/latest.json): complete current machine-readable snapshot.
+- [{_SITE_URL}/api/summary.json]({_SITE_URL}/api/summary.json): tiny headline counts (status and per-modality totals).
+- [{_SITE_URL}/api/modalities/manifest.json]({_SITE_URL}/api/modalities/manifest.json): per-modality shard index; each modality is a smaller JSON under api/modalities/.
 - [{_SITE_URL}/api/history/index.json]({_SITE_URL}/api/history/index.json): compact history index with daily snapshot and change links.
 - [{_SITE_URL}/llms-full.txt]({_SITE_URL}/llms-full.txt): fuller guide for LLM and crawler consumers.
 
@@ -460,7 +466,7 @@ def _render_index(snapshot: Snapshot, recent_changes: dict[str, Any] | None = No
     <section class="availability-stack" aria-label="Region modality availability">
       <div class="section-heading">
         <h2>Regional Availability By Modality</h2>
-        <div id="regional-availability-status" class="panel-subtitle">Loading group / region matrices from api/latest.json</div>
+        <div id="regional-availability-status" class="panel-subtitle">Loading group / region matrices from the per-modality API</div>
       </div>
       <div id="regional-availability-root">
         <section class="panel availability-section" aria-label="Regional availability loading">
@@ -471,7 +477,7 @@ def _render_index(snapshot: Snapshot, recent_changes: dict[str, Any] | None = No
     <section class="availability-stack" aria-label="Large AKS extension group availability">
       <div class="section-heading">
         <h2>Large AKS Extension Groups</h2>
-        <div id="large-extension-status" class="panel-subtitle">Loading extension groups from api/latest.json</div>
+        <div id="large-extension-status" class="panel-subtitle">Loading extension groups from the per-modality API</div>
       </div>
       <div id="large-extension-groups-root"></div>
     </section>
@@ -657,6 +663,28 @@ def _render_methodology_page(snapshot: Snapshot) -> str:
 </body>
 </html>
 """
+
+
+def _write_snapshot_shards(api_dir: Path, snapshot: Snapshot) -> None:
+    timestamp = snapshot.timestamp.isoformat()
+    rows = _flatten_snapshot(snapshot)
+    regions = list(snapshot.regions.keys())
+
+    summary = build_summary(timestamp, regions, rows)
+    (api_dir / "summary.json").write_text(
+        json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+
+    manifest, shards = build_modality_shards(timestamp, regions, rows)
+    modalities_dir = api_dir / "modalities"
+    modalities_dir.mkdir(parents=True, exist_ok=True)
+    (modalities_dir / "manifest.json").write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    for slug, payload in shards.items():
+        (modalities_dir / f"{slug}.json").write_text(
+            json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8"
+        )
 
 
 def _write_latency_api(api_dir: Path, snapshot: Snapshot) -> None:
@@ -2075,32 +2103,41 @@ def _index_script() -> str:
         '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
       }[char]));
     }
-    function flattenAvailabilitySnapshot(snapshot) {
-      const rows = [];
-      Object.entries(snapshot.regions || {}).forEach(([region, services]) => {
-        Object.entries(services || {}).forEach(([service, features]) => {
-          Object.entries(features || {}).forEach(([feature, result]) => {
-            rows.push({
-              region,
-              service,
-              feature,
-              category: availabilityCategory(feature),
-              group: availabilityGroup(feature),
-              status: result.status || 'unknown',
-            });
-          });
-        });
+    function availabilityRowsFromShard(shard) {
+      const label = shard.modality || '';
+      return (shard.rows || []).map((item) => {
+        const feature = item.feature || '';
+        return {
+          region: item.region || '',
+          service: item.service || '',
+          feature,
+          category: label || availabilityCategory(feature),
+          group: availabilityGroup(feature),
+          status: item.status || 'unknown',
+        };
       });
-      return rows;
     }
     function loadAvailabilityRows() {
       if (!availabilityRowsPromise) {
-        availabilityRowsPromise = fetch('api/latest.json', { cache: 'force-cache' })
-          .then((response) => response.json())
-          .then((snapshot) => {
-            availabilityRegions = sortRegions(Object.keys(snapshot.regions || {}));
-            availabilityRows = flattenAvailabilitySnapshot(snapshot);
-            return { rows: availabilityRows, regions: availabilityRegions };
+        availabilityRowsPromise = fetch('api/modalities/manifest.json', { cache: 'force-cache' })
+          .then((response) => {
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            return response.json();
+          })
+          .then((manifest) => {
+            availabilityRegions = sortRegions(manifest.regions || []);
+            const modalities = manifest.modalities || [];
+            return Promise.all(
+              modalities.map((modality) => fetch(`api/${modality.path}`, { cache: 'force-cache' })
+                .then((response) => {
+                  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                  return response.json();
+                })
+                .then(availabilityRowsFromShard)),
+            ).then((shardRows) => {
+              availabilityRows = shardRows.flat();
+              return { rows: availabilityRows, regions: availabilityRegions };
+            });
           });
       }
       return availabilityRowsPromise;
@@ -2233,12 +2270,12 @@ def _index_script() -> str:
           .map((summary) => `<tr><td><code>${escapeHtml(summary.group)}</code></td>${regions.map((region) => renderAvailabilityCell(summary.regions.get(region), region, summary.category, summary.group)).join('')}</tr>`)
           .join('');
         return `<section class="panel availability-section" aria-label="${escapeHtml(modality)} regional availability">
-          <div class="panel-header"><h2>${escapeHtml(modality)}</h2><div class="panel-subtitle">Groups by Azure region, rendered from api/latest.json</div></div>
+          <div class="panel-header"><h2>${escapeHtml(modality)}</h2><div class="panel-subtitle">Groups by Azure region, rendered from the per-modality API</div></div>
           <div class="matrix-scroll-top" aria-hidden="true"><div></div></div>
           <div class="table-wrap availability-matrix"><table><thead><tr><th>Group</th>${headers}</tr></thead><tbody>${groupRows}</tbody></table></div>
         </section>`;
       }).join('');
-      if (status) status.textContent = `${summaries.length.toLocaleString()} groups loaded from api/latest.json`;
+      if (status) status.textContent = `${summaries.length.toLocaleString()} groups loaded from the per-modality API`;
     }
     function renderStatusCell(status, region) {
       const labels = { available: 'A', unavailable: 'U', partial: 'P', unknown: '?' };
@@ -2303,7 +2340,7 @@ def _index_script() -> str:
         .catch(() => {
           const root = document.getElementById('regional-availability-root');
           const status = document.getElementById('regional-availability-status');
-          if (root) root.innerHTML = '<section class="panel"><div class="lazy-matrix-placeholder">Could not load api/latest.json for regional availability.</div></section>';
+          if (root) root.innerHTML = '<section class="panel"><div class="lazy-matrix-placeholder">Could not load modality data for regional availability.</div></section>';
           if (status) status.textContent = 'Could not load regional matrices';
         });
     }
@@ -2368,7 +2405,7 @@ def _index_script() -> str:
           placePopover(trigger);
         } catch (error) {
           if (activeTrigger !== trigger) return;
-          popover.innerHTML = '<div class="tooltip-meta">Could not load api/latest.json for details.</div>';
+          popover.innerHTML = '<div class="tooltip-meta">Could not load modality data for details.</div>';
           placePopover(trigger);
         }
       };
@@ -2521,6 +2558,8 @@ def _heatmap_script() -> str:
       heatmapPrev: document.getElementById('heatmap-prev'),
       heatmapNext: document.getElementById('heatmap-next'),
     };
+    const shardCache = new Map();
+    let manifestModalities = [];
 
     function escapeHtml(value) {
       return String(value ?? '').replace(/[&<>'"]/g, (char) => ({
@@ -2556,22 +2595,22 @@ def _heatmap_script() -> str:
       }
       return feature.split('.')[0];
     }
-    function flatten(snapshot) {
+    function rowsFromShard(shard) {
+      const label = shard.modality || '';
       const rows = [];
-      for (const [region, services] of Object.entries(snapshot.regions || {})) {
-        for (const [service, features] of Object.entries(services || {})) {
-          for (const [feature, result] of Object.entries(features || {})) {
-            const row = {
-              region, service, feature,
-              category: category(feature),
-              group: group(feature),
-              status: result.status || 'unknown',
-              message: result.message || result.error_code || '',
-            };
-            row.searchText = `${row.region} ${row.service} ${row.category} ${row.group} ${row.feature} ${row.status} ${row.message}`.toLowerCase();
-            rows.push(row);
-          }
-        }
+      for (const item of shard.rows || []) {
+        const feature = item.feature || '';
+        const row = {
+          region: item.region || '',
+          service: item.service || '',
+          feature,
+          category: label || category(feature),
+          group: group(feature),
+          status: item.status || 'unknown',
+          message: item.message || '',
+        };
+        row.searchText = `${row.region} ${row.service} ${row.category} ${row.group} ${row.feature} ${row.status} ${row.message}`.toLowerCase();
+        rows.push(row);
       }
       return rows.sort((a, b) => a.region.localeCompare(b.region) || a.category.localeCompare(b.category) || a.feature.localeCompare(b.feature));
     }
@@ -2657,21 +2696,61 @@ def _heatmap_script() -> str:
       elements.heatmapPrev.disabled = bounds.page <= 1;
       elements.heatmapNext.disabled = bounds.page >= bounds.pages;
     }
-    async function loadSnapshot() {
-      const response = await fetch('api/latest.json', { cache: 'no-store' });
-      const snapshot = await response.json();
-      state.regions = Object.keys(snapshot.regions || {}).sort();
-      state.rows = flatten(snapshot);
-      populateSelect(elements.modality, [...new Set(state.rows.map((row) => row.category))].sort());
-      populateSelect(elements.group, [...new Set(state.rows.map((row) => row.group))].sort());
-      elements.loadStatus.textContent = `${state.rows.length.toLocaleString()} checks loaded from latest.json`;
+    async function loadModalityRows(modality) {
+      if (shardCache.has(modality.slug)) return shardCache.get(modality.slug);
+      const response = await fetch(`api/${modality.path}`, { cache: 'force-cache' });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const shard = await response.json();
+      const rows = rowsFromShard(shard);
+      shardCache.set(modality.slug, rows);
+      return rows;
+    }
+    function regionsFromRows(rows) {
+      return [...new Set(rows.map((row) => row.region).filter(Boolean))].sort();
+    }
+    async function selectModality(label) {
+      if (!label) {
+        elements.loadStatus.textContent = `Loading all ${manifestModalities.length} modalities...`;
+        const all = await Promise.all(manifestModalities.map(loadModalityRows));
+        state.rows = all.flat();
+        state.regions = regionsFromRows(state.rows);
+        populateSelect(elements.group, [...new Set(state.rows.map((row) => row.group))].sort());
+        elements.loadStatus.textContent = `${state.rows.length.toLocaleString()} checks loaded across all modalities`;
+        applyFilters();
+        return;
+      }
+      const modality = manifestModalities.find((item) => item.label === label);
+      if (!modality) return;
+      elements.loadStatus.textContent = `Loading ${label}...`;
+      const rows = await loadModalityRows(modality);
+      state.rows = rows;
+      state.regions = regionsFromRows(rows);
+      populateSelect(elements.group, [...new Set(rows.map((row) => row.group))].sort());
+      elements.loadStatus.textContent = `${rows.length.toLocaleString()} checks loaded for ${label}`;
       applyFilters();
+    }
+    async function loadManifest() {
+      const response = await fetch('api/modalities/manifest.json', { cache: 'no-store' });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const manifest = await response.json();
+      manifestModalities = (manifest.modalities || []).slice();
+      populateSelect(elements.modality, manifestModalities.map((item) => item.label));
+      const smallest = manifestModalities.reduce(
+        (best, item) => (best === null || item.rows < best.rows ? item : best),
+        null,
+      );
+      if (smallest) {
+        elements.modality.value = smallest.label;
+        await selectModality(smallest.label);
+      } else {
+        elements.loadStatus.textContent = 'No modality data available yet.';
+      }
     }
     elements.search.addEventListener('input', applyFilters);
     elements.modality.addEventListener('change', () => {
-      const groups = [...new Set(state.rows.filter((row) => !elements.modality.value || row.category === elements.modality.value).map((row) => row.group))].sort();
-      populateSelect(elements.group, groups);
-      applyFilters();
+      selectModality(elements.modality.value).catch((error) => {
+        elements.loadStatus.textContent = `Could not load modality: ${error}`;
+      });
     });
     elements.group.addEventListener('change', applyFilters);
     elements.status.addEventListener('change', applyFilters);
@@ -2680,7 +2759,7 @@ def _heatmap_script() -> str:
     elements.detailsNext.addEventListener('click', () => { state.detailsPage += 1; renderDetails(); });
     elements.heatmapPrev.addEventListener('click', () => { state.heatmapPage -= 1; renderHeatmap(); });
     elements.heatmapNext.addEventListener('click', () => { state.heatmapPage += 1; renderHeatmap(); });
-    loadSnapshot().catch((error) => { elements.loadStatus.textContent = `Could not load latest.json: ${error}`; });
+    loadManifest().catch((error) => { elements.loadStatus.textContent = `Could not load modality manifest: ${error}`; });
 """
 
 
