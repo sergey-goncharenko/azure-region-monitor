@@ -94,6 +94,14 @@ class LatencyModel:
     model: str
 
 
+@dataclass(frozen=True)
+class AiLatencyTarget:
+    region: str
+    endpoint: str
+    deployment: str
+    model: str
+
+
 DEFAULT_LATENCY_MODELS = [
     LatencyModel(feature="modelLatency.openai.gpt-4o-mini", model="openai/gpt-4o-mini"),
     LatencyModel(feature="modelLatency.openai.gpt-4o", model="openai/gpt-4o"),
@@ -282,3 +290,40 @@ def parse_latency_models(raw: str | None) -> list[LatencyModel]:
         models.append(LatencyModel(feature=feature, model=model))
 
     return models
+
+
+def parse_ai_latency_targets(raw: str | None) -> list[AiLatencyTarget]:
+    """Parse Azure regional latency targets from the infra JSON output.
+
+    Expects a JSON array of objects with region, endpoint, deployment, and model,
+    matching the `targets` output of the regional-latency Bicep template.
+    """
+
+    if not raw or not raw.strip():
+        return []
+
+    import json
+
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as error:
+        raise ValueError(f"AI latency targets must be valid JSON: {error}") from error
+    if not isinstance(payload, list):
+        raise ValueError("AI latency targets JSON must be an array of target objects")
+
+    targets: list[AiLatencyTarget] = []
+    for item in payload:
+        if not isinstance(item, dict):
+            raise ValueError("Each AI latency target must be a JSON object")
+        region = str(item.get("region", "")).strip()
+        endpoint = str(item.get("endpoint", "")).strip()
+        deployment = str(item.get("deployment", "")).strip()
+        model = str(item.get("model", "")).strip() or deployment
+        if not region or not endpoint or not deployment:
+            raise ValueError("AI latency targets require region, endpoint, and deployment")
+        targets.append(
+            AiLatencyTarget(
+                region=region, endpoint=endpoint, deployment=deployment, model=model
+            )
+        )
+    return targets

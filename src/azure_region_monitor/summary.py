@@ -118,6 +118,10 @@ def _modality(feature: str) -> str:
         return "Azure AI models"
     if feature.startswith("modelLatency."):
         return "Model latency"
+    if feature.startswith("modelLatency."):
+        return "Model latency"
+    if feature.startswith("aiLatency."):
+        return "Azure model latency"
     if feature.startswith("containerApps."):
         return "Container Apps"
     if feature == "vmSkuCatalog" or feature.startswith("vmSkus."):

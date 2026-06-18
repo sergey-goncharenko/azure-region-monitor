@@ -35,6 +35,8 @@ def _feature_category(feature: str) -> str:
         return "aiModels"
     if feature.startswith("modelLatency."):
         return "modelLatency"
+    if feature.startswith("aiLatency."):
+        return "aiLatency"
     if feature.startswith("containerApps."):
         return "containerApps"
     if feature == "vmSkuCatalog" or feature.startswith("vmSkus."):
