@@ -8,7 +8,11 @@ from pathlib import Path
 from typing import Any
 
 from azure_region_monitor.history import copy_history_to_api
-from azure_region_monitor.latency_view import build_latency_rows, build_latency_series
+from azure_region_monitor.latency_view import (
+    build_latency_rows,
+    build_latency_series,
+    build_regional_latency_rows,
+)
 from azure_region_monitor.models import Snapshot
 from azure_region_monitor.snapshot_shards import build_modality_shards, build_summary
 from azure_region_monitor.storage import load_snapshot
@@ -746,6 +750,7 @@ def _render_latency_page(
       </div>
       {_render_latency_table(rows, series)}
     </section>
+    {_render_regional_latency_section(snapshot)}
     <section class="panel prose" aria-label="Model latency methodology">
       <div class="panel-header">
         <h2>How to read this</h2>
@@ -774,6 +779,58 @@ def _render_latency_page(
 </body>
 </html>
 """
+
+
+def _render_regional_latency_section(snapshot: Snapshot) -> str:
+    rows = build_regional_latency_rows(snapshot)
+    if not rows:
+        return ""
+    model = next((str(row.get("model")) for row in rows if row.get("model")), "the model")
+    body = "\n".join(_render_regional_latency_row(row) for row in rows)
+    return f"""<section class="panel" aria-label="Azure per-region model latency">
+      <div class="panel-header">
+        <h2>Azure Per-Region Latency ({html.escape(model)})</h2>
+        <div class="panel-subtitle">Fastest Azure region first &middot; single-region Standard deployments &middot; vantage = the probe runner</div>
+      </div>
+      <div class="note" role="note">
+        <strong>This is real Azure per-region latency.</strong> Each row is a single-region
+        Standard <code>{html.escape(model)}</code> deployment in that Azure region, so the timing is
+        attributable to the region. It still includes network distance from the probe runner's
+        vantage, so read it as relative region speed rather than an SLA.
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Region</th>
+              <th>Status</th>
+              <th class="number">p50 (ms)</th>
+              <th class="number">p95 (ms)</th>
+              <th class="number">TTFT p50 (ms)</th>
+              <th class="number">Tokens/sec</th>
+              <th class="number">Samples</th>
+            </tr>
+          </thead>
+          <tbody>{body}</tbody>
+        </table>
+      </div>
+    </section>"""
+
+
+def _render_regional_latency_row(row: dict[str, Any]) -> str:
+    status = str(row.get("status", "unknown"))
+    samples = ""
+    if row.get("samples_collected") is not None and row.get("samples_requested") is not None:
+        samples = f"{row['samples_collected']}/{row['samples_requested']}"
+    return f"""<tr>
+                <td><code>{html.escape(str(row.get("region", "")))}</code></td>
+                <td><span class="status status-{html.escape(status)}">{html.escape(status)}</span></td>
+                <td class="number">{_latency_cell(row.get("latency_ms"))}</td>
+                <td class="number">{_latency_cell(row.get("p95_ms"))}</td>
+                <td class="number">{_latency_cell(row.get("ttft_ms"))}</td>
+                <td class="number">{_tokens_cell(row.get("tokens_per_second"))}</td>
+                <td class="number">{html.escape(samples) or "&mdash;"}</td>
+              </tr>"""
 
 
 def _render_latency_table(

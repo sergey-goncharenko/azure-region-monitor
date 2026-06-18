@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from azure_region_monitor.latency_view import (
     build_latency_rows,
     build_latency_series,
+    build_regional_latency_rows,
     extract_latency_metrics,
     parse_latency_message,
 )
@@ -166,4 +167,46 @@ def test_build_latency_series_orders_and_filters():
 def test_build_latency_series_empty_for_missing_history():
     assert build_latency_series(None) == {}
     assert build_latency_series({}) == {}
+
+
+def test_build_regional_latency_rows_sorted_fastest_region_first():
+    snapshot = Snapshot(
+        regions={
+            "eastus": {
+                "ai-latency": {
+                    "aiLatency.openai.gpt-4o": FeatureResult(
+                        status="available",
+                        latency_ms=2238,
+                        message="gpt-4o from eastus: p50 2238ms, p95 3035ms, TTFT p50 1935ms, 45.0 tok/s over 3/3 samples.",
+                    )
+                }
+            },
+            "uksouth": {
+                "ai-latency": {
+                    "aiLatency.openai.gpt-4o": FeatureResult(
+                        status="available",
+                        latency_ms=1026,
+                        message="gpt-4o from uksouth: p50 1026ms, p95 1100ms, TTFT p50 900ms, 60.0 tok/s over 3/3 samples.",
+                    )
+                }
+            },
+            "germanywestcentral": {
+                "ai": {"aiModels.openai.gpt-4o.2024": FeatureResult(status="available")}
+            },
+        }
+    )
+
+    rows = build_regional_latency_rows(snapshot)
+
+    assert [row["region"] for row in rows] == ["uksouth", "eastus"]
+    assert rows[0]["model"] == "gpt-4o"
+    assert rows[0]["latency_ms"] == 1026
+    assert rows[0]["p95_ms"] == 1100
+    assert rows[0]["tokens_per_second"] == 60.0
+
+
+def test_build_regional_latency_rows_empty_without_modality():
+    snapshot = Snapshot(regions={"eastus": {"ai": {"aiModels.x.y.1": FeatureResult(status="available")}}})
+    assert build_regional_latency_rows(snapshot) == []
+
 

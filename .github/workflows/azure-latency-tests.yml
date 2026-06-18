@@ -1,0 +1,163 @@
+name: Azure model latency tests
+
+on:
+  # Daily schedule intentionally disabled until the first manual run is validated.
+  # schedule:
+  #   - cron: "47 5 * * *"
+  workflow_dispatch:
+    inputs:
+      resource_group:
+        description: "Resource group holding the per-region Azure OpenAI accounts"
+        required: false
+        default: "azure-region-monitor-latency"
+      deployment_name:
+        description: "Azure OpenAI deployment name to probe"
+        required: false
+        default: "gpt-4o"
+      samples:
+        description: "Samples per region"
+        required: false
+        default: "5"
+      deploy_dashboard:
+        description: "Deploy this modality snapshot to Azure Static Web Apps"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  azure-latency:
+    name: Run Azure regional latency probe
+    runs-on: ubuntu-latest
+    env:
+      AI_LATENCY_SAMPLES: ${{ inputs.samples || '5' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: python -m pip install ".[dev]"
+
+      - name: Run Azure regional latency probe
+        shell: bash
+        env:
+          RESOURCE_GROUP: ${{ inputs.resource_group || 'azure-region-monitor-latency' }}
+          DEPLOYMENT_NAME: ${{ inputs.deployment_name || 'gpt-4o' }}
+        run: |
+          mkdir -p data/snapshots data/diffs
+          rm -f data/snapshots/latest.json data/diffs/latest.json
+
+          # Discover per-region Azure OpenAI accounts and build the targets JSON.
+          accounts=$(az cognitiveservices account list \
+            --resource-group "$RESOURCE_GROUP" \
+            --query "[?kind=='OpenAI'].{region:location, endpoint:properties.endpoint}" \
+            --output json)
+
+          export AI_LATENCY_TARGETS=$(DEPLOYMENT_NAME="$DEPLOYMENT_NAME" python - "$accounts" <<'PY'
+          import json, os, sys
+          accounts = json.loads(sys.argv[1])
+          deployment = os.environ["DEPLOYMENT_NAME"]
+          targets = [
+              {"region": a["region"], "endpoint": a["endpoint"], "deployment": deployment, "model": deployment}
+              for a in accounts if a.get("region") and a.get("endpoint")
+          ]
+          print(json.dumps(targets))
+          PY
+          )
+
+          export AZURE_OPENAI_TOKEN=$(az account get-access-token \
+            --resource https://cognitiveservices.azure.com \
+            --query accessToken --output tsv)
+
+          region_args=()
+          while read -r region; do
+            [ -n "$region" ] && region_args+=(--region "$region")
+          done < <(echo "$AI_LATENCY_TARGETS" | python -c "import json,sys; [print(t['region']) for t in json.load(sys.stdin)]")
+
+          azure-region-monitor run --probe ai-model-latency-cli "${region_args[@]}" \
+            --output data/snapshots/latest.json
+
+      - name: Upload synthetic data artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: azure-region-monitor-ai-latency
+          path: |
+            data/snapshots/latest.json
+            data/diffs/latest.json
+          if-no-files-found: warn
+
+      - name: Azure logout
+        if: always()
+        run: az logout || true
+
+  deploy-dashboard:
+    name: Deploy dashboard
+    if: inputs.deploy_dashboard
+    needs: azure-latency
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: python -m pip install ".[dev]"
+
+      - name: Prepare synthetic data directory
+        run: |
+          rm -rf data/snapshots data/diffs
+          mkdir -p data
+
+      - name: Download synthetic data artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: azure-region-monitor-ai-latency
+          path: data
+
+      - name: Merge existing dashboard snapshot
+        env:
+          EXISTING_SNAPSHOT_URL: "https://azwatch.operator.lat/api/latest.json"
+        run: |
+          azure-region-monitor merge-snapshot \
+            --base-url "$EXISTING_SNAPSHOT_URL" \
+            --overlay data/snapshots/latest.json \
+            --output data/snapshots/latest.json
+
+      - name: Update snapshot history
+        env:
+          HISTORY_BASE_URL: "https://azwatch.operator.lat/api/history"
+        run: |
+          azure-region-monitor update-history \
+            --snapshot data/snapshots/latest.json \
+            --history-dir data/history \
+            --base-url "$HISTORY_BASE_URL"
+
+      - name: Build static site
+        run: azure-region-monitor build-static --output public
+
+      - name: Deploy Azure Static Web App
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          action: upload
+          app_location: public
+          skip_app_build: true
