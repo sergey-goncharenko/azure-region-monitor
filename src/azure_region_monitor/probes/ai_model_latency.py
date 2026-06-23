@@ -54,7 +54,9 @@ class AzureOpenAiLatencyProbe:
         rate_limit_backoff_seconds: float = DEFAULT_RATE_LIMIT_BACKOFF_SECONDS,
         sleep: Callable[[float], None] = time.sleep,
     ) -> None:
-        self._targets = {target.region: target for target in (targets or [])}
+        self._targets_by_region: dict[str, list[AiLatencyTarget]] = {}
+        for target in targets or []:
+            self._targets_by_region.setdefault(target.region, []).append(target)
         self._client = client
         self._samples = max(1, samples)
         self._prompt = prompt
@@ -65,11 +67,12 @@ class AzureOpenAiLatencyProbe:
         self._sleep = sleep
 
     def run(self, region: str):
-        target = self._targets.get(region)
-        if target is None:
+        targets = self._targets_by_region.get(region)
+        if not targets:
             return
         client = self._get_client()
-        yield self._measure_target(region, target, client)
+        for target in targets:
+            yield self._measure_target(region, target, client)
 
     def _get_client(self) -> AzureLatencyClient:
         if self._client is None:

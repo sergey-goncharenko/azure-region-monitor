@@ -9,10 +9,6 @@ on:
         description: "Resource group holding the per-region Azure OpenAI accounts"
         required: false
         default: "azure-region-monitor-latency"
-      deployment_name:
-        description: "Azure OpenAI deployment name to probe"
-        required: false
-        default: "gpt-4o"
       samples:
         description: "Samples per region"
         required: false
@@ -56,28 +52,42 @@ jobs:
         shell: bash
         env:
           RESOURCE_GROUP: ${{ inputs.resource_group || 'azure-region-monitor-latency' }}
-          DEPLOYMENT_NAME: ${{ inputs.deployment_name || 'gpt-4o' }}
         run: |
           mkdir -p data/snapshots data/diffs
           rm -f data/snapshots/latest.json data/diffs/latest.json
 
-          # Discover per-region Azure OpenAI accounts and build the targets JSON.
+          # Discover every model deployment across the per-region Azure OpenAI accounts.
           accounts=$(az cognitiveservices account list \
             --resource-group "$RESOURCE_GROUP" \
-            --query "[?kind=='OpenAI'].{region:location, endpoint:properties.endpoint}" \
+            --query "[?kind=='OpenAI'].{name:name, region:location, endpoint:properties.endpoint}" \
             --output json)
 
-          export AI_LATENCY_TARGETS=$(DEPLOYMENT_NAME="$DEPLOYMENT_NAME" python - "$accounts" <<'PY'
+          targets="[]"
+          for account in $(echo "$accounts" | python -c "import json,sys; [print(a['name']) for a in json.load(sys.stdin)]"); do
+            deployments=$(az cognitiveservices account deployment list \
+              --resource-group "$RESOURCE_GROUP" \
+              --name "$account" \
+              --query "[].{deployment:name, model:properties.model.name}" \
+              --output json)
+            targets=$(ACCOUNT="$account" ACCOUNTS="$accounts" DEPLOYMENTS="$deployments" python - "$targets" <<'PY'
           import json, os, sys
-          accounts = json.loads(sys.argv[1])
-          deployment = os.environ["DEPLOYMENT_NAME"]
-          targets = [
-              {"region": a["region"], "endpoint": a["endpoint"], "deployment": deployment, "model": deployment}
-              for a in accounts if a.get("region") and a.get("endpoint")
-          ]
-          print(json.dumps(targets))
+          existing = json.loads(sys.argv[1])
+          accounts = json.loads(os.environ["ACCOUNTS"])
+          deployments = json.loads(os.environ["DEPLOYMENTS"])
+          account = next(a for a in accounts if a["name"] == os.environ["ACCOUNT"])
+          for d in deployments:
+              if d.get("deployment") and account.get("region") and account.get("endpoint"):
+                  existing.append({
+                      "region": account["region"],
+                      "endpoint": account["endpoint"],
+                      "deployment": d["deployment"],
+                      "model": d.get("model") or d["deployment"],
+                  })
+          print(json.dumps(existing))
           PY
           )
+          done
+          export AI_LATENCY_TARGETS="$targets"
 
           export AZURE_OPENAI_TOKEN=$(az account get-access-token \
             --resource https://cognitiveservices.azure.com \
@@ -86,7 +96,7 @@ jobs:
           region_args=()
           while read -r region; do
             [ -n "$region" ] && region_args+=(--region "$region")
-          done < <(echo "$AI_LATENCY_TARGETS" | python -c "import json,sys; [print(t['region']) for t in json.load(sys.stdin)]")
+          done < <(echo "$AI_LATENCY_TARGETS" | python -c "import json,sys; print('\n'.join(sorted({t['region'] for t in json.load(sys.stdin)})))")
 
           azure-region-monitor run --probe ai-model-latency-cli "${region_args[@]}" \
             --output data/snapshots/latest.json

@@ -105,9 +105,13 @@ class AiLatencyTarget:
 DEFAULT_LATENCY_MODELS = [
     LatencyModel(feature="modelLatency.openai.gpt-4o-mini", model="openai/gpt-4o-mini"),
     LatencyModel(feature="modelLatency.openai.gpt-4o", model="openai/gpt-4o"),
+    LatencyModel(feature="modelLatency.openai.gpt-4.1-nano", model="openai/gpt-4.1-nano"),
     LatencyModel(feature="modelLatency.openai.gpt-4.1-mini", model="openai/gpt-4.1-mini"),
     LatencyModel(feature="modelLatency.openai.gpt-4.1", model="openai/gpt-4.1"),
+    LatencyModel(feature="modelLatency.openai.o3", model="openai/o3"),
     LatencyModel(feature="modelLatency.openai.o4-mini", model="openai/o4-mini"),
+    LatencyModel(feature="modelLatency.openai.gpt-5", model="openai/gpt-5"),
+    LatencyModel(feature="modelLatency.openai.gpt-5-chat", model="openai/gpt-5-chat"),
     LatencyModel(feature="modelLatency.openai.gpt-5-mini", model="openai/gpt-5-mini"),
     LatencyModel(feature="modelLatency.openai.gpt-5-nano", model="openai/gpt-5-nano"),
     LatencyModel(feature="modelLatency.microsoft.phi-4", model="microsoft/Phi-4"),

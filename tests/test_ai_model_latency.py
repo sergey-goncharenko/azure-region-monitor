@@ -83,6 +83,21 @@ def test_probe_retries_rate_limited_then_succeeds():
     assert slept == [3]
 
 
+def test_probe_measures_multiple_models_in_same_region():
+    client = _FakeClient(measurement=LatencyMeasurement(ttft_ms=200, total_ms=900, output_tokens=80))
+    targets = [
+        AiLatencyTarget(region="eastus", endpoint="https://e.openai.azure.com", deployment="gpt-4o", model="gpt-4o"),
+        AiLatencyTarget(region="eastus", endpoint="https://e.openai.azure.com", deployment="gpt-5.1", model="gpt-5.1"),
+    ]
+    probe = AzureOpenAiLatencyProbe(targets=targets, client=client, samples=1)
+
+    results = list(probe.run("eastus"))
+
+    features = {r.feature for r in results}
+    assert features == {"aiLatency.openai.gpt-4o", "aiLatency.openai.gpt-5.1"}
+    assert all(r.result.status == "available" for r in results)
+
+
 def test_parse_ai_latency_targets_from_infra_json():
     raw = (
         '[{"region":"eastus","endpoint":"https://e.openai.azure.com","deployment":"gpt-4o","model":"gpt-4o"},'
