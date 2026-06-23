@@ -7,7 +7,9 @@ import urllib.error
 import urllib.request
 
 from azure_region_monitor.probes.github_models import (
+    REASONING_MIN_COMPLETION_TOKENS,
     _chunk_has_content,
+    _is_reasoning_model,
     _parse_retry_after,
     _safe_json,
     _usage_output_tokens,
@@ -63,15 +65,7 @@ class AzureOpenAiClient:
             f"{endpoint.rstrip('/')}/openai/deployments/{deployment}/chat/completions"
             f"?api-version={self._api_version}"
         )
-        body = json.dumps(
-            {
-                "messages": [{"role": "user", "content": prompt}],
-                "max_tokens": max_tokens,
-                "temperature": 0,
-                "stream": True,
-                "stream_options": {"include_usage": True},
-            }
-        ).encode("utf-8")
+        body = json.dumps(_build_azure_payload(deployment, prompt, max_tokens)).encode("utf-8")
 
         request = urllib.request.Request(
             url,
@@ -134,3 +128,23 @@ class AzureOpenAiClient:
             total_ms=total_ms,
             output_tokens=output_tokens,
         )
+
+
+def _build_azure_payload(deployment: str, prompt: str, max_tokens: int) -> dict:
+    # The Azure deployment name is in the URL, not the body, so reasoning detection
+    # is based on the deployment name (which mirrors the model name here).
+    payload: dict = {
+        "messages": [{"role": "user", "content": prompt}],
+        "stream": True,
+        "stream_options": {"include_usage": True},
+    }
+    if _is_reasoning_model(deployment):
+        # Reasoning models reject 'max_tokens' and a non-default temperature, and spend
+        # part of the budget on hidden reasoning tokens, so give a larger completion
+        # budget and the lowest reasoning effort for a quick answer.
+        payload["max_completion_tokens"] = max(max_tokens, REASONING_MIN_COMPLETION_TOKENS)
+        payload["reasoning_effort"] = "low"
+    else:
+        payload["max_tokens"] = max_tokens
+        payload["temperature"] = 0
+    return payload
