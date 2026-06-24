@@ -70,14 +70,8 @@ jobs:
           RESOURCE_GROUP: ${{ inputs.resource_group || 'azure-region-monitor-latency' }}
           CANDIDATE_REGIONS: ${{ inputs.candidate_regions || 'eastus eastus2 westus westus2 westus3 centralus northcentralus southcentralus swedencentral uksouth francecentral germanywestcentral switzerlandnorth norwayeast polandcentral australiaeast japaneast koreacentral southindia canadaeast southeastasia' }}
           MAX_MODELS: ${{ inputs.max_models || '8' }}
-          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          PROBE_PRINCIPAL_ID_FALLBACK: ${{ vars.AZURE_PROBE_PRINCIPAL_ID }}
         run: |
           set -uo pipefail
-
-          # Resolve the probe principal objectId (best effort; falls back to a repo var).
-          PRINCIPAL_ID=$(az ad sp show --id "$AZURE_CLIENT_ID" --query id -o tsv 2>/dev/null || true)
-          if [ -z "$PRINCIPAL_ID" ]; then PRINCIPAL_ID="${PROBE_PRINCIPAL_ID_FALLBACK:-}"; fi
 
           # Read-only: list the model catalog for each candidate region.
           mkdir -p /tmp/modellists
@@ -88,7 +82,11 @@ jobs:
           done
 
           # Select region-attributable Standard models and write Bicep params.
-          MAX_MODELS="$MAX_MODELS" PRINCIPAL_ID="$PRINCIPAL_ID" python - <<'PY'
+          # The probe principal is granted "Cognitive Services OpenAI User" at the
+          # resource-group scope out of band, so new accounts inherit inference
+          # access and the template does not create per-account role assignments
+          # (which would require roleAssignments/write beyond Contributor).
+          MAX_MODELS="$MAX_MODELS" python - <<'PY'
           import glob
           import json
           import os
@@ -109,14 +107,10 @@ jobs:
           models = select_regional_standard_models(
               by_region, max_models=int(os.environ.get("MAX_MODELS", "8"))
           )
-          parameters = {"models": {"value": models}}
-          principal_id = os.environ.get("PRINCIPAL_ID", "")
-          if principal_id:
-              parameters["probePrincipalId"] = {"value": principal_id}
           params = {
               "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
               "contentVersion": "1.0.0.0",
-              "parameters": parameters,
+              "parameters": {"models": {"value": models}},
           }
           with open("infra/regional-latency/params.json", "w", encoding="utf-8") as handle:
               json.dump(params, handle, indent=2)
