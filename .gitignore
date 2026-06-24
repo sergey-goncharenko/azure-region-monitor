@@ -9,3 +9,7 @@ dist/
 build/
 public/
 *.egg-info/
+
+# Generated at deploy time by the Azure model latency workflow
+infra/regional-latency/params.json
+infra/regional-latency/params/

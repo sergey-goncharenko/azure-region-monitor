@@ -86,6 +86,9 @@ def _standard_model(
     model = item.get("model")
     if not isinstance(model, dict):
         return None, ""
+    # Skip models fully retired/deprecated for new deployments.
+    if str(model.get("lifecycleStatus", "")).strip().lower() == "deprecated":
+        return None, ""
     name = str(model.get("name", "")).strip()
     version = str(model.get("version", "")).strip()
     if not name or not version:
