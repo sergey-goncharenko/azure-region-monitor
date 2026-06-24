@@ -13,6 +13,19 @@ on:
         description: "Samples per region"
         required: false
         default: "5"
+      candidate_regions:
+        description: "Space-separated regions to scan for regional Standard models"
+        required: false
+        default: ""
+      max_models:
+        description: "Maximum number of OpenAI models to auto-deploy per region"
+        required: false
+        default: "8"
+      skip_discovery:
+        description: "Skip model discovery/deployment and only probe existing deployments"
+        required: false
+        type: boolean
+        default: false
       deploy_dashboard:
         description: "Deploy this modality snapshot to Azure Static Web Apps"
         required: false
@@ -47,6 +60,84 @@ jobs:
 
       - name: Install dependencies
         run: python -m pip install ".[dev]"
+
+      - name: Discover and deploy regional Standard models
+        id: discover
+        if: ${{ !inputs.skip_discovery }}
+        continue-on-error: true
+        shell: bash
+        env:
+          RESOURCE_GROUP: ${{ inputs.resource_group || 'azure-region-monitor-latency' }}
+          CANDIDATE_REGIONS: ${{ inputs.candidate_regions || 'eastus eastus2 westus westus2 westus3 centralus northcentralus southcentralus swedencentral uksouth francecentral germanywestcentral switzerlandnorth norwayeast polandcentral australiaeast japaneast koreacentral southindia canadaeast southeastasia' }}
+          MAX_MODELS: ${{ inputs.max_models || '8' }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          PROBE_PRINCIPAL_ID_FALLBACK: ${{ vars.AZURE_PROBE_PRINCIPAL_ID }}
+        run: |
+          set -uo pipefail
+
+          # Resolve the probe principal objectId (best effort; falls back to a repo var).
+          PRINCIPAL_ID=$(az ad sp show --id "$AZURE_CLIENT_ID" --query id -o tsv 2>/dev/null || true)
+          if [ -z "$PRINCIPAL_ID" ]; then PRINCIPAL_ID="${PROBE_PRINCIPAL_ID_FALLBACK:-}"; fi
+
+          # Read-only: list the model catalog for each candidate region.
+          mkdir -p /tmp/modellists
+          for region in $CANDIDATE_REGIONS; do
+            az cognitiveservices model list --location "$region" --output json \
+              > "/tmp/modellists/$region.json" 2>/dev/null \
+              || echo "[]" > "/tmp/modellists/$region.json"
+          done
+
+          # Select region-attributable Standard models and write Bicep params.
+          MAX_MODELS="$MAX_MODELS" PRINCIPAL_ID="$PRINCIPAL_ID" python - <<'PY'
+          import glob
+          import json
+          import os
+
+          from azure_region_monitor.azure_model_discovery import (
+              select_regional_standard_models,
+          )
+
+          by_region = {}
+          for path in glob.glob("/tmp/modellists/*.json"):
+              region = os.path.splitext(os.path.basename(path))[0]
+              try:
+                  with open(path, encoding="utf-8-sig") as handle:
+                      by_region[region] = json.load(handle)
+              except Exception:
+                  by_region[region] = []
+
+          models = select_regional_standard_models(
+              by_region, max_models=int(os.environ.get("MAX_MODELS", "8"))
+          )
+          parameters = {"models": {"value": models}}
+          principal_id = os.environ.get("PRINCIPAL_ID", "")
+          if principal_id:
+              parameters["probePrincipalId"] = {"value": principal_id}
+          params = {
+              "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+              "contentVersion": "1.0.0.0",
+              "parameters": parameters,
+          }
+          with open("infra/regional-latency/params.json", "w", encoding="utf-8") as handle:
+              json.dump(params, handle, indent=2)
+
+          print(f"Discovered {len(models)} regional Standard model(s):")
+          for model in models:
+              print(f"  {model['name']} {model['version']} -> {', '.join(model['regions'])}")
+          PY
+
+          model_count=$(python -c "import json; print(len(json.load(open('infra/regional-latency/params.json'))['parameters']['models']['value']))")
+          if [ "$model_count" = "0" ]; then
+            echo "No regional Standard models discovered; skipping deployment."
+            exit 0
+          fi
+
+          # Idempotent incremental deployment. Already-created accounts/deployments are reused.
+          az deployment group create \
+            --resource-group "$RESOURCE_GROUP" \
+            --template-file infra/regional-latency/main.bicep \
+            --parameters @infra/regional-latency/params.json \
+            --name "azwatch-lat-$(date +%Y%m%d%H%M%S)"
 
       - name: Run Azure regional latency probe
         shell: bash
