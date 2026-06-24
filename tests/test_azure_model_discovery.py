@@ -63,3 +63,23 @@ def test_handles_empty_and_garbage():
     assert select_regional_standard_models({}) == []
     assert select_regional_standard_models({"eastus": "not a list"}) == []
     assert select_regional_standard_models({"eastus": [None, {"kind": "OpenAI"}]}) == []
+
+
+def test_skips_deprecated_lifecycle():
+    deprecated = _model("gpt-4o", "2024-05-13", ["Standard"])
+    deprecated["model"]["lifecycleStatus"] = "Deprecated"
+    by_region = {
+        "eastus": [
+            deprecated,
+            _model("gpt-4o", "2024-11-20", ["Standard"]),
+        ],
+    }
+    selected = select_regional_standard_models(by_region)
+    assert selected == [
+        {
+            "name": "gpt-4o",
+            "version": "2024-11-20",
+            "deploymentName": "gpt-4o",
+            "regions": ["eastus"],
+        }
+    ]

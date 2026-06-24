@@ -86,6 +86,10 @@ jobs:
           # resource-group scope out of band, so new accounts inherit inference
           # access and the template does not create per-account role assignments
           # (which would require roleAssignments/write beyond Contributor).
+          # One params file is written per model so each model deploys in isolation:
+          # the ARM template is atomic, and a single model that is blocked for new
+          # deployments or whose catalogued Standard SKU is not actually deployable
+          # would otherwise fail the whole deployment and block the healthy models.
           MAX_MODELS="$MAX_MODELS" python - <<'PY'
           import glob
           import json
@@ -107,31 +111,52 @@ jobs:
           models = select_regional_standard_models(
               by_region, max_models=int(os.environ.get("MAX_MODELS", "8"))
           )
-          params = {
-              "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
-              "contentVersion": "1.0.0.0",
-              "parameters": {"models": {"value": models}},
-          }
-          with open("infra/regional-latency/params.json", "w", encoding="utf-8") as handle:
-              json.dump(params, handle, indent=2)
+
+          os.makedirs("infra/regional-latency/params", exist_ok=True)
+          for path in glob.glob("infra/regional-latency/params/*.json"):
+              os.remove(path)
+          for index, model in enumerate(models):
+              params = {
+                  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+                  "contentVersion": "1.0.0.0",
+                  "parameters": {"models": {"value": [model]}},
+              }
+              with open(f"infra/regional-latency/params/{index:02d}.json", "w", encoding="utf-8") as handle:
+                  json.dump(params, handle, indent=2)
 
           print(f"Discovered {len(models)} regional Standard model(s):")
           for model in models:
               print(f"  {model['name']} {model['version']} -> {', '.join(model['regions'])}")
           PY
 
-          model_count=$(python -c "import json; print(len(json.load(open('infra/regional-latency/params.json'))['parameters']['models']['value']))")
-          if [ "$model_count" = "0" ]; then
+          shopt -s nullglob
+          param_files=(infra/regional-latency/params/*.json)
+          if [ ${#param_files[@]} -eq 0 ]; then
             echo "No regional Standard models discovered; skipping deployment."
             exit 0
           fi
 
-          # Idempotent incremental deployment. Already-created accounts/deployments are reused.
-          az deployment group create \
-            --resource-group "$RESOURCE_GROUP" \
-            --template-file infra/regional-latency/main.bicep \
-            --parameters @infra/regional-latency/params.json \
-            --name "azwatch-lat-$(date +%Y%m%d%H%M%S)"
+          # Deploy each model independently so one rejected model cannot block the rest.
+          # Accounts are deterministic by region and created idempotently across models.
+          stamp=$(date +%Y%m%d%H%M%S)
+          failures=0
+          for file in "${param_files[@]}"; do
+            model=$(python -c "import json,sys; print(json.load(open(sys.argv[1]))['parameters']['models']['value'][0]['name'])" "$file")
+            echo "::group::Deploying $model"
+            if az deployment group create \
+              --resource-group "$RESOURCE_GROUP" \
+              --template-file infra/regional-latency/main.bicep \
+              --parameters @"$file" \
+              --name "azwatch-lat-${stamp}-$(basename "$file" .json)" \
+              --only-show-errors; then
+              echo "Deployed $model"
+            else
+              echo "Skipped $model (deployment rejected)"
+              failures=$((failures + 1))
+            fi
+            echo "::endgroup::"
+          done
+          echo "Model deployments complete with $failures skipped."
 
       - name: Run Azure regional latency probe
         shell: bash
