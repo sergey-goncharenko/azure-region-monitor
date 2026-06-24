@@ -121,8 +121,10 @@ def _regional_model_label(feature: str) -> str:
     label = feature
     if label.startswith("aiLatency."):
         label = label.removeprefix("aiLatency.")
-    parts = label.split(".")
-    return parts[-1] if parts else label
+    # Drop only the publisher segment; the model name itself may contain dots
+    # (for example "openai.gpt-5.1" -> "gpt-5.1").
+    _publisher, separator, model = label.partition(".")
+    return model if separator and model else label
 
 
 def extract_latency_metrics(snapshot: Snapshot) -> dict[str, dict[str, Any]]:

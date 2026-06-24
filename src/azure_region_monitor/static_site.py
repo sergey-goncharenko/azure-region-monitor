@@ -785,36 +785,51 @@ def _render_regional_latency_section(snapshot: Snapshot) -> str:
     rows = build_regional_latency_rows(snapshot)
     if not rows:
         return ""
-    model = next((str(row.get("model")) for row in rows if row.get("model")), "the model")
-    body = "\n".join(_render_regional_latency_row(row) for row in rows)
+
+    by_model: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        by_model.setdefault(str(row.get("model") or "model"), []).append(row)
+
+    tables = "\n".join(
+        _render_regional_latency_model_table(model, by_model[model])
+        for model in sorted(by_model)
+    )
     return f"""<section class="panel" aria-label="Azure per-region model latency">
       <div class="panel-header">
-        <h2>Azure Per-Region Latency ({html.escape(model)})</h2>
-        <div class="panel-subtitle">Fastest Azure region first &middot; single-region Standard deployments &middot; vantage = the probe runner</div>
+        <h2>Azure Per-Region Latency</h2>
+        <div class="panel-subtitle">Real region-attributable latency &middot; one table per model &middot; fastest region first &middot; vantage = the probe runner</div>
       </div>
       <div class="note" role="note">
         <strong>This is real Azure per-region latency.</strong> Each row is a single-region
-        Standard <code>{html.escape(model)}</code> deployment in that Azure region, so the timing is
-        attributable to the region. It still includes network distance from the probe runner's
-        vantage, so read it as relative region speed rather than an SLA.
+        Standard deployment of that model in that Azure region, so the timing is attributable to
+        the region. It still includes network distance from the probe runner's vantage, so read it
+        as relative region speed rather than an SLA.
       </div>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Region</th>
-              <th>Status</th>
-              <th class="number">p50 (ms)</th>
-              <th class="number">p95 (ms)</th>
-              <th class="number">TTFT p50 (ms)</th>
-              <th class="number">Tokens/sec</th>
-              <th class="number">Samples</th>
-            </tr>
-          </thead>
-          <tbody>{body}</tbody>
-        </table>
-      </div>
+      {tables}
     </section>"""
+
+
+def _render_regional_latency_model_table(model: str, rows: list[dict[str, Any]]) -> str:
+    body = "\n".join(_render_regional_latency_row(row) for row in rows)
+    return f"""<div class="latency-model-group">
+        <h3>{html.escape(model)} &middot; {len(rows)} {"region" if len(rows) == 1 else "regions"}</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Region</th>
+                <th>Status</th>
+                <th class="number">p50 (ms)</th>
+                <th class="number">p95 (ms)</th>
+                <th class="number">TTFT p50 (ms)</th>
+                <th class="number">Tokens/sec</th>
+                <th class="number">Samples</th>
+              </tr>
+            </thead>
+            <tbody>{body}</tbody>
+          </table>
+        </div>
+      </div>"""
 
 
 def _render_regional_latency_row(row: dict[str, Any]) -> str:
@@ -1055,6 +1070,9 @@ def _style_block() -> str:
     .spark-down { color: var(--available-text); font-size: 12px; font-weight: 600; }
     .spark-flat { color: var(--muted); font-size: 12px; font-weight: 600; }
     .spark-empty { color: var(--muted); font-size: 12px; }
+    .latency-model-group { margin-top: 16px; }
+    .latency-model-group:first-of-type { margin-top: 8px; }
+    .latency-model-group h3 { margin: 0 0 8px; font-size: 16px; }
     .status-dot { display: inline-flex; width: 22px; height: 22px; border-radius: 50%; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; line-height: 1; }
     .availability-section .panel-header { padding-bottom: 10px; }
     .matrix-scroll-top { overflow-x: auto; overflow-y: hidden; height: 16px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: #f9fbfd; }
