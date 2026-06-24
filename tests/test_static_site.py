@@ -1,7 +1,58 @@
 import json
 from pathlib import Path
 
-from azure_region_monitor.static_site import build_static_site
+from azure_region_monitor.static_site import build_static_site, _render_regional_latency_section
+
+
+def _ai_latency_snapshot():
+    from azure_region_monitor.models import FeatureResult, Snapshot
+
+    def result(region, p50):
+        return FeatureResult(
+            status="available",
+            latency_ms=p50,
+            message=f"m from {region}: p50 {p50}ms, p95 {p50 + 40}ms, TTFT p50 {p50 - 50}ms, 50.0 tok/s over 3/3 samples.",
+        )
+
+    return Snapshot(
+        regions={
+            "eastus": {
+                "ai-latency": {
+                    "aiLatency.openai.gpt-4o": result("eastus", 1090),
+                    "aiLatency.openai.gpt-5.1": result("eastus", 1293),
+                }
+            },
+            "westus3": {
+                "ai-latency": {
+                    "aiLatency.openai.gpt-4o": result("westus3", 658),
+                    "aiLatency.openai.gpt-5.1": result("westus3", 886),
+                }
+            },
+            "uksouth": {
+                "ai-latency": {"aiLatency.openai.gpt-4o": result("uksouth", 950)}
+            },
+        }
+    )
+
+
+def test_regional_latency_section_groups_by_model():
+    html = _render_regional_latency_section(_ai_latency_snapshot())
+
+    # One sub-table heading per model, not a single hardcoded "(gpt-4o)" title.
+    assert "<h3>gpt-4o &middot; 3 regions</h3>" in html
+    assert "<h3>gpt-5.1 &middot; 2 regions</h3>" in html
+    assert "Azure Per-Region Latency</h2>" in html
+    # gpt-5.1 is visible (the bug was that it was rendered but unlabeled).
+    assert html.count("gpt-5.1") >= 1
+    # Two separate tables.
+    assert html.count("<table>") == 2
+
+
+def test_regional_latency_section_empty_without_data():
+    from azure_region_monitor.models import FeatureResult, Snapshot
+
+    snap = Snapshot(regions={"eastus": {"ai": {"aiModels.x.y.1": FeatureResult(status="available")}}})
+    assert _render_regional_latency_section(snap) == ""
 
 
 def test_build_static_site_writes_dashboard_and_latest_json(tmp_path):
