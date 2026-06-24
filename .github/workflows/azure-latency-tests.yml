@@ -158,6 +158,17 @@ jobs:
           done
           echo "Model deployments complete with $failures skipped."
 
+      - name: Refresh Azure login
+        # The discovery/deploy step can run longer than the 5-minute GitHub OIDC
+        # client-assertion validity window. Federated service principals get no
+        # refresh token, so a later data-plane token request would fail with
+        # AADSTS700024. Re-login mints a fresh assertion for the probe.
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
       - name: Run Azure regional latency probe
         shell: bash
         env:
