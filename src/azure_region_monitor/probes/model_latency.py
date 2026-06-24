@@ -68,8 +68,10 @@ class ModelLatencyProbe:
         rate_limit_retries: int = DEFAULT_RATE_LIMIT_RETRIES,
         rate_limit_backoff_seconds: float = DEFAULT_RATE_LIMIT_BACKOFF_SECONDS,
         sleep: Callable[[float], None] = time.sleep,
+        auto_discover: bool = False,
+        catalog_fetcher: Callable[[], list[dict]] | None = None,
     ) -> None:
-        self._models = models or DEFAULT_LATENCY_MODELS
+        self._fallback_models = models or DEFAULT_LATENCY_MODELS
         self._client = client
         self._samples = max(1, samples)
         self._prompt = prompt
@@ -78,11 +80,46 @@ class ModelLatencyProbe:
         self._rate_limit_retries = max(0, rate_limit_retries)
         self._rate_limit_backoff_seconds = max(0.0, rate_limit_backoff_seconds)
         self._sleep = sleep
+        self._auto_discover = auto_discover
+        self._catalog_fetcher = catalog_fetcher
+        self._resolved_models: list[LatencyModel] | None = None
 
     def run(self, region: str):
         client = self._get_client()
-        for model in self._models:
+        for model in self._resolve_models():
             yield self._measure_model(region, model, client)
+
+    def _resolve_models(self) -> list[LatencyModel]:
+        if self._resolved_models is not None:
+            return self._resolved_models
+        if not self._auto_discover:
+            self._resolved_models = self._fallback_models
+            return self._resolved_models
+        self._resolved_models = self._discover_models() or self._fallback_models
+        return self._resolved_models
+
+    def _discover_models(self) -> list[LatencyModel]:
+        from azure_region_monitor.github_catalog import (
+            default_catalog_fetcher,
+            select_catalog_models,
+        )
+
+        fetcher = self._catalog_fetcher or default_catalog_fetcher
+        try:
+            discovered = select_catalog_models(fetcher())
+        except Exception:
+            return []
+        if not discovered:
+            return []
+        # Keep the curated cross-publisher anchors (Phi, DeepSeek, Llama, ...) so the
+        # leaderboard stays multi-publisher while OpenAI releases surface automatically.
+        anchors = [
+            model
+            for model in self._fallback_models
+            if not model.model.lower().startswith("openai/")
+        ]
+        seen = {model.model for model in discovered}
+        return discovered + [model for model in anchors if model.model not in seen]
 
     def _get_client(self) -> InferenceLatencyClient:
         if self._client is None:

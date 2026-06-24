@@ -157,6 +157,8 @@ $env:MODEL_LATENCY_SAMPLES="5"
 azure-region-monitor run --probe model-latency-cli --region github-global --output data/snapshots/latest.json
 ```
 
+Set `MODEL_LATENCY_MODELS=auto` (the scheduled workflow default) to discover the model set from the live GitHub Models catalog. Auto mode keeps OpenAI text chat models (excluding audio/realtime/transcribe/embedding/codex), unions them with the curated non-OpenAI anchors, and falls back to the curated default set if the catalog fetch fails. New OpenAI releases surface automatically without code changes.
+
 Run the Azure per-region model latency probe (real Azure regional latency, requires the regional deployments from `infra/regional-latency`):
 
 ```powershell

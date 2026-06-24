@@ -249,13 +249,16 @@ def _build_probe(probe_name: str):
     if probe_name == "vm-sku-cli":
         return VmSkuCliProbe(skus=parse_vm_skus(os.environ.get("AZURE_VM_SKUS")))
     if probe_name == "model-latency-cli":
+        models_env = os.environ.get("MODEL_LATENCY_MODELS")
+        auto_discover = (models_env or "").strip().lower() == "auto"
         return ModelLatencyProbe(
-            models=parse_latency_models(os.environ.get("MODEL_LATENCY_MODELS")),
+            models=parse_latency_models(None if auto_discover else models_env),
             samples=int(os.environ.get("MODEL_LATENCY_SAMPLES", "5")),
             rate_limit_retries=int(os.environ.get("MODEL_LATENCY_RATE_LIMIT_RETRIES", "5")),
             rate_limit_backoff_seconds=float(
                 os.environ.get("MODEL_LATENCY_RATE_LIMIT_BACKOFF_SECONDS", "20")
             ),
+            auto_discover=auto_discover,
         )
     if probe_name == "ai-model-latency-cli":
         return AzureOpenAiLatencyProbe(
