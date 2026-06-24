@@ -14,9 +14,9 @@ on:
         required: false
         default: ""
       model_latency_models:
-        description: "Comma-separated feature=model pairs, or blank for the default model set"
+        description: "Comma-separated feature=model pairs, 'auto' to discover from the catalog, or blank for the default set"
         required: false
-        default: ""
+        default: "auto"
       model_latency_samples:
         description: "Samples per model"
         required: false
@@ -39,7 +39,7 @@ jobs:
       probes: "model-latency-cli"
       regions: ${{ inputs.regions || 'github-global' }}
       previous_snapshot: ${{ inputs.previous_snapshot || '' }}
-      model_latency_models: ${{ inputs.model_latency_models || '' }}
+      model_latency_models: ${{ inputs.model_latency_models || 'auto' }}
       model_latency_samples: ${{ inputs.model_latency_samples || '3' }}
       azure_login: false
       artifact_name: "azure-region-monitor-model-latency"
