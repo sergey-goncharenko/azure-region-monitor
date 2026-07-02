@@ -141,6 +141,116 @@ def extract_latency_metrics(snapshot: Snapshot) -> dict[str, dict[str, Any]]:
     return metrics
 
 
+def extract_regional_latency_metrics(snapshot: Snapshot) -> dict[str, dict[str, Any]]:
+    """Return Azure per-region latency metrics for history storage.
+
+    Shaped as ``{model_label: {region: {status, p50_ms}}}`` so region speed rankings
+    can be compared across snapshots. Only the fields needed for ranking are kept.
+    """
+
+    metrics: dict[str, dict[str, dict[str, Any]]] = {}
+    for row in build_regional_latency_rows(snapshot):
+        model = str(row["model"])
+        region = str(row["region"])
+        metrics.setdefault(model, {})[region] = {
+            "status": row["status"],
+            "p50_ms": row["latency_ms"],
+        }
+    return metrics
+
+
+def _ranks_from_metrics(metrics: dict[str, Any] | None) -> dict[str, int]:
+    """Rank labels by ascending p50 (fastest = rank 1); skip non-numeric p50."""
+
+    if not isinstance(metrics, dict):
+        return {}
+    ranked = [
+        (label, entry["p50_ms"])
+        for label, entry in metrics.items()
+        if isinstance(entry, dict)
+        and isinstance(entry.get("p50_ms"), (int, float))
+        and not isinstance(entry.get("p50_ms"), bool)
+    ]
+    ranked.sort(key=lambda item: (item[1], item[0]))
+    return {label: index + 1 for index, (label, _p50) in enumerate(ranked)}
+
+
+def _latest_previous_day(history: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Return the most recent latency-history day that precedes the newest one."""
+
+    days = history.get("days", []) if isinstance(history, dict) else []
+    valid = [day for day in days if isinstance(day, dict) and day.get("date")]
+    if len(valid) < 2:
+        return None
+    ordered = sorted(valid, key=lambda day: str(day["date"]), reverse=True)
+    return ordered[1]
+
+
+def previous_leaderboard_ranks(history: dict[str, Any] | None) -> dict[str, int]:
+    """Model -> rank in the previous snapshot's GitHub Models leaderboard."""
+
+    previous = _latest_previous_day(history)
+    if previous is None:
+        return {}
+    return _ranks_from_metrics(previous.get("models"))
+
+
+def previous_regional_ranks(history: dict[str, Any] | None) -> dict[str, dict[str, int]]:
+    """Model -> {region -> rank} in the previous snapshot's per-region tables."""
+
+    previous = _latest_previous_day(history)
+    if previous is None:
+        return {}
+    regional = previous.get("regional")
+    if not isinstance(regional, dict):
+        return {}
+    return {
+        str(model): _ranks_from_metrics(regions)
+        for model, regions in regional.items()
+        if isinstance(regions, dict)
+    }
+
+
+def annotate_rank_changes(
+    rows: list[dict[str, Any]],
+    previous_ranks: dict[str, int],
+    key_field: str = "model",
+) -> list[dict[str, Any]]:
+    """Annotate rows in-place with rank movement vs a previous ranking.
+
+    Rows are expected pre-sorted fastest-first. Rows with a numeric ``latency_ms``
+    get a 1-based ``rank``; each row also gets ``previous_rank``, ``rank_delta``
+    (previous - current, so positive means moved up), and ``rank_state`` which is
+    one of ``up``, ``down``, ``same``, ``new`` (unranked before), or ``none``
+    (no numeric latency this snapshot).
+    """
+
+    position = 0
+    for row in rows:
+        latency = row.get("latency_ms")
+        has_rank = isinstance(latency, (int, float)) and not isinstance(latency, bool)
+        if has_rank:
+            position += 1
+            row["rank"] = position
+        else:
+            row["rank"] = None
+
+        previous = previous_ranks.get(str(row.get(key_field, "")))
+        row["previous_rank"] = previous
+
+        if row["rank"] is None:
+            row["rank_delta"] = None
+            row["rank_state"] = "none"
+        elif previous is None:
+            row["rank_delta"] = None
+            row["rank_state"] = "new"
+        else:
+            delta = previous - row["rank"]
+            row["rank_delta"] = delta
+            row["rank_state"] = "up" if delta > 0 else "down" if delta < 0 else "same"
+    return rows
+
+
 def build_latency_series(history: dict[str, Any] | None) -> dict[str, list[dict[str, Any]]]:
     """Build per-model ascending time series of p50 latency from latency history.
 

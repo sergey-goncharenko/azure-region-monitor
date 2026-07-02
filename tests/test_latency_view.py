@@ -210,3 +210,99 @@ def test_build_regional_latency_rows_empty_without_modality():
     assert build_regional_latency_rows(snapshot) == []
 
 
+def _regional_snapshot():
+    def result(region, p50):
+        return FeatureResult(
+            status="available",
+            latency_ms=p50,
+            message=f"m from {region}: p50 {p50}ms, p95 {p50 + 40}ms, TTFT p50 {p50 - 50}ms, 50.0 tok/s over 3/3 samples.",
+        )
+
+    return Snapshot(
+        regions={
+            "eastus": {"ai-latency": {"aiLatency.openai.gpt-4o": result("eastus", 1090)}},
+            "westus3": {"ai-latency": {"aiLatency.openai.gpt-4o": result("westus3", 658)}},
+        }
+    )
+
+
+def test_extract_regional_latency_metrics_keyed_by_model_and_region():
+    from azure_region_monitor.latency_view import extract_regional_latency_metrics
+
+    metrics = extract_regional_latency_metrics(_regional_snapshot())
+    assert metrics == {
+        "gpt-4o": {
+            "eastus": {"status": "available", "p50_ms": 1090},
+            "westus3": {"status": "available", "p50_ms": 658},
+        }
+    }
+
+
+def test_annotate_rank_changes_up_down_same_new_none():
+    from azure_region_monitor.latency_view import annotate_rank_changes
+
+    rows = [
+        {"model": "a", "latency_ms": 100},  # now #1
+        {"model": "b", "latency_ms": 200},  # now #2
+        {"model": "c", "latency_ms": 300},  # now #3
+        {"model": "d", "latency_ms": None},  # unranked this snapshot
+    ]
+    # Previously: a #2, b #2->wait distinct; use a=#3, b=#2, c=#3? keep simple:
+    previous = {"a": 3, "b": 2, "c": 3}
+    annotate_rank_changes(rows, previous, key_field="model")
+
+    by_model = {r["model"]: r for r in rows}
+    assert by_model["a"]["rank"] == 1 and by_model["a"]["rank_delta"] == 2
+    assert by_model["a"]["rank_state"] == "up"
+    assert by_model["b"]["rank"] == 2 and by_model["b"]["rank_state"] == "same"
+    assert by_model["c"]["rank"] == 3 and by_model["c"]["rank_state"] == "same"
+    # "d" has no numeric latency -> unranked this snapshot.
+    assert by_model["d"]["rank"] is None and by_model["d"]["rank_state"] == "none"
+
+
+def test_annotate_rank_changes_marks_new_when_absent_before():
+    from azure_region_monitor.latency_view import annotate_rank_changes
+
+    rows = [{"model": "x", "latency_ms": 100}]
+    annotate_rank_changes(rows, {}, key_field="model")
+    assert rows[0]["rank"] == 1
+    assert rows[0]["rank_state"] == "new"
+    assert rows[0]["rank_delta"] is None
+
+
+def test_previous_leaderboard_and_regional_ranks_from_history():
+    from azure_region_monitor.latency_view import (
+        previous_leaderboard_ranks,
+        previous_regional_ranks,
+    )
+
+    history = {
+        "days": [
+            {  # newest day (ignored as "previous")
+                "date": "2026-06-18",
+                "models": {"openai/gpt-4o": {"p50_ms": 900}},
+                "regional": {"gpt-4o": {"eastus": {"p50_ms": 900}}},
+            },
+            {  # this is the "previous" snapshot used for deltas
+                "date": "2026-06-17",
+                "models": {"openai/gpt-4o": {"p50_ms": 1500}, "openai/o4-mini": {"p50_ms": 1200}},
+                "regional": {
+                    "gpt-4o": {"eastus": {"p50_ms": 1100}, "westus3": {"p50_ms": 700}}
+                },
+            },
+        ]
+    }
+    assert previous_leaderboard_ranks(history) == {"openai/o4-mini": 1, "openai/gpt-4o": 2}
+    assert previous_regional_ranks(history) == {"gpt-4o": {"westus3": 1, "eastus": 2}}
+
+
+def test_previous_ranks_empty_without_enough_history():
+    from azure_region_monitor.latency_view import (
+        previous_leaderboard_ranks,
+        previous_regional_ranks,
+    )
+
+    assert previous_leaderboard_ranks(None) == {}
+    assert previous_regional_ranks({"days": [{"date": "2026-06-18", "models": {}}]}) == {}
+
+
