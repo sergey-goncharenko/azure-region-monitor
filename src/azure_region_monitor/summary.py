@@ -10,9 +10,39 @@ SYSTEM_PROMPT = (
     "You write a short daily change digest for an Azure regional availability monitor. "
     "Summarize ONLY the structured change facts provided into 1 to 3 short, factual sentences. "
     "Do not invent regions, models, features, or numbers that are not in the facts. "
-    "Prefer plain language such as 'newly lists', 'stopped listing', or 'region added'. "
+    "Be interpretive but grounded: a feature going from absent/unavailable to available is a "
+    "rollout or new deployment; for AI models or model versions call it a newer model/version "
+    "rolling out. A feature going from available to unavailable is a delisting; for AI models or "
+    "model versions call it a likely deprecation or retirement. For the latency modalities, an "
+    "addition means the monitor started measuring that model/region and a removal means it stopped. "
     "Do not add caveats, disclaimers, or a preamble."
 )
+
+# Opinionated phrasing per (modality, change direction). Grounded in what the change
+# type actually proves: absent->available is a rollout; available->unavailable is a delisting.
+_INTERPRETATION: dict[tuple[str, str], str] = {
+    ("Azure AI models", "new_availability"): "newer models/versions rolling out",
+    ("Azure AI models", "regression"): "models/versions delisted (likely deprecation)",
+    ("Azure model latency", "new_availability"): "started measuring new model/region deployments",
+    ("Azure model latency", "regression"): "stopped measuring (deployment gone)",
+    ("Model latency", "new_availability"): "new models added to the speed board",
+    ("Model latency", "regression"): "models dropped from the speed board",
+    ("AKS extensions", "new_availability"): "extension types now listed",
+    ("AKS extensions", "regression"): "extension types stopped listing",
+    ("AKS Kubernetes versions", "new_availability"): "Kubernetes versions now offered",
+    ("AKS Kubernetes versions", "regression"): "Kubernetes versions withdrawn",
+    ("Azure Functions", "new_availability"): "Functions hosting/runtimes now listed",
+    ("Azure Functions", "regression"): "Functions hosting/runtimes stopped listing",
+    ("Container Apps", "new_availability"): "Container Apps now advertised",
+    ("Container Apps", "regression"): "Container Apps stopped advertising",
+    ("VM SKUs", "new_availability"): "VM sizes now offered",
+    ("VM SKUs", "regression"): "VM sizes withdrawn",
+}
+
+
+def _interpretation(modality: str, change_type: str) -> str:
+    default = "newly available" if change_type == "new_availability" else "stopped listing"
+    return _INTERPRETATION.get((modality, change_type), default)
 
 
 class NarrativeClient(Protocol):
@@ -71,18 +101,32 @@ def _rule_summary(changes: list[Change], signals: list[Change]) -> str:
         f"{_plural(len(regressions), 'regression')} across {len(regions)} "
         f"{_plural(len(regions), 'region')}."
     ]
-    if new_avail:
-        parts.append("New availability — " + _examples(new_avail) + ".")
-    if regressions:
-        parts.append("Regressions — " + _examples(regressions) + ".")
+    # Regressions first: a delisting/deprecation is the more consequential signal.
+    parts.extend(_opinionated_sentences(regressions, "regression"))
+    parts.extend(_opinionated_sentences(new_avail, "new_availability"))
     return " ".join(parts)
+
+
+def _opinionated_sentences(changes: list[Change], change_type: str) -> list[str]:
+    """One interpretive sentence per modality, grouping that modality's changes."""
+
+    by_modality: dict[str, list[Change]] = {}
+    for change in changes:
+        by_modality.setdefault(_modality(change.feature), []).append(change)
+
+    sentences: list[str] = []
+    for modality in sorted(by_modality):
+        group = by_modality[modality]
+        sentences.append(
+            f"{modality}: {_interpretation(modality, change_type)} "
+            f"({len(group)} {_plural(len(group), 'signal')}) — {_examples(group)}."
+        )
+    return sentences
 
 
 def _examples(changes: list[Change]) -> str:
     shown = changes[:MAX_EXAMPLES]
-    rendered = "; ".join(
-        f"{c.region} · {_feature_label(c.feature)} ({_modality(c.feature)})" for c in shown
-    )
+    rendered = "; ".join(f"{c.region} · {_feature_label(c.feature)}" for c in shown)
     remaining = len(changes) - len(shown)
     if remaining > 0:
         rendered += f"; and {remaining} more"
@@ -118,8 +162,6 @@ def _modality(feature: str) -> str:
         return "Azure AI models"
     if feature.startswith("modelLatency."):
         return "Model latency"
-    if feature.startswith("modelLatency."):
-        return "Model latency"
     if feature.startswith("aiLatency."):
         return "Azure model latency"
     if feature.startswith("containerApps."):
@@ -130,7 +172,14 @@ def _modality(feature: str) -> str:
 
 
 def _feature_label(feature: str) -> str:
-    for prefix in ("aiModels.", "modelLatency.", "extensionTypes.", "runtimes.", "vmSkus."):
+    for prefix in (
+        "aiModels.",
+        "aiLatency.",
+        "modelLatency.",
+        "extensionTypes.",
+        "runtimes.",
+        "vmSkus.",
+    ):
         if feature.startswith(prefix):
             feature = feature.removeprefix(prefix)
             break
