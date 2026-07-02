@@ -87,3 +87,32 @@ def test_ai_empty_reply_falls_back_to_rule():
     result = build_change_narrative(changes, client=client)
 
     assert result["narrative_source"] == "rule"
+
+
+def test_rule_summary_is_opinionated_about_rollout_and_deprecation():
+    changes = [
+        _change("eastus", "aiModels.openai.gpt-5.2025", "unavailable", "available", "new_availability"),
+        _change("westeurope", "aiModels.openai.gpt-4-32k.2023", "available", "unavailable", "regression"),
+    ]
+
+    narrative = build_change_narrative(changes, client=None)["narrative"]
+
+    # New AI model listing is framed as a rollout; a delisting as likely deprecation.
+    assert "rolling out" in narrative
+    assert "likely deprecation" in narrative
+    # Modality is the sentence prefix and regions are named.
+    assert "Azure AI models:" in narrative
+    assert "eastus" in narrative and "westeurope" in narrative
+
+
+def test_rule_summary_frames_latency_additions_and_removals():
+    changes = [
+        _change("eastus", "aiLatency.openai.gpt-5.1", "unavailable", "available", "new_availability"),
+        _change("westus3", "aiLatency.openai.gpt-4o", "available", "unavailable", "regression"),
+    ]
+
+    narrative = build_change_narrative(changes, client=None)["narrative"]
+
+    assert "started measuring" in narrative
+    assert "stopped measuring" in narrative
+    assert "Azure model latency:" in narrative
