@@ -662,6 +662,10 @@ def _render_methodology_page(snapshot: Snapshot) -> str:
         <p>If a region is absent from that list, the dashboard marks Flex Consumption as <span class="status status-unavailable">unavailable</span>. In plain language, that means Azure did not advertise that region as a Flex Consumption location to this command at scan time. It is not a quota result.</p>
         <p>The runtime rows, such as <code>runtimes.python.3.14</code> or <code>runtimes.node.24</code>, are tied to the Flex location signal. If Flex is not listed for a region, every Functions runtime row is marked unavailable for that region because there is no Flex hosting target in the read-only evidence. If Flex is listed, runtime availability is checked against <code>az functionapp list-runtimes --os linux --output json</code>.</p>
         <div class="note"><strong>Quota is separate.</strong> A region can be listed as available here and still fail a real deployment because of subscription quota, regional capacity, Azure Policy, provider registration, RBAC, or service-specific constraints. A quota or capacity signal needs a separate probe, probably using usage APIs and eventually a controlled create/delete deployment check.</div>
+        <h3>Azure per-region model latency coverage</h3>
+        <p>The <strong>Azure Per-Region Latency</strong> board only lists regions where an Azure OpenAI model is offered as a single-region <strong>Standard</strong> deployment. That matters because only a single-region Standard (non-global) deployment is processed in its own account's region, which is what makes a timing attributable to that region. <code>GlobalStandard</code> and <code>DataZoneStandard</code> deployments may be processed in any datacenter in their geography, so timing them would not tell you how fast a specific region is.</p>
+        <p>This is why many large regions &mdash; for example <code>westeurope</code>, <code>northeurope</code>, <code>southeastasia</code>, <code>koreacentral</code>, and <code>centralindia</code> &mdash; do not appear even though they clearly host Azure OpenAI. In those regions the models are currently offered only as GlobalStandard / DataZoneStandard / ProvisionedManaged, not as single-region Standard, so there is nothing region-attributable to measure. The monitor scans a broad candidate region list each run and automatically adds any region the moment Azure starts offering a Standard SKU there.</p>
+        <p>Names like &ldquo;Asia&rdquo;, &ldquo;South Asia&rdquo;, or &ldquo;Europe East&rdquo; are Azure <em>geographies</em> or informal groupings, not deployable region IDs. The comparable real regions are <code>eastasia</code>, <code>southeastasia</code>, <code>centralindia</code>/<code>southindia</code>, and <code>northeurope</code>/<code>westeurope</code>.</p>
         <h3>Other modalities</h3>
         <table>
           <thead><tr><th>Modality</th><th>Available means</th><th>Unavailable means</th></tr></thead>
@@ -829,6 +833,14 @@ def _render_regional_latency_section(
         the region. It still includes network distance from the probe runner's vantage, so read it
         as relative region speed rather than an SLA. The <strong>Rank</strong> column shows each
         region's speed position and how it moved since the previous snapshot.
+        <br><strong>Why only these regions?</strong> A region appears here only when Azure offers the
+        model as a single-region <code>Standard</code> SKU. Many large regions (for example
+        <code>westeurope</code>, <code>northeurope</code>, <code>southeastasia</code>,
+        <code>koreacentral</code>, <code>centralindia</code>) currently offer these models only as
+        <code>GlobalStandard</code>/<code>DataZoneStandard</code>, which can run in any datacenter in
+        their geography and so are not region-attributable. See
+        <a href="methodology.html">Status meanings</a> for details; new regions surface automatically
+        once a Standard SKU appears.
       </div>
       {tables}
     </section>"""

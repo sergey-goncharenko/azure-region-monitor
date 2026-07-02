@@ -41,6 +41,23 @@ New models (for example `gpt-5.1`) and newly enabled regions therefore surface
 automatically. The step is best-effort (`continue-on-error`), so a deployment hiccup
 still lets the probe run against existing deployments.
 
+### Why only some regions appear
+
+Only a single-region **Standard** deployment is region-attributable: it is processed in
+its own account's region, so its latency reflects that region. `GlobalStandard` and
+`DataZoneStandard` deployments may be processed in any datacenter in their geography, so
+timing them would not measure a specific region and they are intentionally excluded.
+
+As a result, many large regions that clearly host Azure OpenAI — for example
+`westeurope`, `northeurope`, `southeastasia`, `koreacentral`, `centralindia` — do **not**
+appear on the board, because those regions currently offer these models only as
+GlobalStandard / DataZoneStandard / ProvisionedManaged, not as single-region Standard.
+The candidate region list is broad on purpose: the moment Azure starts offering a Standard
+SKU in one of them, discovery deploys it and it shows up automatically. (Names like "Asia",
+"South Asia", or "Europe East" are Azure geographies/groupings, not deployable region IDs;
+the real IDs are `eastasia`, `southeastasia`, `centralindia`/`southindia`,
+`northeurope`/`westeurope`.)
+
 ## Permissions
 
 The single GitHub OIDC principal needs two role assignments **at the resource-group
