@@ -11,7 +11,10 @@ from pathlib import Path
 from typing import Any
 
 from azure_region_monitor.diff import build_diff
-from azure_region_monitor.latency_view import extract_latency_metrics
+from azure_region_monitor.latency_view import (
+    extract_latency_metrics,
+    extract_regional_latency_metrics,
+)
 from azure_region_monitor.models import Change, Snapshot
 from azure_region_monitor.storage import load_snapshot
 from azure_region_monitor.summary import NarrativeClient, build_change_narrative
@@ -122,9 +125,13 @@ def _update_latency_history(
 
 def _latency_history_entry(snapshot: Snapshot, date: str) -> dict[str, Any] | None:
     metrics = extract_latency_metrics(snapshot)
-    if not metrics:
+    regional = extract_regional_latency_metrics(snapshot)
+    if not metrics and not regional:
         return None
-    return {"date": date, "models": metrics}
+    entry: dict[str, Any] = {"date": date, "models": metrics}
+    if regional:
+        entry["regional"] = regional
+    return entry
 
 
 def _backfill_latency_history(history_dir: Path) -> dict[str, dict[str, Any]]:

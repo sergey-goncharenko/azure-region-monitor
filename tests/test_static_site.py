@@ -48,6 +48,20 @@ def test_regional_latency_section_groups_by_model():
     assert html.count("<table>") == 2
 
 
+def test_regional_latency_section_shows_rank_deltas():
+    prev = {"gpt-4o": {"eastus": 1, "westus3": 3}}
+    html = _render_regional_latency_section(_ai_latency_snapshot(), prev)
+
+    # Rank column header present.
+    assert "<th>Rank</th>" in html
+    # westus3 is fastest now (#1) and was #3 -> moved up 2.
+    assert "rank-up" in html
+    # eastus was #1, now slower -> moved down.
+    assert "rank-down" in html
+    # gpt-5.1 has no previous ranks -> rows marked new.
+    assert "rank-new" in html
+
+
 def test_regional_latency_section_empty_without_data():
     from azure_region_monitor.models import FeatureResult, Snapshot
 

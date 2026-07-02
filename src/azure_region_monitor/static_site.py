@@ -9,9 +9,12 @@ from typing import Any
 
 from azure_region_monitor.history import copy_history_to_api
 from azure_region_monitor.latency_view import (
+    annotate_rank_changes,
     build_latency_rows,
     build_latency_series,
     build_regional_latency_rows,
+    previous_leaderboard_ranks,
+    previous_regional_ranks,
 )
 from azure_region_monitor.models import Snapshot
 from azure_region_monitor.snapshot_shards import build_modality_shards, build_summary
@@ -116,13 +119,22 @@ def build_static_site(
     _write_snapshot_shards(api_dir, snapshot)
 
     recent_changes = _load_recent_changes(history_path)
-    latency_series = build_latency_series(_load_latency_history(history_path))
+    latency_history = _load_latency_history(history_path)
+    latency_series = build_latency_series(latency_history)
+    leaderboard_prev_ranks = previous_leaderboard_ranks(latency_history)
+    regional_prev_ranks = previous_regional_ranks(latency_history)
     (output_dir / "index.html").write_text(
         _render_index(snapshot, recent_changes=recent_changes), encoding="utf-8"
     )
     (output_dir / "heatmap.html").write_text(_render_heatmap_page(snapshot), encoding="utf-8")
     (output_dir / "latency.html").write_text(
-        _render_latency_page(snapshot, latency_series), encoding="utf-8"
+        _render_latency_page(
+            snapshot,
+            latency_series,
+            leaderboard_prev_ranks=leaderboard_prev_ranks,
+            regional_prev_ranks=regional_prev_ranks,
+        ),
+        encoding="utf-8",
     )
     (output_dir / "methodology.html").write_text(_render_methodology_page(snapshot), encoding="utf-8")
     _write_latency_api(api_dir, snapshot)
@@ -704,9 +716,13 @@ def _write_latency_api(api_dir: Path, snapshot: Snapshot) -> None:
 
 
 def _render_latency_page(
-    snapshot: Snapshot, latency_series: dict[str, list[dict[str, Any]]] | None = None
+    snapshot: Snapshot,
+    latency_series: dict[str, list[dict[str, Any]]] | None = None,
+    leaderboard_prev_ranks: dict[str, int] | None = None,
+    regional_prev_ranks: dict[str, dict[str, int]] | None = None,
 ) -> str:
     rows = build_latency_rows(snapshot)
+    annotate_rank_changes(rows, leaderboard_prev_ranks or {}, key_field="model")
     series = latency_series or {}
     return f"""<!doctype html>
 <html lang="en">
@@ -750,7 +766,7 @@ def _render_latency_page(
       </div>
       {_render_latency_table(rows, series)}
     </section>
-    {_render_regional_latency_section(snapshot)}
+    {_render_regional_latency_section(snapshot, regional_prev_ranks or {})}
     <section class="panel prose" aria-label="Model latency methodology">
       <div class="panel-header">
         <h2>How to read this</h2>
@@ -773,6 +789,11 @@ def _render_latency_page(
         days. A <span class="spark-down">&#9660;</span> means the model got faster, a
         <span class="spark-up">&#9650;</span> means it got slower; new models show
         &ldquo;collecting&rdquo; until a few days of history accumulate.</p>
+        <p>The <strong>Rank</strong> column shows each row&rsquo;s speed position (fastest = #1) and
+        how it moved versus the previous snapshot: <span class="rank-up">&#9650;&nbsp;2</span> means
+        it climbed two places (relatively faster), <span class="rank-down">&#9660;&nbsp;1</span>
+        means it slipped one, <span class="rank-flat">&mdash;</span> means unchanged, and
+        <span class="rank-new">new</span> marks a row with no previous ranking.</p>
       </div>
     </section>
   </main>
@@ -781,17 +802,20 @@ def _render_latency_page(
 """
 
 
-def _render_regional_latency_section(snapshot: Snapshot) -> str:
+def _render_regional_latency_section(
+    snapshot: Snapshot, regional_prev_ranks: dict[str, dict[str, int]] | None = None
+) -> str:
     rows = build_regional_latency_rows(snapshot)
     if not rows:
         return ""
 
+    prev_ranks = regional_prev_ranks or {}
     by_model: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
         by_model.setdefault(str(row.get("model") or "model"), []).append(row)
 
     tables = "\n".join(
-        _render_regional_latency_model_table(model, by_model[model])
+        _render_regional_latency_model_table(model, by_model[model], prev_ranks.get(model, {}))
         for model in sorted(by_model)
     )
     return f"""<section class="panel" aria-label="Azure per-region model latency">
@@ -803,13 +827,17 @@ def _render_regional_latency_section(snapshot: Snapshot) -> str:
         <strong>This is real Azure per-region latency.</strong> Each row is a single-region
         Standard deployment of that model in that Azure region, so the timing is attributable to
         the region. It still includes network distance from the probe runner's vantage, so read it
-        as relative region speed rather than an SLA.
+        as relative region speed rather than an SLA. The <strong>Rank</strong> column shows each
+        region's speed position and how it moved since the previous snapshot.
       </div>
       {tables}
     </section>"""
 
 
-def _render_regional_latency_model_table(model: str, rows: list[dict[str, Any]]) -> str:
+def _render_regional_latency_model_table(
+    model: str, rows: list[dict[str, Any]], previous_ranks: dict[str, int] | None = None
+) -> str:
+    annotate_rank_changes(rows, previous_ranks or {}, key_field="region")
     body = "\n".join(_render_regional_latency_row(row) for row in rows)
     return f"""<div class="latency-model-group">
         <h3>{html.escape(model)} &middot; {len(rows)} {"region" if len(rows) == 1 else "regions"}</h3>
@@ -817,6 +845,7 @@ def _render_regional_latency_model_table(model: str, rows: list[dict[str, Any]])
           <table>
             <thead>
               <tr>
+                <th>Rank</th>
                 <th>Region</th>
                 <th>Status</th>
                 <th class="number">p50 (ms)</th>
@@ -838,6 +867,7 @@ def _render_regional_latency_row(row: dict[str, Any]) -> str:
     if row.get("samples_collected") is not None and row.get("samples_requested") is not None:
         samples = f"{row['samples_collected']}/{row['samples_requested']}"
     return f"""<tr>
+                <td>{_render_rank_cell(row)}</td>
                 <td><code>{html.escape(str(row.get("region", "")))}</code></td>
                 <td><span class="status status-{html.escape(status)}">{html.escape(status)}</span></td>
                 <td class="number">{_latency_cell(row.get("latency_ms"))}</td>
@@ -846,6 +876,26 @@ def _render_regional_latency_row(row: dict[str, Any]) -> str:
                 <td class="number">{_tokens_cell(row.get("tokens_per_second"))}</td>
                 <td class="number">{html.escape(samples) or "&mdash;"}</td>
               </tr>"""
+
+
+def _render_rank_cell(row: dict[str, Any]) -> str:
+    """Render a rank position plus a movement badge vs the previous snapshot."""
+
+    rank = row.get("rank")
+    state = str(row.get("rank_state", "none"))
+    if rank is None:
+        return '<span class="rank-none">&mdash;</span>'
+
+    position = f'<span class="rank-pos">#{rank}</span>'
+    if state == "new":
+        badge = '<span class="rank-new">new</span>'
+    elif state == "up":
+        badge = f'<span class="rank-up">&#9650;&nbsp;{abs(int(row["rank_delta"]))}</span>'
+    elif state == "down":
+        badge = f'<span class="rank-down">&#9660;&nbsp;{abs(int(row["rank_delta"]))}</span>'
+    else:
+        badge = '<span class="rank-flat">&mdash;</span>'
+    return f"{position} {badge}"
 
 
 def _render_latency_table(
@@ -860,6 +910,7 @@ def _render_latency_table(
         <table>
           <thead>
             <tr>
+              <th>Rank</th>
               <th>Model</th>
               <th>Status</th>
               <th class="number">p50 (ms)</th>
@@ -883,6 +934,7 @@ def _render_latency_row(
     if row.get("samples_collected") is not None and row.get("samples_requested") is not None:
         samples = f"{row['samples_collected']}/{row['samples_requested']}"
     return f"""<tr>
+                <td>{_render_rank_cell(row)}</td>
                 <td>{html.escape(str(row.get("model", "")))}</td>
                 <td><span class="status status-{html.escape(status)}">{html.escape(status)}</span></td>
                 <td class="number">{_latency_cell(row.get("latency_ms"))}</td>
@@ -1070,6 +1122,12 @@ def _style_block() -> str:
     .spark-down { color: var(--available-text); font-size: 12px; font-weight: 600; }
     .spark-flat { color: var(--muted); font-size: 12px; font-weight: 600; }
     .spark-empty { color: var(--muted); font-size: 12px; }
+    .rank-pos { font-weight: 600; color: var(--text); }
+    .rank-up { color: var(--available-text); font-size: 12px; font-weight: 700; margin-left: 4px; }
+    .rank-down { color: var(--unavailable-text); font-size: 12px; font-weight: 700; margin-left: 4px; }
+    .rank-flat { color: var(--muted); font-size: 12px; margin-left: 4px; }
+    .rank-new { color: #0f4c81; background: #eef5ff; border: 1px solid #bcd4f6; border-radius: 999px; padding: 1px 7px; font-size: 11px; font-weight: 700; margin-left: 4px; }
+    .rank-none { color: var(--muted); }
     .latency-model-group { margin-top: 16px; }
     .latency-model-group:first-of-type { margin-top: 8px; }
     .latency-model-group h3 { margin: 0 0 8px; font-size: 16px; }
