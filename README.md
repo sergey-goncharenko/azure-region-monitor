@@ -66,7 +66,7 @@ The first implementation slice is a Python service with:
 
 ## Scope Discovery
 
-The full scheduled workflow runs daily and uses the Python `DEFAULT_REGIONS` list when the region input is left blank. That list tracks Azure physical locations returned by Azure CLI, including recommended and other public cloud locations. In alpha, treat this as the monitor's configured Azure public cloud scope, not a contractual statement that every Azure location, sovereign cloud, private preview region, or hidden capacity cell is represented.
+The full scheduled workflow (`daily-scan.yml`) runs daily and discovers the region set at run time from `az account list-locations` (every physical region), so brand-new Azure regions are covered automatically. If discovery is unavailable it falls back to the Python `DEFAULT_REGIONS` list, which tracks Azure physical locations returned by Azure CLI. In alpha, treat this as the monitor's configured Azure public cloud scope, not a contractual statement that every Azure location, sovereign cloud, private preview region, or hidden capacity cell is represented.
 
 Feature items are mixed by design:
 

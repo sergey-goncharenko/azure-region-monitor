@@ -1,8 +1,32 @@
 name: Azure model latency tests
 
 on:
-  schedule:
-    - cron: "47 5 * * *"
+  workflow_call:
+    inputs:
+      resource_group:
+        type: string
+        required: false
+        default: "azure-region-monitor-latency"
+      samples:
+        type: string
+        required: false
+        default: "5"
+      candidate_regions:
+        type: string
+        required: false
+        default: ""
+      max_models:
+        type: string
+        required: false
+        default: "8"
+      skip_discovery:
+        type: boolean
+        required: false
+        default: false
+      deploy_dashboard:
+        type: boolean
+        required: false
+        default: false
   workflow_dispatch:
     inputs:
       resource_group:
@@ -237,7 +261,7 @@ jobs:
 
   deploy-dashboard:
     name: Deploy dashboard
-    if: inputs.deploy_dashboard || github.event_name == 'schedule'
+    if: inputs.deploy_dashboard
     needs: azure-latency
     runs-on: ubuntu-latest
     steps:

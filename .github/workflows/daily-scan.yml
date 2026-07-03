@@ -1,0 +1,185 @@
+name: Daily scan
+
+# Single orchestrated daily pipeline. Every modality probe runs as a parallel job
+# (stage 1); a single deploy job (stage 2) waits for all of them, merges every
+# modality onto the live snapshot, and deploys the dashboard exactly once. This
+# replaces the previous three independently-scheduled workflows, which each deployed
+# the dashboard and could race or deploy mid-scan.
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      deploy_dashboard:
+        description: "Deploy the combined dashboard after all probes finish"
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  id-token: write
+  models: read
+
+jobs:
+  aks-extensions:
+    uses: ./.github/workflows/regional-probe-run.yml
+    with:
+      probes: "aks-extension-catalog-cli"
+      discover_regions: true
+      install_k8s_extension: true
+      azure_cli_timeout_seconds: "120"
+      artifact_name: "shard-aks-extensions"
+      deploy_dashboard: false
+    secrets: inherit
+
+  aks-versions:
+    uses: ./.github/workflows/regional-probe-run.yml
+    with:
+      probes: "aks-version-cli"
+      discover_regions: true
+      aks_kubernetes_version_prefixes: "1.32,1.33,1.34,1.35"
+      azure_cli_timeout_seconds: "120"
+      artifact_name: "shard-aks-versions"
+      deploy_dashboard: false
+    secrets: inherit
+
+  functions:
+    uses: ./.github/workflows/regional-probe-run.yml
+    with:
+      probes: "function-flex-cli"
+      discover_regions: true
+      azure_cli_timeout_seconds: "120"
+      artifact_name: "shard-functions"
+      deploy_dashboard: false
+    secrets: inherit
+
+  ai-models:
+    uses: ./.github/workflows/regional-probe-run.yml
+    with:
+      probes: "ai-model-catalog-cli"
+      discover_regions: true
+      ai_model_features: "all"
+      azure_cli_timeout_seconds: "120"
+      artifact_name: "shard-ai-models"
+      deploy_dashboard: false
+    secrets: inherit
+
+  container-apps:
+    uses: ./.github/workflows/regional-probe-run.yml
+    with:
+      probes: "container-apps-provider-cli"
+      discover_regions: true
+      azure_cli_timeout_seconds: "120"
+      artifact_name: "shard-container-apps"
+      deploy_dashboard: false
+    secrets: inherit
+
+  vm-skus:
+    uses: ./.github/workflows/regional-probe-run.yml
+    with:
+      probes: "vm-sku-cli"
+      discover_regions: true
+      vm_skus: "all"
+      azure_cli_timeout_seconds: "120"
+      artifact_name: "shard-vm-skus"
+      deploy_dashboard: false
+    secrets: inherit
+
+  model-latency:
+    uses: ./.github/workflows/regional-probe-run.yml
+    with:
+      probes: "model-latency-cli"
+      regions: "github-global"
+      azure_login: false
+      model_latency_models: "auto"
+      model_latency_samples: "3"
+      artifact_name: "shard-model-latency"
+      deploy_dashboard: false
+    secrets: inherit
+
+  azure-latency:
+    uses: ./.github/workflows/azure-latency-tests.yml
+    with:
+      deploy_dashboard: false
+    secrets: inherit
+
+  deploy-dashboard:
+    name: Deploy combined dashboard
+    if: ${{ always() && (github.event_name == 'schedule' || inputs.deploy_dashboard) }}
+    needs:
+      - aks-extensions
+      - aks-versions
+      - functions
+      - ai-models
+      - container-apps
+      - vm-skus
+      - model-latency
+      - azure-latency
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: python -m pip install ".[dev]"
+
+      - name: Download all modality artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: data/artifacts
+
+      - name: Merge all modalities onto the live snapshot
+        env:
+          EXISTING_SNAPSHOT_URL: "https://azwatch.operator.lat/api/latest.json"
+        run: |
+          set -uo pipefail
+          mkdir -p data/snapshots data/history
+
+          # Overlay every modality shard that was produced this run onto the live
+          # snapshot. A modality whose probe failed leaves no artifact, so its last
+          # good data is carried forward from the live base. Order among distinct
+          # modalities does not matter because each overlay only replaces its own
+          # modality's features.
+          overlays=()
+          while IFS= read -r shard; do
+            [ -n "$shard" ] && overlays+=(--overlay "$shard")
+          done < <(find data/artifacts -type f -name 'latest.json' -not -path '*/diffs/*' | sort)
+          echo "Merging ${#overlays[@]} modality shard(s)."
+
+          azure-region-monitor merge-snapshot \
+            --base-url "$EXISTING_SNAPSHOT_URL" \
+            "${overlays[@]}" \
+            --output data/snapshots/latest.json
+
+      - name: Update snapshot history
+        env:
+          HISTORY_BASE_URL: "https://azwatch.operator.lat/api/history"
+          GITHUB_MODELS_TOKEN: ${{ secrets.GH_MODELS_TOKEN || github.token }}
+        run: |
+          azure-region-monitor update-history \
+            --snapshot data/snapshots/latest.json \
+            --history-dir data/history \
+            --base-url "$HISTORY_BASE_URL"
+
+      - name: Build static site
+        run: azure-region-monitor build-static --output public
+
+      - name: Report static site size
+        run: |
+          du -sh public
+          find public -type f -printf '%s %p\n' | sort -nr | head -20
+
+      - name: Deploy Azure Static Web App
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          action: upload
+          app_location: public
+          skip_app_build: true

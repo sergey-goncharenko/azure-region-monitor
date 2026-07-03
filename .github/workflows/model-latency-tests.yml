@@ -1,8 +1,6 @@
 name: Model latency tests
 
 on:
-  schedule:
-    - cron: "41 5 * * *"
   workflow_dispatch:
     inputs:
       regions:
@@ -43,6 +41,6 @@ jobs:
       model_latency_samples: ${{ inputs.model_latency_samples || '3' }}
       azure_login: false
       artifact_name: "azure-region-monitor-model-latency"
-      deploy_dashboard: ${{ inputs.deploy_dashboard || github.event_name == 'schedule' }}
-      existing_snapshot_url: ${{ (inputs.deploy_dashboard || github.event_name == 'schedule') && 'https://azwatch.operator.lat/api/latest.json' || '' }}
+      deploy_dashboard: ${{ inputs.deploy_dashboard || false }}
+      existing_snapshot_url: ${{ inputs.deploy_dashboard && 'https://azwatch.operator.lat/api/latest.json' || '' }}
     secrets: inherit

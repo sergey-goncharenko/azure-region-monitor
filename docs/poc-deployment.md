@@ -28,9 +28,10 @@ The PoC proves that synthetic checks can produce structured, region-by-region Az
 - Default Azure AI model checks: all models returned by `az cognitiveservices model list --location <region> --output json`
 - Output snapshot: `data/snapshots/latest.json`
 - Output diff: `data/diffs/latest.json`
-- Full dashboard automation: `.github/workflows/synthetic-tests.yml`
-- Full dashboard schedule: daily at 03:17 UTC
+- Full dashboard automation: `.github/workflows/daily-scan.yml`
+- Full dashboard schedule: daily at 03:17 UTC (single orchestrated run)
 - Manual modality test workflows:
+  - `.github/workflows/synthetic-tests.yml` (all core modalities in one run)
   - `.github/workflows/aks-extension-tests.yml`
   - `.github/workflows/aks-version-tests.yml`
   - `.github/workflows/function-flex-tests.yml`
@@ -38,6 +39,7 @@ The PoC proves that synthetic checks can produce structured, region-by-region Az
   - `.github/workflows/container-apps-tests.yml`
   - `.github/workflows/vm-sku-tests.yml`
   - `.github/workflows/model-latency-tests.yml`
+  - `.github/workflows/azure-latency-tests.yml`
   - `.github/workflows/azure-latency-tests.yml`
 - Shared runner workflow: `.github/workflows/regional-probe-run.yml`
 - Static host: Azure Static Web Apps
@@ -182,6 +184,8 @@ For a faster modality-specific run, select one of the focused workflows instead:
 - `Azure model latency tests` runs `ai-model-latency-cli` against the per-region Azure OpenAI deployments from `infra/regional-latency`, measuring real Azure regional latency.
 
 Focused workflows upload modality-specific artifacts and do not deploy the public dashboard by default. When `deploy_dashboard` is enabled, focused deployments merge the fresh modality snapshot into the current live dashboard snapshot before publishing, so other modality sections remain visible.
+
+The scheduled `daily-scan.yml` orchestrator runs every modality probe as a parallel job (so the whole scan takes about as long as the slowest single modality instead of the sum of all of them) and then runs a single deploy job that waits for all probes, merges every modality onto the live snapshot, and publishes the dashboard exactly once. A modality whose probe fails leaves no artifact, so its last-good data is carried forward from the live snapshot. Because only the orchestrator is scheduled, focused workflows never race each other to deploy, and the dashboard is never published mid-scan.
 
 The reusable runner caps each Azure CLI probe command with `AZURE_CLI_TIMEOUT_SECONDS`. The reusable default is 45 seconds; the full synthetic workflow currently defaults to 120 seconds. Slow calls are recorded as `unknown` in the snapshot instead of blocking the dashboard refresh.
 
