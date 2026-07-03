@@ -7,6 +7,7 @@ from azure_region_monitor.config import AiLatencyTarget
 from azure_region_monitor.models import FeatureResult
 from azure_region_monitor.probes.base import ProbeResult
 from azure_region_monitor.probes.model_latency import (
+    DEFAULT_MAX_BACKOFF_SECONDS,
     DEFAULT_MAX_TOKENS,
     DEFAULT_PROMPT,
     DEFAULT_RATE_LIMIT_BACKOFF_SECONDS,
@@ -52,6 +53,7 @@ class AzureOpenAiLatencyProbe:
         client_factory: ClientFactory | None = None,
         rate_limit_retries: int = DEFAULT_RATE_LIMIT_RETRIES,
         rate_limit_backoff_seconds: float = DEFAULT_RATE_LIMIT_BACKOFF_SECONDS,
+        max_backoff_seconds: float = DEFAULT_MAX_BACKOFF_SECONDS,
         sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         self._targets_by_region: dict[str, list[AiLatencyTarget]] = {}
@@ -64,6 +66,7 @@ class AzureOpenAiLatencyProbe:
         self._client_factory = client_factory
         self._rate_limit_retries = max(0, rate_limit_retries)
         self._rate_limit_backoff_seconds = max(0.0, rate_limit_backoff_seconds)
+        self._max_backoff_seconds = max(0.0, max_backoff_seconds)
         self._sleep = sleep
 
     def run(self, region: str):
@@ -131,7 +134,8 @@ class AzureOpenAiLatencyProbe:
                 last_error = error
                 has_retries_left = attempt < self._rate_limit_retries
                 if _is_rate_limited(error) and has_retries_left:
-                    self._sleep(error.retry_after or self._rate_limit_backoff_seconds)
+                    requested = error.retry_after or self._rate_limit_backoff_seconds
+                    self._sleep(min(requested, self._max_backoff_seconds))
                     continue
                 return None, last_error
         return None, last_error

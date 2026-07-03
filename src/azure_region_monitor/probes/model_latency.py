@@ -14,6 +14,13 @@ DEFAULT_MAX_TOKENS = 256
 DEFAULT_SAMPLES = 5
 DEFAULT_RATE_LIMIT_RETRIES = 5
 DEFAULT_RATE_LIMIT_BACKOFF_SECONDS = 20.0
+# A rate-limited GitHub Models response can report a Retry-After measured in the
+# seconds until a daily-quota reset (potentially hours). Never sleep longer than
+# this ceiling for a single backoff so one throttled model cannot stall the run.
+DEFAULT_MAX_BACKOFF_SECONDS = 60.0
+# Overall wall-clock budget for the whole probe. Once exceeded, remaining models are
+# emitted as unknown without making further calls, so the job always finishes.
+DEFAULT_TIME_BUDGET_SECONDS = 900.0
 SERVICE = "model-latency"
 
 
@@ -67,7 +74,10 @@ class ModelLatencyProbe:
         client_factory: ClientFactory | None = None,
         rate_limit_retries: int = DEFAULT_RATE_LIMIT_RETRIES,
         rate_limit_backoff_seconds: float = DEFAULT_RATE_LIMIT_BACKOFF_SECONDS,
+        max_backoff_seconds: float = DEFAULT_MAX_BACKOFF_SECONDS,
+        time_budget_seconds: float | None = DEFAULT_TIME_BUDGET_SECONDS,
         sleep: Callable[[float], None] = time.sleep,
+        monotonic: Callable[[], float] = time.monotonic,
         auto_discover: bool = False,
         catalog_fetcher: Callable[[], list[dict]] | None = None,
     ) -> None:
@@ -79,15 +89,27 @@ class ModelLatencyProbe:
         self._client_factory = client_factory
         self._rate_limit_retries = max(0, rate_limit_retries)
         self._rate_limit_backoff_seconds = max(0.0, rate_limit_backoff_seconds)
+        self._max_backoff_seconds = max(0.0, max_backoff_seconds)
+        self._time_budget_seconds = time_budget_seconds
         self._sleep = sleep
+        self._monotonic = monotonic
         self._auto_discover = auto_discover
         self._catalog_fetcher = catalog_fetcher
         self._resolved_models: list[LatencyModel] | None = None
 
     def run(self, region: str):
         client = self._get_client()
+        deadline = (
+            self._monotonic() + self._time_budget_seconds
+            if self._time_budget_seconds is not None
+            else None
+        )
         for model in self._resolve_models():
-            yield self._measure_model(region, model, client)
+            if deadline is not None and self._monotonic() >= deadline:
+                # Budget spent: emit the rest without calling out, so the job ends.
+                yield _budget_exhausted_result(region, model)
+                continue
+            yield self._measure_model(region, model, client, deadline)
 
     def _resolve_models(self) -> list[LatencyModel]:
         if self._resolved_models is not None:
@@ -132,11 +154,16 @@ class ModelLatencyProbe:
         region: str,
         model: LatencyModel,
         client: InferenceLatencyClient,
+        deadline: float | None = None,
     ) -> ProbeResult:
         measurements: list[LatencyMeasurement] = []
         last_error: LatencyClientError | None = None
         for _ in range(self._samples):
-            measurement, last_error = self._collect_one_sample(client, model, last_error)
+            if deadline is not None and self._monotonic() >= deadline:
+                break
+            measurement, last_error = self._collect_one_sample(
+                client, model, last_error, deadline
+            )
             if measurement is not None:
                 measurements.append(measurement)
 
@@ -166,6 +193,7 @@ class ModelLatencyProbe:
         client: InferenceLatencyClient,
         model: LatencyModel,
         last_error: LatencyClientError | None,
+        deadline: float | None = None,
     ) -> tuple[LatencyMeasurement | None, LatencyClientError | None]:
         for attempt in range(self._rate_limit_retries + 1):
             try:
@@ -179,14 +207,44 @@ class ModelLatencyProbe:
                 last_error = error
                 has_retries_left = attempt < self._rate_limit_retries
                 if _is_rate_limited(error) and has_retries_left:
-                    self._sleep(error.retry_after or self._rate_limit_backoff_seconds)
+                    backoff = self._backoff_seconds(error, deadline)
+                    if backoff is None:
+                        # Not enough budget left to wait out the throttle; give up now.
+                        return None, last_error
+                    self._sleep(backoff)
                     continue
                 return None, last_error
         return None, last_error
 
+    def _backoff_seconds(
+        self, error: LatencyClientError, deadline: float | None
+    ) -> float | None:
+        """Bounded backoff: honor Retry-After but cap it, and never sleep past the budget."""
+
+        requested = error.retry_after or self._rate_limit_backoff_seconds
+        backoff = min(requested, self._max_backoff_seconds)
+        if deadline is not None and self._monotonic() + backoff >= deadline:
+            return None
+        return backoff
+
 
 def _is_rate_limited(error: LatencyClientError) -> bool:
     return error.retry_after is not None or "429" in (error.error_code or "")
+
+
+def _budget_exhausted_result(region: str, model: LatencyModel) -> ProbeResult:
+    return ProbeResult(
+        service=SERVICE,
+        feature=model.feature,
+        result=FeatureResult(
+            status="unknown",
+            error_code="LatencyTimeBudgetExhausted",
+            message=(
+                f"Skipped '{model.model}' in {region}: the model-latency time "
+                "budget was exhausted before this model was measured."
+            ),
+        ),
+    )
 
 
 def _aggregate_result(

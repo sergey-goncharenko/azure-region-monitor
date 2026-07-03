@@ -282,6 +282,12 @@ def _build_probe(probe_name: str):
             rate_limit_backoff_seconds=float(
                 os.environ.get("MODEL_LATENCY_RATE_LIMIT_BACKOFF_SECONDS", "20")
             ),
+            max_backoff_seconds=float(
+                os.environ.get("MODEL_LATENCY_MAX_BACKOFF_SECONDS", "60")
+            ),
+            time_budget_seconds=float(
+                os.environ.get("MODEL_LATENCY_BUDGET_SECONDS", "900")
+            ),
             auto_discover=auto_discover,
         )
     if probe_name == "ai-model-latency-cli":
