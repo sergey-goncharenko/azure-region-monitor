@@ -64,6 +64,7 @@ jobs:
   azure-latency:
     name: Run Azure regional latency probe
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     env:
       AI_LATENCY_SAMPLES: ${{ inputs.samples || '5' }}
     steps:
@@ -264,6 +265,7 @@ jobs:
     if: inputs.deploy_dashboard
     needs: azure-latency
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4

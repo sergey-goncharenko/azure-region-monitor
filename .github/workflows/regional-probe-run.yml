@@ -102,6 +102,7 @@ jobs:
   run-probes:
     name: Run regional probes
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     env:
       SNAPSHOT_DATE: ${{ github.run_id }}
       AKS_KUBERNETES_VERSION_PREFIXES: ${{ inputs.aks_kubernetes_version_prefixes }}
@@ -211,6 +212,7 @@ jobs:
     if: inputs.deploy_dashboard
     needs: run-probes
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
