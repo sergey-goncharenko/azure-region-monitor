@@ -100,10 +100,22 @@ def main() -> None:
     update_history_parser.set_defaults(handler=_update_history)
 
     merge_parser = subparsers.add_parser(
-        "merge-snapshot", help="Merge a focused modality snapshot into an existing snapshot"
+        "merge-snapshot", help="Merge one or more focused modality snapshots into a base snapshot"
     )
-    merge_parser.add_argument("--base-url", required=True)
-    merge_parser.add_argument("--overlay", type=Path, default=Path("data/snapshots/latest.json"))
+    merge_parser.add_argument("--base-url", default=None)
+    merge_parser.add_argument(
+        "--base-file",
+        type=Path,
+        default=None,
+        help="Local base snapshot; takes precedence over --base-url",
+    )
+    merge_parser.add_argument(
+        "--overlay",
+        type=Path,
+        action="append",
+        dest="overlays",
+        help="Overlay snapshot to merge onto the base; repeat to merge several",
+    )
     merge_parser.add_argument("--output", type=Path, default=Path("data/snapshots/latest.json"))
     merge_parser.set_defaults(handler=_merge_snapshot)
 
@@ -177,11 +189,23 @@ def _build_narrative_client():
 
 
 def _merge_snapshot(args: argparse.Namespace) -> None:
-    raw = _fetch_url_text(args.base_url)
-    base = load_snapshot_from_text(raw)
-    overlay = load_snapshot(args.overlay)
-    write_snapshot(args.output, merge_snapshot_overlay(base, overlay))
-    print(f"Merged focused snapshot into {args.output}")
+    if args.base_file is not None:
+        base = load_snapshot(args.base_file)
+    elif args.base_url:
+        base = load_snapshot_from_text(_fetch_url_text(args.base_url))
+    else:
+        raise SystemExit("merge-snapshot requires --base-url or --base-file")
+
+    overlay_paths = args.overlays or [Path("data/snapshots/latest.json")]
+    merged = 0
+    for overlay_path in overlay_paths:
+        if not overlay_path.exists():
+            print(f"Skipping missing overlay {overlay_path}")
+            continue
+        base = merge_snapshot_overlay(base, load_snapshot(overlay_path))
+        merged += 1
+    write_snapshot(args.output, base)
+    print(f"Merged {merged} overlay(s) into {args.output}")
 
 
 def _fetch_url_text(url: str, attempts: int = 4, timeout: int = 60) -> str:
