@@ -61,6 +61,18 @@ _COUNTRY_NAMES = {
   "ZA": "South Africa",
 }
 
+# Azure multi-country geographies. These region IDs cover a whole geography rather
+# than a single country, so Azure itself names them "East Asia", "North Europe",
+# etc. Showing them by their geography name (instead of the physical datacenter
+# country such as Hong Kong or Ireland) matches Azure's naming and makes them
+# recognizable and searchable as Asia/Europe regions across the dashboard.
+_GEOGRAPHY_REGIONS = {
+  "eastasia": {"name": "East Asia", "badge": "AS", "label": "E Asia"},
+  "southeastasia": {"name": "Southeast Asia", "badge": "AS", "label": "SE Asia"},
+  "northeurope": {"name": "North Europe", "badge": "EU", "label": "N Europe"},
+  "westeurope": {"name": "West Europe", "badge": "EU", "label": "W Europe"},
+}
+
 _LARGE_EXTENSION_GROUP_THRESHOLD = 10
 _PRIMARY_EXTENSION_GROUPS = {"microsoft"}
 _SITE_URL = "https://azwatch.operator.lat"
@@ -1833,9 +1845,9 @@ def _render_modality_availability_table(
 
 
 def _render_region_header(region: str) -> str:
-    country_code = _region_country_code(region)
+    badge = _region_badge(region)
     country_name = _region_country_name(region)
-    flag = _region_flag(country_code)
+    flag = _region_flag(badge, country_name)
     label = _region_short_label(region)
     title = f"{country_name} - {region}"
     return f"""<th class="region-header" title="{html.escape(title)}">
@@ -1985,14 +1997,16 @@ def _extension_feature_label(feature: str, group: str) -> str:
     return label
 
 
-def _region_flag(country_code: str) -> str:
-    label = (
-        "Unknown country" if country_code == "UN" else _COUNTRY_NAMES.get(country_code, country_code)
+def _region_flag(country_code: str, label: str | None = None) -> str:
+    aria = (
+        "Unknown country"
+        if country_code == "UN"
+        else (label or _COUNTRY_NAMES.get(country_code, country_code))
     )
     display = "?" if country_code == "UN" else country_code
     return (
-        f'<span class="region-flag-fallback" title="{html.escape(label)}" '
-        f'aria-label="{html.escape(label)}">{html.escape(display)}</span>'
+        f'<span class="region-flag-fallback" title="{html.escape(aria)}" '
+        f'aria-label="{html.escape(aria)}">{html.escape(display)}</span>'
     )
 
 
@@ -2003,7 +2017,17 @@ def _sort_regions(regions: dict[str, object]) -> list[str]:
   )
 
 
+def _region_badge(region: str) -> str:
+    geo = _GEOGRAPHY_REGIONS.get(region.lower().replace(" ", ""))
+    if geo:
+        return geo["badge"]
+    return _region_country_code(region)
+
+
 def _region_country_name(region: str) -> str:
+    geo = _GEOGRAPHY_REGIONS.get(region.lower().replace(" ", ""))
+    if geo:
+        return geo["name"]
     return _COUNTRY_NAMES.get(_region_country_code(region), "Unknown")
 
 
@@ -2099,6 +2123,9 @@ def _region_country_code(region: str) -> str:
 
 def _region_short_label(region: str) -> str:
     normalized = region.lower().replace(" ", "")
+    geo = _GEOGRAPHY_REGIONS.get(normalized)
+    if geo:
+        return geo["label"]
     replacements = {
       "eastus": "east",
       "eastus2": "east2",
@@ -2347,13 +2374,27 @@ def _index_script() -> str:
       if (normalized === 'southeastasia') return 'SG';
       return 'UN';
     }
+    const GEOGRAPHY_REGIONS = {
+      eastasia: { name: 'East Asia', badge: 'AS', label: 'E Asia' },
+      southeastasia: { name: 'Southeast Asia', badge: 'AS', label: 'SE Asia' },
+      northeurope: { name: 'North Europe', badge: 'EU', label: 'N Europe' },
+      westeurope: { name: 'West Europe', badge: 'EU', label: 'W Europe' },
+    };
+    function regionBadge(region) {
+      const geo = GEOGRAPHY_REGIONS[region.toLowerCase().replace(/\s/g, '')];
+      return geo ? geo.badge : regionCountryCode(region);
+    }
     function regionCountryName(region) {
+      const geo = GEOGRAPHY_REGIONS[region.toLowerCase().replace(/\s/g, '')];
+      if (geo) return geo.name;
       return {
         AE: 'United Arab Emirates', AT: 'Austria', AU: 'Australia', BE: 'Belgium', BR: 'Brazil', CA: 'Canada', CH: 'Switzerland', CL: 'Chile', CN: 'China', DE: 'Germany', DK: 'Denmark', ES: 'Spain', FI: 'Finland', FR: 'France', GB: 'United Kingdom', GR: 'Greece', HK: 'Hong Kong', ID: 'Indonesia', IE: 'Ireland', IL: 'Israel', IN: 'India', IT: 'Italy', JP: 'Japan', KR: 'Korea', MX: 'Mexico', MY: 'Malaysia', NL: 'Netherlands', NO: 'Norway', NZ: 'New Zealand', PL: 'Poland', PT: 'Portugal', QA: 'Qatar', SE: 'Sweden', SG: 'Singapore', TW: 'Taiwan', US: 'United States', ZA: 'South Africa', UN: 'Unknown'
       }[regionCountryCode(region)] || 'Unknown';
     }
     function regionShortLabel(region) {
       const normalized = region.toLowerCase().replace(/\s/g, '');
+      const geo = GEOGRAPHY_REGIONS[normalized];
+      if (geo) return geo.label;
       return {
         eastus: 'east', eastus2: 'east2', centralus: 'central', northcentralus: 'n central', southcentralus: 's central', westcentralus: 'w central', westus: 'west', westus2: 'west2', westus3: 'west3', canadacentral: 'central', canadaeast: 'east', brazilsouth: 'south', brazilsoutheast: 'se', mexicocentral: 'central', chilecentral: 'central', denmarkeast: 'east', finlandcentral: 'central', greececentral: 'central', portugalcentral: 'central', uksouth: 'south', ukwest: 'west', francecentral: 'central', francesouth: 'south', germanywestcentral: 'w central', germanynorth: 'north', italynorth: 'north', spaincentral: 'central', polandcentral: 'central', swedencentral: 'central', norwayeast: 'east', norwaywest: 'west', switzerlandnorth: 'north', switzerlandwest: 'west', austriaeast: 'east', belgiumcentral: 'central', northeurope: 'north', westeurope: 'west', australiaeast: 'east', australiasoutheast: 'se', australiacentral: 'central', australiacentral2: 'central2', newzealandnorth: 'north', japaneast: 'east', japanwest: 'west', koreacentral: 'central', koreasouth: 'south', centralindia: 'central', southindia: 'south', westindia: 'west', chinanorth3: 'north3', chinaeast3: 'east3', taiwannorth: 'north', taiwannorthwest: 'nw', malaysiawest: 'west', indonesiacentral: 'central', eastasia: 'east', southeastasia: 'se', israelcentral: 'central', qatarcentral: 'central', uaecentral: 'central', uaenorth: 'north', southafricanorth: 'north', southafricawest: 'west'
       }[normalized] || normalized;
@@ -2373,9 +2414,9 @@ def _index_script() -> str:
       return `tabindex="0" title="${escapeHtml(title)}" data-region="${escapeHtml(region)}" data-category="${escapeHtml(category)}" data-group="${escapeHtml(group)}"`;
     }
     function renderRegionHeader(region) {
-      const code = regionCountryCode(region);
+      const badge = regionBadge(region);
       const countryName = regionCountryName(region);
-      const display = code === 'UN' ? '?' : code;
+      const display = badge === 'UN' ? '?' : badge;
       return `<th class="region-header" title="${escapeHtml(`${countryName} - ${region}`)}"><span class="region-heading"><span class="region-flag-fallback" title="${escapeHtml(countryName)}" aria-label="${escapeHtml(countryName)}">${escapeHtml(display)}</span><span class="region-label">${escapeHtml(regionShortLabel(region))}</span></span></th>`;
     }
     function summarizeRegionalGroups(rows) {
