@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import http.client
 import json
 import os
 import time
@@ -11,6 +12,7 @@ from azure_region_monitor.probes.github_models import (
     _chunk_has_content,
     _is_reasoning_model,
     _parse_retry_after,
+    _read_error_body,
     _safe_json,
     _usage_output_tokens,
 )
@@ -103,14 +105,14 @@ class AzureOpenAiClient:
                     if tokens is not None:
                         usage_output_tokens = tokens
         except urllib.error.HTTPError as error:
-            detail = error.read().decode("utf-8", errors="replace").strip()
+            detail = _read_error_body(error)
             retry_after = _parse_retry_after(error.headers.get("Retry-After"))
             raise LatencyClientError(
                 f"AzureOpenAiHttp{error.code}",
                 detail or f"Azure OpenAI returned HTTP {error.code} for '{deployment}'.",
                 retry_after=retry_after,
             ) from error
-        except (urllib.error.URLError, TimeoutError) as error:
+        except (urllib.error.URLError, http.client.HTTPException, OSError) as error:
             raise LatencyClientError(
                 "AzureOpenAiUnreachable",
                 f"Azure OpenAI request failed for '{deployment}': {error}",

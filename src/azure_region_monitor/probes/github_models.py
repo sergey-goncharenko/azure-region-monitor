@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import http.client
 import json
 import os
 import re
@@ -94,14 +95,14 @@ class GitHubModelsClient(InferenceLatencyClient):
                     if tokens is not None:
                         usage_output_tokens = tokens
         except urllib.error.HTTPError as error:
-            detail = error.read().decode("utf-8", errors="replace").strip()
+            detail = _read_error_body(error)
             retry_after = _parse_retry_after(error.headers.get("Retry-After"))
             raise LatencyClientError(
                 f"GitHubModelsHttp{error.code}",
                 detail or f"GitHub Models returned HTTP {error.code} for '{model}'.",
                 retry_after=retry_after,
             ) from error
-        except (urllib.error.URLError, TimeoutError) as error:
+        except (urllib.error.URLError, http.client.HTTPException, OSError) as error:
             raise LatencyClientError(
                 "GitHubModelsUnreachable",
                 f"GitHub Models request failed for '{model}': {error}",
@@ -156,12 +157,12 @@ class GitHubModelsClient(InferenceLatencyClient):
             with self._opener.open(request, timeout=self._timeout_seconds) as response:
                 payload = json.loads(response.read().decode("utf-8"))
         except urllib.error.HTTPError as error:
-            detail = error.read().decode("utf-8", errors="replace").strip()
+            detail = _read_error_body(error)
             raise LatencyClientError(
                 f"GitHubModelsHttp{error.code}",
                 detail or f"GitHub Models returned HTTP {error.code} for '{model}'.",
             ) from error
-        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as error:
+        except (urllib.error.URLError, http.client.HTTPException, OSError, json.JSONDecodeError) as error:
             raise LatencyClientError(
                 "GitHubModelsUnreachable",
                 f"GitHub Models completion failed for '{model}': {error}",
@@ -230,6 +231,20 @@ def _parse_retry_after(value: str | None) -> float | None:
         return max(0.0, float(value.strip()))
     except (TypeError, ValueError):
         return None
+
+
+def _read_error_body(error: urllib.error.HTTPError) -> str:
+    """Read an HTTP error body without letting a truncated/broken read escape.
+
+    A rate-limited or interrupted response can raise http.client.IncompleteRead
+    (or another transport error) mid-read; that must not crash the probe, so any
+    failure to read the body yields an empty detail string instead.
+    """
+
+    try:
+        return error.read().decode("utf-8", errors="replace").strip()
+    except (http.client.HTTPException, OSError):
+        return ""
 
 
 def _safe_json(payload: str) -> dict | None:
