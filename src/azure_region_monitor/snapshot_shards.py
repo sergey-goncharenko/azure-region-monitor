@@ -88,8 +88,57 @@ def build_modality_shards(
         "timestamp": timestamp,
         "regions": sorted({str(region) for region in regions}),
         "modalities": manifest_modalities,
+        "default": select_default_modality(manifest_modalities),
     }
     return manifest, shards
+
+
+# Core per-region modalities, in the order we prefer to open the heatmap on. These
+# span (nearly) every region and are small enough to load fast, so the heatmap opens
+# showing all regions instead of a single-vantage modality like model latency.
+_PREFERRED_DEFAULTS = (
+    "AKS Kubernetes versions",
+    "Container Apps",
+    "Azure Functions",
+    "Azure AI models",
+    "AKS extensions",
+    "VM SKUs",
+)
+
+
+def select_default_modality(modalities: list[dict[str, Any]]) -> str | None:
+    """Pick the slug the heatmap should open on.
+
+    Prefers a real per-region modality that spans (nearly) all regions, so the
+    heatmap opens full-width rather than on a single-vantage modality such as
+    model latency (one 'github-global' region). Falls back to the widest, then
+    smallest, modality, and finally to None when there are no modalities.
+    """
+
+    if not modalities:
+        return None
+
+    max_regions = max(int(item.get("regions", 0) or 0) for item in modalities)
+    full_region = [
+        item for item in modalities if int(item.get("regions", 0) or 0) >= max(2, max_regions)
+    ]
+    pool = full_region or list(modalities)
+
+    by_label = {str(item.get("label", "")): item for item in pool}
+    for label in _PREFERRED_DEFAULTS:
+        if label in by_label:
+            return str(by_label[label].get("slug"))
+
+    # No preferred label present: widest region coverage, then fewest rows, then slug.
+    best = min(
+        pool,
+        key=lambda item: (
+            -int(item.get("regions", 0) or 0),
+            int(item.get("rows", 0) or 0),
+            str(item.get("slug", "")),
+        ),
+    )
+    return str(best.get("slug"))
 
 
 def _unique_slug(slug: str, used: set[str]) -> str:
