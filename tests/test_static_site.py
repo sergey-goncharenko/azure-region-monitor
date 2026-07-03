@@ -1,7 +1,55 @@
 import json
 from pathlib import Path
 
-from azure_region_monitor.static_site import build_static_site, _render_regional_latency_section
+from azure_region_monitor.static_site import (
+    _region_badge,
+    _region_country_name,
+    _region_short_label,
+    _render_region_header,
+    _sort_regions,
+    build_static_site,
+    _render_regional_latency_section,
+)
+
+
+def test_geography_regions_named_as_asia_and_europe():
+    # East Asia / Southeast Asia / North Europe / West Europe are multi-country Azure
+    # geographies. They must read as Asia/Europe, not as Hong Kong/Singapore/etc.
+    assert _region_country_name("eastasia") == "East Asia"
+    assert _region_country_name("southeastasia") == "Southeast Asia"
+    assert _region_country_name("northeurope") == "North Europe"
+    assert _region_country_name("westeurope") == "West Europe"
+    # Geography badge, not a single-country code.
+    assert _region_badge("eastasia") == "AS"
+    assert _region_badge("westeurope") == "EU"
+    # Short label carries the geography word so it is visible on screen.
+    assert _region_short_label("southeastasia") == "SE Asia"
+    assert _region_short_label("northeurope") == "N Europe"
+
+
+def test_region_header_shows_geography_name():
+    header = _render_region_header("eastasia")
+    assert "East Asia" in header
+    assert "AS" in header
+    assert "Hong Kong" not in header
+
+    europe = _render_region_header("westeurope")
+    assert "West Europe" in europe
+    assert "Netherlands" not in europe
+
+
+def test_ordinary_regions_still_named_by_country():
+    assert _region_country_name("eastus") == "United States"
+    assert _region_country_name("japaneast") == "Japan"
+    assert _region_badge("japaneast") == "JP"
+
+
+def test_geography_regions_sort_by_their_geography_name():
+    order = _sort_regions(
+        {"westus": 1, "eastasia": 1, "northeurope": 1, "southeastasia": 1, "westeurope": 1}
+    )
+    # Sorted by display name: East Asia, North Europe, Southeast Asia, United States, West Europe.
+    assert order == ["eastasia", "northeurope", "southeastasia", "westus", "westeurope"]
 
 
 def _ai_latency_snapshot():
