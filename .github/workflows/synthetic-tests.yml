@@ -57,6 +57,7 @@ jobs:
       vm_skus: ${{ inputs.vm_skus || 'all' }}
       azure_cli_timeout_seconds: ${{ inputs.azure_cli_timeout_seconds || '120' }}
       install_k8s_extension: true
+      discover_regions: true
       artifact_name: "azure-region-monitor-synthetic-data"
       deploy_dashboard: true
       existing_snapshot_url: "https://azwatch.operator.lat/api/latest.json"

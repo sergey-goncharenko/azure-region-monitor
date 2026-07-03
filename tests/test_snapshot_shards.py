@@ -2,6 +2,7 @@ from azure_region_monitor.snapshot_shards import (
     build_modality_shards,
     build_summary,
     modality_slug,
+    select_default_modality,
 )
 
 ROWS = [
@@ -62,3 +63,37 @@ def test_build_modality_shards_empty():
     manifest, shards = build_modality_shards("2026-06-18T00:00:00+00:00", [], [])
     assert manifest["modalities"] == []
     assert shards == {}
+    assert manifest["default"] is None
+
+
+def test_manifest_default_prefers_full_region_modality_not_model_latency():
+    manifest, _ = build_modality_shards(
+        "2026-06-18T00:00:00+00:00", ["eastus", "westus3", "github-global"], ROWS
+    )
+    # Azure AI models spans 2 regions; model-latency only github-global. The heatmap
+    # must not open on the single-vantage model-latency shard.
+    assert manifest["default"] == "azure-ai-models"
+
+
+def test_select_default_modality_prefers_priority_order():
+    modalities = [
+        {"slug": "vm-skus", "label": "VM SKUs", "rows": 90000, "regions": 62},
+        {"slug": "aks-kubernetes-versions", "label": "AKS Kubernetes versions", "rows": 248, "regions": 62},
+        {"slug": "model-latency", "label": "Model latency", "rows": 18, "regions": 1},
+    ]
+    # AKS Kubernetes versions is preferred over VM SKUs and is full-region.
+    assert select_default_modality(modalities) == "aks-kubernetes-versions"
+
+
+def test_select_default_modality_falls_back_to_widest_then_smallest():
+    modalities = [
+        {"slug": "custom-a", "label": "Custom A", "rows": 500, "regions": 40},
+        {"slug": "custom-b", "label": "Custom B", "rows": 100, "regions": 62},
+        {"slug": "solo", "label": "Solo", "rows": 5, "regions": 1},
+    ]
+    # No preferred label; widest region coverage wins (custom-b), not the tiny solo shard.
+    assert select_default_modality(modalities) == "custom-b"
+
+
+def test_select_default_modality_handles_empty():
+    assert select_default_modality([]) is None

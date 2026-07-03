@@ -67,6 +67,11 @@ on:
         required: false
         type: boolean
         default: true
+      discover_regions:
+        description: "Discover physical Azure regions from az account list-locations (auto-adds new regions)"
+        required: false
+        type: boolean
+        default: false
       artifact_name:
         description: "Name for uploaded synthetic data artifacts"
         required: false
@@ -132,11 +137,25 @@ jobs:
         if: inputs.install_k8s_extension
         run: az extension add --name k8s-extension --upgrade
 
+      - name: Discover physical Azure regions
+        id: discover_regions
+        if: inputs.discover_regions && inputs.azure_login && inputs.regions == ''
+        shell: bash
+        run: |
+          set -uo pipefail
+          # List every physical (deployable) region so brand-new regions are covered
+          # automatically. Logical groupings (asia, europe, ...) are filtered out. On
+          # any failure we emit nothing and the probe falls back to DEFAULT_REGIONS.
+          locations="$(az account list-locations --output json 2>/dev/null || echo '[]')"
+          regions="$(echo "$locations" | python -c "import json,sys; from azure_region_monitor.region_discovery import select_physical_regions; print(','.join(select_physical_regions(json.load(sys.stdin))))" 2>/dev/null || echo '')"
+          echo "regions=$regions" >> "$GITHUB_OUTPUT"
+          echo "Discovered $(echo "$regions" | awk -F, '{print NF}') physical region(s)."
+
       - name: Run selected probes
         shell: bash
         env:
           SELECTED_PROBES: ${{ inputs.probes }}
-          SELECTED_REGIONS: ${{ inputs.regions }}
+          SELECTED_REGIONS: ${{ inputs.regions || steps.discover_regions.outputs.regions || '' }}
         run: |
           mkdir -p data/snapshots data/diffs
           rm -f data/snapshots/latest.json data/diffs/latest.json
@@ -159,6 +178,7 @@ jobs:
             fi
           done
 
+          # With no regions here, azure-region-monitor falls back to DEFAULT_REGIONS.
           azure-region-monitor run "${probe_args[@]}" "${region_args[@]}" --output data/snapshots/latest.json
 
       - name: Build diff when previous snapshot is provided

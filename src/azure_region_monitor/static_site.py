@@ -2891,7 +2891,13 @@ def _heatmap_script() -> str:
       const manifest = await response.json();
       manifestModalities = (manifest.modalities || []).slice();
       populateSelect(elements.modality, manifestModalities.map((item) => item.label));
-      const smallest = manifestModalities.reduce(
+      // Prefer the server-chosen default (a real per-region modality) so the heatmap
+      // opens showing all regions; fall back to the smallest shard by rows.
+      const preferredSlug = manifest.default || null;
+      const preferred = preferredSlug
+        ? manifestModalities.find((item) => item.slug === preferredSlug)
+        : null;
+      const smallest = preferred || manifestModalities.reduce(
         (best, item) => (best === null || item.rows < best.rows ? item : best),
         null,
       );
