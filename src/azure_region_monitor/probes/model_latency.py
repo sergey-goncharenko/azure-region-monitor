@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import statistics
 import time
 from dataclasses import dataclass
@@ -19,8 +20,10 @@ DEFAULT_RATE_LIMIT_BACKOFF_SECONDS = 20.0
 # this ceiling for a single backoff so one throttled model cannot stall the run.
 DEFAULT_MAX_BACKOFF_SECONDS = 60.0
 # Overall wall-clock budget for the whole probe. Once exceeded, remaining models are
-# emitted as unknown without making further calls, so the job always finishes.
-DEFAULT_TIME_BUDGET_SECONDS = 900.0
+# emitted as unknown without making further calls, so the job always finishes. Sized
+# to cover the full auto-discovered set (reliable models first) while staying well
+# under the 45-minute probe job timeout.
+DEFAULT_TIME_BUDGET_SECONDS = 1500.0
 SERVICE = "model-latency"
 
 
@@ -115,9 +118,10 @@ class ModelLatencyProbe:
         if self._resolved_models is not None:
             return self._resolved_models
         if not self._auto_discover:
-            self._resolved_models = self._fallback_models
-            return self._resolved_models
-        self._resolved_models = self._discover_models() or self._fallback_models
+            resolved = self._fallback_models
+        else:
+            resolved = self._discover_models() or self._fallback_models
+        self._resolved_models = _order_reasoning_last(resolved)
         return self._resolved_models
 
     def _discover_models(self) -> list[LatencyModel]:
@@ -230,6 +234,32 @@ class ModelLatencyProbe:
 
 def _is_rate_limited(error: LatencyClientError) -> bool:
     return error.retry_after is not None or "429" in (error.error_code or "")
+
+
+def _model_is_reasoning(model: str) -> bool:
+    # Local, lazy check to avoid a circular import with github_models (which imports
+    # from this module). Mirrors github_models._is_reasoning_model.
+    name = model.split("/")[-1].lower()
+    if "gpt-5-chat" in name:
+        return False
+    if name.startswith("gpt-5"):
+        return True
+    return bool(re.match(r"o\d", name))
+
+
+def _order_reasoning_last(models: list[LatencyModel]) -> list[LatencyModel]:
+    """Stable-sort so reasoning models are measured last.
+
+    Reasoning models (gpt-5*, o-series) spend hidden tokens and are slow, and they
+    are the most likely to be rate-limited. Measuring the reliable non-reasoning
+    models — including the cross-publisher anchors — first means the time budget is
+    spent on rows that produce useful data, instead of always skipping the anchors
+    that used to sit at the tail of the list. Order within each group is preserved.
+    """
+
+    non_reasoning = [m for m in models if not _model_is_reasoning(m.model)]
+    reasoning = [m for m in models if _model_is_reasoning(m.model)]
+    return non_reasoning + reasoning
 
 
 def _budget_exhausted_result(region: str, model: LatencyModel) -> ProbeResult:

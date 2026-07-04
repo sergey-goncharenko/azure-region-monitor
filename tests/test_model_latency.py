@@ -3,8 +3,64 @@ from azure_region_monitor.probes.model_latency import (
     LatencyClientError,
     LatencyMeasurement,
     ModelLatencyProbe,
+    _order_reasoning_last,
     _percentile,
 )
+
+
+def test_order_reasoning_last_keeps_reliable_models_first():
+    models = [
+        LatencyModel(feature="f1", model="openai/gpt-4o"),
+        LatencyModel(feature="f2", model="openai/gpt-5"),  # reasoning
+        LatencyModel(feature="f3", model="deepseek/DeepSeek-V3-0324"),  # anchor
+        LatencyModel(feature="f4", model="openai/o1"),  # reasoning
+        LatencyModel(feature="f5", model="openai/gpt-5-chat"),  # NOT reasoning
+        LatencyModel(feature="f6", model="meta/Llama-3.3-70B-Instruct"),  # anchor
+    ]
+    ordered = [m.model for m in _order_reasoning_last(models)]
+    # Non-reasoning first (stable), reasoning last (stable). Anchors are no longer
+    # stranded at the tail behind slow reasoning models.
+    assert ordered == [
+        "openai/gpt-4o",
+        "deepseek/DeepSeek-V3-0324",
+        "openai/gpt-5-chat",
+        "meta/Llama-3.3-70B-Instruct",
+        "openai/gpt-5",
+        "openai/o1",
+    ]
+
+
+def test_probe_measures_anchors_before_slow_reasoning_models():
+    # With a tight budget, the reliable anchor is measured and a reasoning model is
+    # the one that gets skipped — not the other way around.
+    # deadline=15; ticks: deadline calc, anchor run-check, anchor sample-check, reason run-check.
+    ticks = iter([0, 5, 6, 20])
+
+    class _Clock:
+        def __call__(self):
+            try:
+                return next(ticks)
+            except StopIteration:
+                return 999
+
+    class _OkClient:
+        def measure(self, model, *, prompt, max_tokens):
+            return LatencyMeasurement(ttft_ms=100, total_ms=400, output_tokens=40)
+
+    probe = ModelLatencyProbe(
+        models=[
+            LatencyModel(feature="reason", model="openai/gpt-5"),
+            LatencyModel(feature="anchor", model="deepseek/DeepSeek-V3-0324"),
+        ],
+        client=_OkClient(),
+        samples=1,
+        time_budget_seconds=15,
+        monotonic=_Clock(),
+        sleep=lambda _s: None,
+    )
+    results = {r.feature: r.result.status for r in probe.run("github-global")}
+    assert results["anchor"] == "available"
+    assert results["reason"] == "unknown"
 
 
 class _FakeClient:

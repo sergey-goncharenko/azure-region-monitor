@@ -286,7 +286,7 @@ def _build_probe(probe_name: str):
                 os.environ.get("MODEL_LATENCY_MAX_BACKOFF_SECONDS", "60")
             ),
             time_budget_seconds=float(
-                os.environ.get("MODEL_LATENCY_BUDGET_SECONDS", "900")
+                os.environ.get("MODEL_LATENCY_BUDGET_SECONDS", "1500")
             ),
             auto_discover=auto_discover,
         )
