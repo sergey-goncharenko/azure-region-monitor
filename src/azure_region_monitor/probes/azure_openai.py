@@ -21,7 +21,7 @@ from azure_region_monitor.probes.model_latency import (
     LatencyMeasurement,
 )
 
-DEFAULT_API_VERSION = "2024-10-21"
+DEFAULT_API_VERSION = "2024-12-01-preview"
 DEFAULT_TIMEOUT_SECONDS = 60
 
 

@@ -36,6 +36,21 @@ def test_selects_only_regional_standard_openai_models():
     assert "gpt-5.2" not in by_name
 
 
+def test_o4_mini_is_no_longer_included():
+    # o4-mini requires a newer Azure API version than the probe uses and returned
+    # BadRequest in every region, so it was dropped from the default include set.
+    by_region = {
+        "eastus": [
+            _model("gpt-4o", "2024-11-20", ["Standard"]),
+            _model("o4-mini", "2025-04-16", ["Standard"]),
+        ],
+    }
+    selected = select_regional_standard_models(by_region)
+    names = {m["name"] for m in selected}
+    assert "o4-mini" not in names
+    assert "gpt-4o" in names
+
+
 def test_picks_newest_version_per_model():
     by_region = {
         "eastus": [
