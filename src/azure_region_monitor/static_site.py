@@ -7,6 +7,13 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+from azure_region_monitor.blog import (
+    blog_sitemap_entries,
+    render_blog_feed,
+    render_blog_index,
+    render_blog_post,
+    select_blog_posts,
+)
 from azure_region_monitor.history import copy_history_to_api
 from azure_region_monitor.latency_view import (
     annotate_rank_changes,
@@ -149,17 +156,53 @@ def build_static_site(
         encoding="utf-8",
     )
     (output_dir / "methodology.html").write_text(_render_methodology_page(snapshot), encoding="utf-8")
+    blog_posts = select_blog_posts(_load_history_index(history_path))
+    _write_blog(output_dir, blog_posts)
     _write_latency_api(api_dir, snapshot)
-    _write_discovery_assets(output_dir, snapshot, recent_changes=recent_changes)
+    _write_discovery_assets(
+        output_dir, snapshot, recent_changes=recent_changes, blog_posts=blog_posts
+    )
     _write_static_web_app_config(output_dir)
 
 
+def _write_blog(output_dir: Path, posts: list[dict[str, Any]]) -> None:
+    blog_dir = output_dir / "blog"
+    blog_dir.mkdir(parents=True, exist_ok=True)
+    style = _style_block()
+    (blog_dir / "index.html").write_text(
+        render_blog_index(posts, _SITE_URL, style), encoding="utf-8"
+    )
+    (blog_dir / "feed.xml").write_text(render_blog_feed(posts, _SITE_URL), encoding="utf-8")
+    # posts are newest-first; "newer" is the previous item, "older" is the next item.
+    for index, post in enumerate(posts):
+        newer = posts[index - 1] if index > 0 else None
+        older = posts[index + 1] if index + 1 < len(posts) else None
+        (blog_dir / f"{post['date']}.html").write_text(
+            render_blog_post(post, newer, older, _SITE_URL, style), encoding="utf-8"
+        )
+
+
+def _load_history_index(history_path: Path) -> dict[str, Any] | None:
+    index_path = history_path / "index.json"
+    if not index_path.exists():
+        return None
+    try:
+        return json.loads(index_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
+
+
 def _write_discovery_assets(
-    output_dir: Path, snapshot: Snapshot, recent_changes: dict[str, Any] | None = None
+    output_dir: Path,
+    snapshot: Snapshot,
+    recent_changes: dict[str, Any] | None = None,
+    blog_posts: list[dict[str, Any]] | None = None,
 ) -> None:
     (output_dir / "favicon.svg").write_text(_render_favicon(), encoding="utf-8")
     (output_dir / "robots.txt").write_text(_render_robots_txt(), encoding="utf-8")
-    (output_dir / "sitemap.xml").write_text(_render_sitemap(snapshot), encoding="utf-8")
+    (output_dir / "sitemap.xml").write_text(
+        _render_sitemap(snapshot, blog_posts=blog_posts), encoding="utf-8"
+    )
     (output_dir / "llms.txt").write_text(_render_llms_txt(snapshot), encoding="utf-8")
     (output_dir / "llms-full.txt").write_text(
         _render_llms_full_txt(snapshot, recent_changes=recent_changes), encoding="utf-8"
@@ -209,28 +252,33 @@ Sitemap: {_SITE_URL}/sitemap.xml
 """
 
 
-def _render_sitemap(snapshot: Snapshot) -> str:
+def _render_sitemap(
+    snapshot: Snapshot, blog_posts: list[dict[str, Any]] | None = None
+) -> str:
     lastmod = _snapshot_lastmod(snapshot)
     urls = [
-        ("/", "1.0"),
-        ("/heatmap.html", "0.9"),
-        ("/latency.html", "0.8"),
-        ("/methodology.html", "0.8"),
-        ("/llms.txt", "0.7"),
-        ("/llms-full.txt", "0.7"),
-        ("/api/latest.json", "0.6"),
-        ("/api/summary.json", "0.6"),
-        ("/api/latency.json", "0.6"),
-        ("/api/modalities/manifest.json", "0.6"),
-        ("/api/history/index.json", "0.5"),
+        ("/", "1.0", lastmod),
+        ("/heatmap.html", "0.9", lastmod),
+        ("/latency.html", "0.8", lastmod),
+        ("/methodology.html", "0.8", lastmod),
+        ("/llms.txt", "0.7", lastmod),
+        ("/llms-full.txt", "0.7", lastmod),
+        ("/api/latest.json", "0.6", lastmod),
+        ("/api/summary.json", "0.6", lastmod),
+        ("/api/latency.json", "0.6", lastmod),
+        ("/api/modalities/manifest.json", "0.6", lastmod),
+        ("/api/history/index.json", "0.5", lastmod),
     ]
+    # Blog index + every dated post, so the changelog is discoverable via the sitemap.
+    for path, priority, post_lastmod in blog_sitemap_entries(blog_posts or []):
+        urls.append((path, priority, post_lastmod))
     entries = "\n".join(
         "  <url>\n"
         f"    <loc>{html.escape(_SITE_URL + path)}</loc>\n"
-        f"    <lastmod>{html.escape(lastmod)}</lastmod>\n"
+        f"    <lastmod>{html.escape(entry_lastmod)}</lastmod>\n"
         f"    <priority>{priority}</priority>\n"
         "  </url>"
-        for path, priority in urls
+        for path, priority, entry_lastmod in urls
     )
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
@@ -257,6 +305,7 @@ Latest snapshot: {snapshot.timestamp.isoformat()}
 - [{_SITE_URL}/heatmap.html]({_SITE_URL}/heatmap.html): paged, filterable heatmap backed by the latest JSON snapshot.
 - [{_SITE_URL}/latency.html]({_SITE_URL}/latency.html): LLM model response-latency leaderboard measured from the GitHub Models global vantage.
 - [{_SITE_URL}/methodology.html]({_SITE_URL}/methodology.html): status semantics and probe evidence notes.
+- [{_SITE_URL}/blog/]({_SITE_URL}/blog/): daily changelog blog — a short post per day summarizing region availability changes (RSS at {_SITE_URL}/blog/feed.xml).
 - [{_SITE_URL}/api/latest.json]({_SITE_URL}/api/latest.json): complete current machine-readable snapshot.
 - [{_SITE_URL}/api/summary.json]({_SITE_URL}/api/summary.json): tiny headline counts (status and per-modality totals).
 - [{_SITE_URL}/api/modalities/manifest.json]({_SITE_URL}/api/modalities/manifest.json): per-modality shard index; each modality is a smaller JSON under api/modalities/.
@@ -408,6 +457,7 @@ def _render_index(snapshot: Snapshot, recent_changes: dict[str, Any] | None = No
   <link rel="canonical" href="{_SITE_URL}/">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="alternate" href="/llms.txt" type="text/plain" title="LLM guide">
+  <link rel="alternate" type="application/rss+xml" title="Azure regional changes feed" href="/blog/feed.xml">
   {_style_block()}
 </head>
 <body>
@@ -421,6 +471,7 @@ def _render_index(snapshot: Snapshot, recent_changes: dict[str, Any] | None = No
         <a href="methodology.html">Status meanings</a>
         <a href="heatmap.html">Detailed heatmap</a>
         <a href="latency.html">Model latency</a>
+        <a href="blog/">Blog</a>
         <a href="api/latest.json" download="azure-region-monitor-latest.json">Download latest JSON</a>
         <a href="{_REPOSITORY_URL}">GitHub repository</a>
       </nav>
@@ -543,6 +594,7 @@ def _render_heatmap_page(snapshot: Snapshot) -> str:
         <a href="index.html">Summary</a>
         <a href="methodology.html">Status meanings</a>
         <a href="latency.html">Model latency</a>
+        <a href="blog/">Blog</a>
         <a href="api/latest.json" download="azure-region-monitor-latest.json">Download latest JSON</a>
       </nav>
     </header>
@@ -644,6 +696,7 @@ def _render_methodology_page(snapshot: Snapshot) -> str:
         <a href="index.html">Summary</a>
         <a href="heatmap.html">Detailed heatmap</a>
         <a href="latency.html">Model latency</a>
+        <a href="blog/">Blog</a>
         <a href="api/latest.json" download="azure-region-monitor-latest.json">Download latest JSON</a>
       </nav>
     </header>
@@ -763,6 +816,7 @@ def _render_latency_page(
         <a href="index.html">Summary</a>
         <a href="heatmap.html">Detailed heatmap</a>
         <a href="methodology.html">Status meanings</a>
+        <a href="blog/">Blog</a>
         <a href="api/latency.json" download="azure-region-monitor-latency.json">Download latency JSON</a>
       </nav>
     </header>
@@ -1142,6 +1196,33 @@ def _style_block() -> str:
     .narrative-body { display: flex; flex-direction: column; gap: 8px; }
     .narrative-headline { font-weight: 700; font-size: 16px; color: #0f2f52; }
     .narrative-badge { flex: none; background: #0f4c81; color: #fff; border-radius: 999px; padding: 3px 10px; font-size: 12px; font-weight: 700; letter-spacing: 0.02em; }
+    .blog-list { display: flex; flex-direction: column; gap: 14px; }
+    .blog-card { border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; background: var(--panel); }
+    .blog-card-meta { display: flex; gap: 10px; align-items: center; color: var(--muted); font-size: 13px; margin-bottom: 6px; }
+    .blog-card-title { margin: 0 0 6px; font-size: 19px; }
+    .blog-card-title a { color: #0f2f52; text-decoration: none; }
+    .blog-card-title a:hover { text-decoration: underline; }
+    .blog-card-excerpt { margin: 0 0 10px; color: var(--text); line-height: 1.55; }
+    .blog-card-counts, .blog-post-counts { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+    .blog-count { font-size: 12px; font-weight: 700; border-radius: 999px; padding: 2px 9px; background: #eef2f7; color: #3a4a60; }
+    .blog-count-new { background: #e7f6ec; color: #1c7a3e; }
+    .blog-count-regression { background: #fdecec; color: #b23131; }
+    .blog-count-parked { background: #f0f1f4; color: #667085; }
+    .blog-readmore { font-weight: 600; font-size: 14px; text-decoration: none; color: #0f4c81; }
+    .blog-readmore:hover { text-decoration: underline; }
+    .blog-post-title { margin: 0; font-size: 26px; line-height: 1.25; }
+    .blog-post-body { display: flex; flex-direction: column; gap: 12px; }
+    .blog-post-body p { margin: 0; color: var(--text); font-size: 16px; line-height: 1.6; }
+    .blog-highlights { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 12px; }
+    .blog-highlights h3 { margin: 0 0 8px; font-size: 15px; }
+    .blog-highlights ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+    .blog-change { font-size: 13px; color: var(--text); }
+    .blog-change-arrow { color: var(--muted); }
+    .blog-change-new code { color: #1c7a3e; }
+    .blog-change-regression code { color: #b23131; }
+    .blog-post-nav { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 14px 0; }
+    .blog-post-nav a { color: #0f4c81; text-decoration: none; font-weight: 600; font-size: 14px; }
+    .blog-post-nav a:hover { text-decoration: underline; }
     .spark { display: inline-flex; align-items: center; gap: 6px; color: #5878a8; }
     .spark svg { display: block; }
     .spark-up { color: var(--unavailable-text); font-size: 12px; font-weight: 600; }
