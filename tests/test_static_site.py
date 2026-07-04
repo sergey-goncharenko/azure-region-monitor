@@ -354,6 +354,98 @@ def test_build_static_site_copies_history_and_renders_recent_changes(tmp_path):
     assert (output_dir / "api" / "history" / "changes" / "2026-05-10.json").exists()
 
 
+def test_build_static_site_writes_blog_from_history_index(tmp_path):
+    output_dir = tmp_path / "public"
+    history_dir = tmp_path / "history"
+    history_dir.mkdir(parents=True)
+    snapshot_path = tmp_path / "snapshot.json"
+    snapshot_path.write_text(
+        json.dumps(
+            {
+                "timestamp": "2026-07-04T00:00:00Z",
+                "regions": {"eastus": {"aks": {"extensions.gitops": {"status": "available"}}}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    (history_dir / "index.json").write_text(
+        json.dumps(
+            {
+                "generated_at": "2026-07-04T00:00:00Z",
+                "days": [
+                    {
+                        "date": "2026-07-04",
+                        "narrative": "Germany North floods with DCv5\n\nA broad wave of VM SKUs.\n\nNo regressions.",
+                        "narrative_source": "ai",
+                        "change_type_counts": {"new_availability": 12, "regression": 0},
+                        "parked_unknown_changes": 3,
+                        "highlights": [
+                            {
+                                "region": "germanynorth",
+                                "feature": "vmSkus.standard.dc16ads.v5",
+                                "previous": "unavailable",
+                                "current": "available",
+                                "change_type": "new_availability",
+                            }
+                        ],
+                    },
+                    {
+                        "date": "2026-07-03",
+                        "narrative": "A quieter day\n\nSmall changes only.",
+                        "narrative_source": "ai",
+                        "change_type_counts": {"new_availability": 1, "regression": 1},
+                        "parked_unknown_changes": 0,
+                        "highlights": [],
+                    },
+                    {"date": "2026-07-02", "narrative": ""},  # no narrative -> not a post
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    build_static_site(
+        output_dir,
+        snapshot_path=snapshot_path,
+        diff_path=tmp_path / "missing-diff.json",
+        history_path=history_dir,
+    )
+
+    blog_index = (output_dir / "blog" / "index.html").read_text(encoding="utf-8")
+    post = (output_dir / "blog" / "2026-07-04.html").read_text(encoding="utf-8")
+    feed = (output_dir / "blog" / "feed.xml").read_text(encoding="utf-8")
+    sitemap = (output_dir / "sitemap.xml").read_text(encoding="utf-8")
+    index_html = (output_dir / "index.html").read_text(encoding="utf-8")
+
+    # Both narrated days become posts; the empty-narrative day does not.
+    assert (output_dir / "blog" / "2026-07-03.html").exists()
+    assert not (output_dir / "blog" / "2026-07-02.html").exists()
+    assert "Germany North floods with DCv5" in blog_index
+    assert "Germany North floods with DCv5" in post
+    assert "Notable changes" in post
+    assert "germanynorth" in post
+    # Sitemap lists the blog index and dated posts.
+    assert "<loc>https://azwatch.operator.lat/blog/</loc>" in sitemap
+    assert "<loc>https://azwatch.operator.lat/blog/2026-07-04.html</loc>" in sitemap
+    # RSS feed has an item per post and the nav/head link the blog.
+    assert feed.count("<item>") == 2
+    assert 'type="application/rss+xml"' in index_html
+    assert 'href="blog/"' in index_html
+
+
+def test_build_static_site_writes_empty_blog_without_history(tmp_path):
+    output_dir = tmp_path / "public"
+    build_static_site(
+        output_dir,
+        snapshot_path=Path("data/snapshots/2026-05-08.json"),
+        diff_path=tmp_path / "missing-diff.json",
+    )
+    # Blog index and feed are always written, even with no narrated days.
+    blog_index = (output_dir / "blog" / "index.html").read_text(encoding="utf-8")
+    assert "No change summaries have been published yet" in blog_index
+    assert (output_dir / "blog" / "feed.xml").exists()
+
+
 def test_build_static_site_renders_metric_trends_from_history(tmp_path):
     output_dir = tmp_path / "public"
     history_dir = tmp_path / "history"
