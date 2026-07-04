@@ -1,0 +1,12 @@
+{
+    "chat.tools.terminal.autoApprove": {
+        "/^git push -u origin copilot/ai-model-latency-cost-analysis 2>&1 \\| Select-Object -Last 8$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^gh run view 27595105885 2>&1 \\| Select-Object -First 30$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
+    }
+}
