@@ -157,7 +157,9 @@ $env:MODEL_LATENCY_SAMPLES="5"
 azure-region-monitor run --probe model-latency-cli --region github-global --output data/snapshots/latest.json
 ```
 
-Set `MODEL_LATENCY_MODELS=auto` (the scheduled workflow default) to discover the model set from the live GitHub Models catalog. Auto mode keeps OpenAI text chat models (excluding audio/realtime/transcribe/embedding/codex), unions them with the curated non-OpenAI anchors, and falls back to the curated default set if the catalog fetch fails. New OpenAI releases surface automatically without code changes.
+Set `MODEL_LATENCY_MODELS=auto` (the scheduled workflow default) to discover the model set from the live GitHub Models catalog. Auto mode keeps OpenAI text chat models (excluding audio/realtime/transcribe/embedding/codex), unions them with the curated non-OpenAI anchors, and falls back to the curated default set if the catalog fetch fails. New OpenAI releases surface automatically without code changes. Reasoning models (gpt-5*, o-series) are measured last so the reliable models and cross-publisher anchors are captured before the probe's time budget is spent.
+
+The daily change digest ("AI summary" banner) is written by a GitHub Models call as a short opinionated mini blog-post. It uses the best available model in the gpt-5 family, trying them best-first and falling through on rate limits: `openai/gpt-5 → gpt-5-chat → gpt-5-mini → gpt-5-nano`, with `openai/gpt-4.1` as a last-resort fallback so a digest is still produced when the whole family is throttled. Override with `AI_SUMMARY_MODEL` (a single model or a comma-separated preference list), or disable with `AI_SUMMARY_ENABLED=0` to use the deterministic rule-based summary.
 
 Run the Azure per-region model latency probe (real Azure regional latency, requires the regional deployments from `infra/regional-latency`):
 

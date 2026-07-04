@@ -1,8 +1,55 @@
 from azure_region_monitor.probes.github_models import (
     REASONING_MIN_COMPLETION_TOKENS,
+    GitHubModelsClient,
     _build_request_payload,
     _is_reasoning_model,
 )
+
+
+class _CapturingResponse:
+    def __init__(self, payload):
+        self._payload = payload
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def read(self):
+        return self._payload
+
+
+class _CapturingOpener:
+    def __init__(self):
+        self.body = None
+
+    def open(self, request, timeout=None):
+        import json
+
+        self.body = json.loads(request.data.decode("utf-8"))
+        reply = json.dumps({"choices": [{"message": {"content": "ok"}}]}).encode("utf-8")
+        return _CapturingResponse(reply)
+
+
+def test_complete_uses_max_tokens_and_temperature_for_standard_models():
+    opener = _CapturingOpener()
+    client = GitHubModelsClient(token="t", opener=opener)
+    client.complete(model="openai/gpt-4.1", system="s", user="u", max_tokens=500, temperature=0.4)
+    assert opener.body["max_tokens"] == 500
+    assert opener.body["temperature"] == 0.4
+    assert "max_completion_tokens" not in opener.body
+    assert "reasoning_effort" not in opener.body
+
+
+def test_complete_uses_reasoning_payload_for_gpt5_models():
+    opener = _CapturingOpener()
+    client = GitHubModelsClient(token="t", opener=opener)
+    client.complete(model="openai/gpt-5", system="s", user="u", max_tokens=500, temperature=0.4)
+    assert opener.body["max_completion_tokens"] == max(500, REASONING_MIN_COMPLETION_TOKENS)
+    assert opener.body["reasoning_effort"] == "low"
+    assert "max_tokens" not in opener.body
+    assert "temperature" not in opener.body
 
 
 def test_standard_models_use_max_tokens_and_temperature():
