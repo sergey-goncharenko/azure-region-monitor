@@ -1139,6 +1139,8 @@ def _style_block() -> str:
     .change-count-parked { color: var(--unknown-text); }
     .narrative { display: flex; gap: 12px; align-items: flex-start; background: #eef5ff; border: 1px solid #bcd4f6; border-radius: 8px; padding: 12px 14px; margin: 0 0 14px; }
     .narrative p { margin: 0; color: #163a63; font-size: 15px; line-height: 1.5; }
+    .narrative-body { display: flex; flex-direction: column; gap: 8px; }
+    .narrative-headline { font-weight: 700; font-size: 16px; color: #0f2f52; }
     .narrative-badge { flex: none; background: #0f4c81; color: #fff; border-radius: 999px; padding: 3px 10px; font-size: 12px; font-weight: 700; letter-spacing: 0.02em; }
     .spark { display: inline-flex; align-items: center; gap: 6px; color: #5878a8; }
     .spark svg { display: block; }
@@ -1580,9 +1582,26 @@ def _render_narrative_banner(day: dict[str, Any]) -> str:
         return ""
     source = str(day.get("narrative_source", "rule"))
     label = "AI summary" if source == "ai" else "Auto summary"
+
+    # Split the digest into a headline (first line) plus body paragraphs. AI blog-post
+    # summaries use blank lines between paragraphs; the rule fallback is a single block.
+    blocks = [block.strip() for block in re.split(r"\n\s*\n", narrative) if block.strip()]
+    if source == "ai" and blocks:
+        headline, *rest = blocks
+        # If the model kept everything in one block, treat the first line as the headline.
+        if not rest and "\n" in headline:
+            first, remainder = headline.split("\n", 1)
+            headline, rest = first.strip(), [remainder.strip()]
+        body = "".join(
+            f"<p>{html.escape(paragraph)}</p>" for paragraph in rest if paragraph
+        )
+        content = f'<p class="narrative-headline">{html.escape(headline)}</p>{body}'
+    else:
+        content = f"<p>{html.escape(narrative)}</p>"
+
     return f"""<div class="narrative" aria-label="Latest change summary">
         <span class="narrative-badge">{html.escape(label)}</span>
-        <p>{html.escape(narrative)}</p>
+        <div class="narrative-body">{content}</div>
       </div>"""
 
 

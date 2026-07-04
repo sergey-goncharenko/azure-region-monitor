@@ -5,11 +5,40 @@ from azure_region_monitor.static_site import (
     _region_badge,
     _region_country_name,
     _region_short_label,
+    _render_narrative_banner,
     _render_region_header,
     _sort_regions,
     build_static_site,
     _render_regional_latency_section,
 )
+
+
+def test_narrative_banner_renders_ai_blog_post_with_headline_and_paragraphs():
+    day = {
+        "narrative": "Germany North lights up\n\nA wave of VM SKUs rolled out.\n\nNo regressions.",
+        "narrative_source": "ai",
+    }
+    html = _render_narrative_banner(day)
+    assert 'class="narrative-headline"' in html
+    assert "Germany North lights up" in html
+    # Two body paragraphs after the headline.
+    assert html.count("<p>") == 2
+    assert "AI summary" in html
+
+
+def test_narrative_banner_single_block_ai_splits_first_line_as_headline():
+    day = {"narrative": "Big rollout day\nVM SKUs surged in Germany North.", "narrative_source": "ai"}
+    html = _render_narrative_banner(day)
+    assert 'class="narrative-headline"' in html
+    assert "Big rollout day" in html
+    assert "VM SKUs surged" in html
+
+
+def test_narrative_banner_rule_source_stays_single_paragraph():
+    day = {"narrative": "Latest scan: 3 new availability signals.", "narrative_source": "rule"}
+    html = _render_narrative_banner(day)
+    assert "narrative-headline" not in html
+    assert "Auto summary" in html
 
 
 def test_geography_regions_named_as_asia_and_europe():

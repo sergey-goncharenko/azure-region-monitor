@@ -123,24 +123,37 @@ class GitHubModelsClient(InferenceLatencyClient):
             output_tokens=output_tokens,
         )
 
-    def complete(self, *, model: str, system: str, user: str, max_tokens: int = 220) -> str:
+    def complete(
+        self,
+        *,
+        model: str,
+        system: str,
+        user: str,
+        max_tokens: int = 220,
+        temperature: float = 0.0,
+    ) -> str:
         """Return the text of a non-streaming chat completion.
 
-        Used for short text generation (such as a daily change digest). Raises
-        LatencyClientError on transport or HTTP failures so callers can fall back.
+        Used for short text generation (such as a daily change digest). Reasoning
+        models (gpt-5*, o-series) reject 'max_tokens' and a non-default temperature,
+        so the payload adapts to the model. Raises LatencyClientError on transport or
+        HTTP failures so callers can fall back.
         """
 
-        body = json.dumps(
-            {
-                "model": model,
-                "messages": [
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": user},
-                ],
-                "max_tokens": max_tokens,
-                "temperature": 0,
-            }
-        ).encode("utf-8")
+        payload: dict = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+        }
+        if _is_reasoning_model(model):
+            payload["max_completion_tokens"] = max(max_tokens, REASONING_MIN_COMPLETION_TOKENS)
+            payload["reasoning_effort"] = "low"
+        else:
+            payload["max_tokens"] = max_tokens
+            payload["temperature"] = temperature
+        body = json.dumps(payload).encode("utf-8")
 
         request = urllib.request.Request(
             f"{self._endpoint}/chat/completions",
@@ -171,18 +184,60 @@ class GitHubModelsClient(InferenceLatencyClient):
         return _completion_text(payload)
 
 
-class GitHubModelsNarrativeClient:
-    """Adapts GitHubModelsClient to the summary NarrativeClient protocol."""
+# Preferred summary models, best in the gpt-5 family first. The narrative client
+# tries these in order and uses the first that returns text, so the summary always
+# uses the best AVAILABLE gpt-5-family model. gpt-4.1 is only a last-resort fallback
+# so a daily digest is still produced when the whole gpt-5 family is throttled.
+DEFAULT_SUMMARY_MODELS = (
+    "openai/gpt-5",
+    "openai/gpt-5-chat",
+    "openai/gpt-5-mini",
+    "openai/gpt-5-nano",
+    "openai/gpt-4.1",
+)
 
-    def __init__(self, client: GitHubModelsClient, model: str, max_tokens: int = 220) -> None:
+
+class GitHubModelsNarrativeClient:
+    """Adapts GitHubModelsClient to the summary NarrativeClient protocol.
+
+    Tries an ordered list of candidate models and returns the first that produces
+    text, so the digest uses the best available gpt-5-family model and degrades
+    gracefully when a model is rate-limited or unavailable.
+    """
+
+    def __init__(
+        self,
+        client: GitHubModelsClient,
+        models: str | list[str] | tuple[str, ...] = DEFAULT_SUMMARY_MODELS,
+        max_tokens: int = 700,
+        temperature: float = 0.4,
+    ) -> None:
         self._client = client
-        self._model = model
+        if isinstance(models, str):
+            models = [part.strip() for part in models.split(",") if part.strip()]
+        self._models = list(models) or list(DEFAULT_SUMMARY_MODELS)
         self._max_tokens = max_tokens
+        self._temperature = temperature
 
     def generate(self, *, system: str, user: str) -> str:
-        return self._client.complete(
-            model=self._model, system=system, user=user, max_tokens=self._max_tokens
-        )
+        last_error: Exception | None = None
+        for model in self._models:
+            try:
+                text = self._client.complete(
+                    model=model,
+                    system=system,
+                    user=user,
+                    max_tokens=self._max_tokens,
+                    temperature=self._temperature,
+                ).strip()
+            except Exception as error:  # try the next candidate model
+                last_error = error
+                continue
+            if text:
+                return text
+        if last_error is not None:
+            raise last_error
+        return ""
 
 
 def _completion_text(payload: object) -> str:

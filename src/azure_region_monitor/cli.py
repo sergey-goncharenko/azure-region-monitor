@@ -178,12 +178,15 @@ def _build_narrative_client():
         return None
     try:
         from azure_region_monitor.probes.github_models import (
+            DEFAULT_SUMMARY_MODELS,
             GitHubModelsClient,
             GitHubModelsNarrativeClient,
         )
 
-        model = os.environ.get("AI_SUMMARY_MODEL", "openai/gpt-4o-mini")
-        return GitHubModelsNarrativeClient(GitHubModelsClient.from_env(), model=model)
+        # AI_SUMMARY_MODEL may be a single model or a comma-separated preference list;
+        # the client tries them in order. Default is the best-first gpt-5 family.
+        models = os.environ.get("AI_SUMMARY_MODEL") or ",".join(DEFAULT_SUMMARY_MODELS)
+        return GitHubModelsNarrativeClient(GitHubModelsClient.from_env(), models=models)
     except Exception:
         return None
 
