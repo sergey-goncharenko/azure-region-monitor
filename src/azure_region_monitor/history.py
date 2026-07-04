@@ -17,7 +17,13 @@ from azure_region_monitor.latency_view import (
 )
 from azure_region_monitor.models import Change, Snapshot
 from azure_region_monitor.storage import load_snapshot
-from azure_region_monitor.summary import NarrativeClient, build_change_narrative
+from azure_region_monitor.summary import (
+    ChangeContext,
+    ChangeKey,
+    NarrativeClient,
+    build_change_narrative,
+    change_key,
+)
 
 RECENT_CHANGE_DAYS = 10
 CHANGE_HIGHLIGHTS = 10
@@ -59,6 +65,7 @@ def update_history(
     previous = _load_previous_snapshot(history_dir, previous_entry)
     diff = build_diff(previous, current) if previous else None
     changes = diff.changes if diff else []
+    change_contexts = _build_change_contexts(history_dir, existing_index, current_date, changes)
 
     _write_snapshot_gzip(history_dir / snapshot_history_path, current)
     day_summary = _build_day_summary(
@@ -68,7 +75,8 @@ def update_history(
         change_path=change_history_path,
         previous_entry=previous_entry,
         changes=changes,
-        narrative=build_change_narrative(changes, client=narrative_client),
+        narrative=build_change_narrative(changes, client=narrative_client, contexts=change_contexts),
+        change_contexts=change_contexts,
     )
     _write_json(history_dir / change_history_path, day_summary)
 
@@ -160,6 +168,7 @@ def _build_day_summary(
     previous_entry: dict[str, Any] | None,
     changes: list[Change],
     narrative: dict[str, str] | None = None,
+    change_contexts: dict[ChangeKey, ChangeContext] | None = None,
 ) -> dict[str, Any]:
     change_type_counts: dict[str, int] = {}
     for change in changes:
@@ -183,9 +192,13 @@ def _build_day_summary(
         "status_counts": status_counts,
         "summary_counts": _summary_counts(current, status_counts),
         "modality_counts": _modality_counts(current),
+        "change_context_counts": _change_context_counts(change_contexts or {}),
         "narrative": (narrative or {}).get("narrative", ""),
         "narrative_source": (narrative or {}).get("narrative_source", "rule"),
-        "highlights": [_summarize_change(change) for change in _highlight_changes(changes)],
+        "highlights": [
+            _summarize_change(change, (change_contexts or {}).get(change_key(change)))
+            for change in _highlight_changes(changes)
+        ],
     }
 
 
@@ -228,8 +241,8 @@ def _parked_unknown_change_count(changes: list[Change]) -> int:
     return sum(1 for change in changes if "unknown" in {change.previous, change.current})
 
 
-def _summarize_change(change: Change) -> dict[str, Any]:
-    return {
+def _summarize_change(change: Change, context: ChangeContext | None = None) -> dict[str, Any]:
+    summary: dict[str, Any] = {
         "region": change.region,
         "service": change.service,
         "modality": _feature_category(change.feature),
@@ -239,6 +252,123 @@ def _summarize_change(change: Change) -> dict[str, Any]:
         "current": change.current,
         "change_type": change.change_type,
     }
+    if context is not None:
+        summary.update(
+            {
+                "classification": context.classification,
+                "classification_label": context.label,
+                "prior_disappearances": context.prior_disappearances,
+                "last_available_date": context.last_available_date,
+                "last_missing_date": context.last_missing_date,
+            }
+        )
+    return summary
+
+
+def _build_change_contexts(
+    history_dir: Path,
+    existing_index: dict[str, Any],
+    current_date: str,
+    changes: list[Change],
+) -> dict[ChangeKey, ChangeContext]:
+    signals = [change for change in changes if change.change_type in {"new_availability", "regression"}]
+    if not signals:
+        return {}
+
+    keys = {change_key(change) for change in signals}
+    timelines = _historical_timelines(history_dir, existing_index, current_date, keys)
+    return {
+        change_key(change): _classify_change_context(change, timelines.get(change_key(change), []))
+        for change in signals
+    }
+
+
+def _historical_timelines(
+    history_dir: Path,
+    existing_index: dict[str, Any],
+    current_date: str,
+    keys: set[ChangeKey],
+) -> dict[ChangeKey, list[tuple[str, str | None]]]:
+    timelines = {key: [] for key in keys}
+    days: list[tuple[str, str]] = []
+    for day in existing_index.get("days", []):
+        if not isinstance(day, dict):
+            continue
+        date = str(day.get("date", "")).strip()
+        snapshot_path = day.get("snapshot_path")
+        if not date or date >= current_date or not isinstance(snapshot_path, str):
+            continue
+        days.append((date, snapshot_path))
+
+    for date, snapshot_path in sorted(days):
+        try:
+            snapshot = _load_history_snapshot(_safe_history_path(history_dir, snapshot_path))
+        except (OSError, ValueError, json.JSONDecodeError):
+            continue
+        for key in keys:
+            timelines[key].append((date, _snapshot_status(snapshot, key)))
+    return timelines
+
+
+def _snapshot_status(snapshot: Snapshot, key: ChangeKey) -> str | None:
+    region, service, feature = key
+    result = snapshot.regions.get(region, {}).get(service, {}).get(feature)
+    return result.status if result is not None else None
+
+
+def _classify_change_context(change: Change, timeline: list[tuple[str, str | None]]) -> ChangeContext:
+    first_available = next((index for index, (_, status) in enumerate(timeline) if status == "available"), None)
+    statuses_since_first = timeline[first_available:] if first_available is not None else []
+    prior_disappearances = _prior_disappearance_count(statuses_since_first)
+    available_days = sum(1 for _, status in timeline if status == "available")
+    missing_days = sum(1 for _, status in timeline if status in {None, "unavailable"})
+    unknown_days = sum(1 for _, status in timeline if status in {"unknown", "partial"})
+    last_available_date = _last_status_date(timeline, {"available"})
+    last_missing_date = _last_status_date(timeline, {None, "unavailable"})
+
+    if change.change_type == "new_availability":
+        classification = "restored_availability" if available_days else "net_new_availability"
+    elif not timeline or available_days == 0:
+        classification = "uncertain_regression"
+    elif prior_disappearances or unknown_days:
+        classification = "recurring_regression"
+    else:
+        classification = "deprecation_candidate"
+
+    return ChangeContext(
+        classification=classification,
+        history_days=len(timeline),
+        available_days=available_days,
+        missing_days=missing_days,
+        unknown_days=unknown_days,
+        prior_disappearances=prior_disappearances,
+        last_available_date=last_available_date,
+        last_missing_date=last_missing_date,
+    )
+
+
+def _prior_disappearance_count(timeline: list[tuple[str, str | None]]) -> int:
+    disappearances = 0
+    previous_status: str | None = None
+    for _, status in timeline:
+        if previous_status == "available" and status in {None, "unavailable"}:
+            disappearances += 1
+        previous_status = status
+    return disappearances
+
+
+def _last_status_date(timeline: list[tuple[str, str | None]], statuses: set[str | None]) -> str | None:
+    for date, status in reversed(timeline):
+        if status in statuses:
+            return date
+    return None
+
+
+def _change_context_counts(contexts: dict[ChangeKey, ChangeContext]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for context in contexts.values():
+        counts[context.classification] = counts.get(context.classification, 0) + 1
+    return dict(sorted(counts.items()))
 
 
 def _status_counts(snapshot: Snapshot) -> dict[str, int]:

@@ -1,30 +1,165 @@
 from __future__ import annotations
 
-from typing import Protocol
+from dataclasses import dataclass
+from functools import lru_cache
+from importlib import resources
+from typing import Mapping, Protocol
 
 from azure_region_monitor.models import Change
 
+ChangeKey = tuple[str, str, str]
 MAX_FACTS = 40
 MAX_EXAMPLES = 4
-SYSTEM_PROMPT = (
-    "You are the editor of a daily change digest for an Azure regional availability "
-    "monitor. Write a short, opinionated mini blog-post about ONLY the structured "
-    "change facts provided.\n\n"
-    "Format:\n"
-    "- First line: a punchy headline (no more than ~10 words, no markdown, no '#').\n"
-    "- Then 2 to 3 short paragraphs, separated by a blank line.\n\n"
-    "Voice: confident and interpretive, like a sharp infrastructure newsletter — but "
-    "every claim must be grounded in the facts. Read the signals and say what they "
-    "mean: absent/unavailable -> available is a rollout or new deployment (for AI "
-    "models, a newer model or version rolling out); available -> unavailable is a "
-    "delisting (for AI models, a likely deprecation or retirement); for the latency "
-    "modalities, additions mean the monitor started measuring and removals mean it "
-    "stopped. Call out the region(s) and modality that saw the most movement, and note "
-    "any regressions explicitly because they matter most.\n\n"
-    "Rules: Do not invent regions, models, features, or numbers that are not in the "
-    "facts. Do not add disclaimers, caveats, sign-offs, or a call to action. Keep the "
-    "whole thing under ~130 words."
+_PROMPT_PACKAGE = "azure_region_monitor.prompts"
+_BLOG_SUMMARY_PROMPT = "blog_summary.md"
+_FALLBACK_SYSTEM_PROMPT = """You are the editor of a daily change digest for an Azure regional availability monitor.
+Write a short, SRE-oriented mini blog post using only the structured facts provided.
+
+Format:
+- First line: a punchy headline, no markdown, no '#'.
+- Then 2 to 3 short paragraphs, separated by blank lines.
+
+Interpret the change classifications: net-new availability means a feature has never been
+seen available in that region before; restored availability means it was available before,
+then disappeared, and is now back; deprecation candidate means a stable availability signal
+has disappeared for the first time; recurring disappearance means it has gone missing before.
+Explain the practical impact for SREs, such as placement choice, capacity, cost, scale,
+latency, upgrade paths, or feature enablement. Keep every claim grounded in the facts.
+
+Rules: do not invent regions, models, features, dates, numbers, causes, quotas, or SLAs.
+Do not add disclaimers, caveats, sign-offs, or a call to action. Keep it under ~170 words.
+"""
+
+
+@lru_cache
+def _load_system_prompt() -> str:
+    try:
+        prompt = (
+            resources.files(_PROMPT_PACKAGE)
+            .joinpath(_BLOG_SUMMARY_PROMPT)
+            .read_text(encoding="utf-8")
+            .strip()
+        )
+    except (FileNotFoundError, ModuleNotFoundError, OSError):
+        return _FALLBACK_SYSTEM_PROMPT
+    return prompt or _FALLBACK_SYSTEM_PROMPT
+
+
+SYSTEM_PROMPT = _load_system_prompt()
+
+
+@dataclass(frozen=True)
+class ChangeContext:
+    classification: str
+    history_days: int = 0
+    available_days: int = 0
+    missing_days: int = 0
+    unknown_days: int = 0
+    prior_disappearances: int = 0
+    last_available_date: str | None = None
+    last_missing_date: str | None = None
+
+    @property
+    def label(self) -> str:
+        return classification_label(self.classification)
+
+
+_CLASSIFICATION_LABELS = {
+    "net_new_availability": "net-new regional availability",
+    "restored_availability": "restored availability",
+    "deprecation_candidate": "deprecation candidate",
+    "recurring_regression": "recurring disappearance",
+    "uncertain_regression": "availability loss with limited history",
+    "new_availability_signal": "availability gain without history",
+    "regression_signal": "availability loss without history",
+}
+
+_CLASSIFICATION_PLURALS = {
+    "net_new_availability": "net-new regional availabilities",
+    "restored_availability": "restored availabilities",
+    "deprecation_candidate": "deprecation candidates",
+    "recurring_regression": "recurring disappearances",
+    "uncertain_regression": "availability losses with limited history",
+    "new_availability_signal": "availability gains without history",
+    "regression_signal": "availability losses without history",
+}
+
+_CLASSIFICATION_ORDER = (
+    "deprecation_candidate",
+    "recurring_regression",
+    "net_new_availability",
+    "restored_availability",
+    "uncertain_regression",
+    "regression_signal",
+    "new_availability_signal",
 )
+
+_SRE_IMPACT: dict[tuple[str, str], str] = {
+    (
+        "Azure AI models",
+        "new_availability",
+    ): "new regional model/version options for latency, residency, and model selection",
+    (
+        "Azure AI models",
+        "regression",
+    ): "review model deployment targets and fallback model/version choices",
+    (
+        "Azure model latency",
+        "new_availability",
+    ): "new measured deployment paths for latency-aware routing decisions",
+    (
+        "Azure model latency",
+        "regression",
+    ): "latency evidence disappeared, so routing assumptions need a fresh check",
+    (
+        "Model latency",
+        "new_availability",
+    ): "new benchmark coverage for comparing model speed",
+    (
+        "Model latency",
+        "regression",
+    ): "benchmark coverage disappeared, reducing confidence in speed comparisons",
+    (
+        "AKS extensions",
+        "new_availability",
+    ): "new managed cluster capabilities such as GitOps, policy, or observability",
+    (
+        "AKS extensions",
+        "regression",
+    ): "extension install plans and regional cluster templates may need adjustment",
+    (
+        "AKS Kubernetes versions",
+        "new_availability",
+    ): "new upgrade or patch targets for regional cluster maintenance windows",
+    (
+        "AKS Kubernetes versions",
+        "regression",
+    ): "cluster upgrade plans may lose a target version in affected regions",
+    (
+        "Azure Functions",
+        "new_availability",
+    ): "more Flex Consumption placement choices for burst scale and lower ops overhead",
+    (
+        "Azure Functions",
+        "regression",
+    ): "serverless placement and runtime assumptions need a regional fallback",
+    (
+        "Container Apps",
+        "new_availability",
+    ): "new serverless container placement for event-driven scale and microservices",
+    (
+        "Container Apps",
+        "regression",
+    ): "regional container app deployment targets may need rerouting",
+    (
+        "VM SKUs",
+        "new_availability",
+    ): "more compute shapes for right-sizing, performance, and cost tuning",
+    (
+        "VM SKUs",
+        "regression",
+    ): "capacity planning and SKU fallback lists should be rechecked",
+}
 
 # Opinionated phrasing per (modality, change direction). Grounded in what the change
 # type actually proves: absent->available is a rollout; available->unavailable is a delisting.
@@ -53,13 +188,22 @@ def _interpretation(modality: str, change_type: str) -> str:
     return _INTERPRETATION.get((modality, change_type), default)
 
 
+def classification_label(classification: str) -> str:
+    return _CLASSIFICATION_LABELS.get(classification, classification.replace("_", " "))
+
+
+def change_key(change: Change) -> ChangeKey:
+    return (change.region, change.service, change.feature)
+
+
 class NarrativeClient(Protocol):
     def generate(self, *, system: str, user: str) -> str:
         """Return a short natural-language summary or raise on failure."""
 
 
 def build_change_narrative(
-    changes: list[Change], *, client: NarrativeClient | None = None
+    changes: list[Change], *, client: NarrativeClient | None = None,
+    contexts: Mapping[ChangeKey, ChangeContext] | None = None,
 ) -> dict[str, str]:
     """Build a human-readable change narrative with a deterministic fallback.
 
@@ -70,13 +214,14 @@ def build_change_narrative(
     """
 
     signals = _clear_signal_changes(changes)
-    rule = _rule_summary(changes, signals)
+    context_map = contexts or {}
+    rule = _rule_summary(changes, signals, context_map)
 
     if client is None or not signals:
         return {"narrative": rule, "narrative_source": "rule"}
 
     try:
-        user = _facts_block(signals)
+        user = _facts_block(signals, context_map)
         text = client.generate(system=SYSTEM_PROMPT, user=user).strip()
     except Exception:
         return {"narrative": rule, "narrative_source": "rule"}
@@ -95,7 +240,11 @@ def _clear_signal_changes(changes: list[Change]) -> list[Change]:
     )
 
 
-def _rule_summary(changes: list[Change], signals: list[Change]) -> str:
+def _rule_summary(
+    changes: list[Change],
+    signals: list[Change],
+    context_map: Mapping[ChangeKey, ChangeContext],
+) -> str:
     if not signals:
         return "No new availability or regression signals in the latest scan."
 
@@ -110,12 +259,16 @@ def _rule_summary(changes: list[Change], signals: list[Change]) -> str:
         f"{_plural(len(regions), 'region')}."
     ]
     # Regressions first: a delisting/deprecation is the more consequential signal.
-    parts.extend(_opinionated_sentences(regressions, "regression"))
-    parts.extend(_opinionated_sentences(new_avail, "new_availability"))
+    parts.extend(_opinionated_sentences(regressions, "regression", context_map))
+    parts.extend(_opinionated_sentences(new_avail, "new_availability", context_map))
     return " ".join(parts)
 
 
-def _opinionated_sentences(changes: list[Change], change_type: str) -> list[str]:
+def _opinionated_sentences(
+    changes: list[Change],
+    change_type: str,
+    context_map: Mapping[ChangeKey, ChangeContext],
+) -> list[str]:
     """One interpretive sentence per modality, grouping that modality's changes."""
 
     by_modality: dict[str, list[Change]] = {}
@@ -125,11 +278,43 @@ def _opinionated_sentences(changes: list[Change], change_type: str) -> list[str]
     sentences: list[str] = []
     for modality in sorted(by_modality):
         group = by_modality[modality]
+        breakdown = _classification_breakdown(group, context_map)
+        impact = _impact(modality, change_type)
         sentences.append(
             f"{modality}: {_interpretation(modality, change_type)} "
-            f"({len(group)} {_plural(len(group), 'signal')}) — {_examples(group)}."
+            f"({len(group)} {_plural(len(group), 'signal')}; {breakdown}). "
+            f"SRE impact: {impact}. Examples: {_examples(group)}."
         )
     return sentences
+
+
+def _classification_breakdown(
+    changes: list[Change],
+    context_map: Mapping[ChangeKey, ChangeContext],
+) -> str:
+    counts: dict[str, int] = {}
+    max_prior_disappearances = 0
+    for change in changes:
+        context = _context_for(change, context_map)
+        counts[context.classification] = counts.get(context.classification, 0) + 1
+        max_prior_disappearances = max(max_prior_disappearances, context.prior_disappearances)
+
+    ordered = [classification for classification in _CLASSIFICATION_ORDER if classification in counts]
+    ordered.extend(sorted(set(counts) - set(ordered)))
+    parts = [_counted_classification(counts[classification], classification) for classification in ordered]
+    if max_prior_disappearances > 0:
+        parts.append(
+            f"up to {max_prior_disappearances} prior "
+            f"{_plural(max_prior_disappearances, 'disappearance')}"
+        )
+    return ", ".join(parts)
+
+
+def _counted_classification(count: int, classification: str) -> str:
+    if count == 1:
+        return f"1 {classification_label(classification)}"
+    label = _CLASSIFICATION_PLURALS.get(classification, f"{classification_label(classification)} signals")
+    return f"{count} {label}"
 
 
 def _examples(changes: list[Change]) -> str:
@@ -141,13 +326,25 @@ def _examples(changes: list[Change]) -> str:
     return rendered
 
 
-def _facts_block(signals: list[Change]) -> str:
+def _facts_block(
+    signals: list[Change],
+    context_map: Mapping[ChangeKey, ChangeContext],
+) -> str:
     lines = ["Change facts (do not invent anything beyond these):"]
     for change in signals[:MAX_FACTS]:
+        context = _context_for(change, context_map)
+        modality = _modality(change.feature)
         lines.append(
             f"- {change.change_type} | region={change.region} | "
-            f"modality={_modality(change.feature)} | feature={change.feature} | "
-            f"{change.previous or 'absent'}->{change.current or 'absent'}"
+            f"modality={modality} | feature={change.feature} | "
+            f"transition={change.previous or 'absent'}->{change.current or 'absent'} | "
+            f"classification={context.classification} ({context.label}) | "
+            f"prior_disappearances={context.prior_disappearances} | "
+            f"history_days={context.history_days} | available_days={context.available_days} | "
+            f"missing_days={context.missing_days} | unknown_days={context.unknown_days} | "
+            f"last_available={context.last_available_date or 'never'} | "
+            f"last_missing={context.last_missing_date or 'never'} | "
+            f"sre_impact={_impact(modality, change.change_type)}"
         )
     remaining = len(signals) - MAX_FACTS
     if remaining > 0:
@@ -157,6 +354,29 @@ def _facts_block(signals: list[Change]) -> str:
 
 def _plural(count: int, word: str) -> str:
     return word if count == 1 else f"{word}s"
+
+
+def _context_for(
+    change: Change,
+    context_map: Mapping[ChangeKey, ChangeContext],
+) -> ChangeContext:
+    return context_map.get(change_key(change)) or _default_context(change)
+
+
+def _default_context(change: Change) -> ChangeContext:
+    if change.change_type == "new_availability":
+        return ChangeContext(classification="new_availability_signal")
+    if change.change_type == "regression":
+        return ChangeContext(classification="regression_signal")
+    return ChangeContext(classification="status_change")
+
+
+def _impact(modality: str, change_type: str) -> str:
+    if (modality, change_type) in _SRE_IMPACT:
+        return _SRE_IMPACT[(modality, change_type)]
+    if change_type == "new_availability":
+        return "new regional placement or feature options to evaluate"
+    return "regional placement and fallback assumptions should be rechecked"
 
 
 def _modality(feature: str) -> str:

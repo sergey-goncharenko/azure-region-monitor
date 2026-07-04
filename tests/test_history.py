@@ -61,6 +61,84 @@ def test_update_history_writes_daily_snapshot_and_recent_changes(tmp_path):
     assert recent_changes["days"][0]["date"] == "2026-05-10"
 
 
+def test_update_history_classifies_net_new_and_restored_availability(tmp_path):
+    history_dir = tmp_path / "history"
+    snapshots = {
+        "2026-05-07": {
+            "eastus": {"ai": {"aiModels.openai.gpt-5.2025": {"status": "unavailable"}}},
+            "westus3": {"ai": {"aiModels.openai.gpt-5.2025": {"status": "available"}}},
+        },
+        "2026-05-08": {
+            "eastus": {"ai": {"aiModels.openai.gpt-5.2025": {"status": "unavailable"}}},
+            "westus3": {"ai": {"aiModels.openai.gpt-5.2025": {"status": "unavailable"}}},
+        },
+        "2026-05-09": {
+            "eastus": {"ai": {"aiModels.openai.gpt-5.2025": {"status": "available"}}},
+            "westus3": {"ai": {"aiModels.openai.gpt-5.2025": {"status": "available"}}},
+        },
+    }
+    for date, regions in snapshots.items():
+        path = tmp_path / f"{date}.json"
+        path.write_text(
+            json.dumps({"timestamp": f"{date}T00:00:00Z", "regions": regions}),
+            encoding="utf-8",
+        )
+        update_history(path, history_dir)
+
+    change_day = json.loads((history_dir / "changes" / "2026-05-09.json").read_text(encoding="utf-8"))
+    classifications = {item["region"]: item["classification"] for item in change_day["highlights"]}
+
+    assert classifications == {
+        "eastus": "net_new_availability",
+        "westus3": "restored_availability",
+    }
+    assert change_day["change_context_counts"] == {
+        "net_new_availability": 1,
+        "restored_availability": 1,
+    }
+    restored = next(item for item in change_day["highlights"] if item["region"] == "westus3")
+    assert restored["prior_disappearances"] == 1
+
+
+def test_update_history_classifies_deprecation_and_recurring_regression(tmp_path):
+    history_dir = tmp_path / "history"
+    snapshots = {
+        "2026-05-07": {
+            "eastus": {"compute": {"vmSkus.standard.d2as.v5": {"status": "available"}}},
+            "westus3": {"compute": {"vmSkus.standard.d2as.v5": {"status": "available"}}},
+        },
+        "2026-05-08": {
+            "eastus": {"compute": {"vmSkus.standard.d2as.v5": {"status": "available"}}},
+            "westus3": {"compute": {"vmSkus.standard.d2as.v5": {"status": "unavailable"}}},
+        },
+        "2026-05-09": {
+            "eastus": {"compute": {"vmSkus.standard.d2as.v5": {"status": "available"}}},
+            "westus3": {"compute": {"vmSkus.standard.d2as.v5": {"status": "available"}}},
+        },
+        "2026-05-10": {
+            "eastus": {"compute": {"vmSkus.standard.d2as.v5": {"status": "unavailable"}}},
+            "westus3": {"compute": {"vmSkus.standard.d2as.v5": {"status": "unavailable"}}},
+        },
+    }
+    for date, regions in snapshots.items():
+        path = tmp_path / f"{date}.json"
+        path.write_text(
+            json.dumps({"timestamp": f"{date}T00:00:00Z", "regions": regions}),
+            encoding="utf-8",
+        )
+        update_history(path, history_dir)
+
+    change_day = json.loads((history_dir / "changes" / "2026-05-10.json").read_text(encoding="utf-8"))
+    classifications = {item["region"]: item["classification"] for item in change_day["highlights"]}
+
+    assert classifications == {
+        "eastus": "deprecation_candidate",
+        "westus3": "recurring_regression",
+    }
+    recurring = next(item for item in change_day["highlights"] if item["region"] == "westus3")
+    assert recurring["prior_disappearances"] == 1
+
+
 def test_update_history_migrates_legacy_json_snapshots(tmp_path):
     history_dir = tmp_path / "history"
     legacy_snapshot_path = history_dir / "snapshots" / "2026-05-08.json"

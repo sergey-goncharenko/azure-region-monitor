@@ -1,5 +1,5 @@
 from azure_region_monitor.models import Change
-from azure_region_monitor.summary import build_change_narrative
+from azure_region_monitor.summary import ChangeContext, build_change_narrative, change_key
 
 
 def _change(region, feature, previous, current, change_type, service="ai"):
@@ -66,6 +66,38 @@ def test_ai_path_used_when_client_and_signals_present():
     assert "new_availability" in user and "eastus" in user
 
 
+def test_ai_facts_include_history_classification_and_sre_impact():
+    change = _change(
+        "eastus",
+        "aiModels.openai.gpt-5.2025",
+        "unavailable",
+        "available",
+        "new_availability",
+    )
+    client = _FakeClient(reply="Headline\n\nBody.")
+
+    build_change_narrative(
+        [change],
+        client=client,
+        contexts={
+            change_key(change): ChangeContext(
+                classification="restored_availability",
+                history_days=7,
+                available_days=5,
+                missing_days=2,
+                prior_disappearances=2,
+                last_available_date="2026-07-01",
+                last_missing_date="2026-07-03",
+            )
+        },
+    )
+
+    _system, user = client.calls[0]
+    assert "classification=restored_availability" in user
+    assert "prior_disappearances=2" in user
+    assert "sre_impact=" in user
+
+
 def test_ai_failure_falls_back_to_rule():
     changes = [
         _change("eastus", "aiModels.openai.gpt-5.2025", "unavailable", "available", "new_availability"),
@@ -116,3 +148,44 @@ def test_rule_summary_frames_latency_additions_and_removals():
     assert "started measuring" in narrative
     assert "stopped measuring" in narrative
     assert "Azure model latency:" in narrative
+
+
+def test_rule_summary_uses_history_classification_breakdown():
+    restored = _change(
+        "eastus",
+        "aiModels.openai.gpt-5.2025",
+        "unavailable",
+        "available",
+        "new_availability",
+    )
+    net_new = _change(
+        "westus3",
+        "aiModels.openai.gpt-5.2025",
+        "unavailable",
+        "available",
+        "new_availability",
+    )
+
+    narrative = build_change_narrative(
+        [restored, net_new],
+        client=None,
+        contexts={
+            change_key(restored): ChangeContext(
+                classification="restored_availability",
+                history_days=5,
+                available_days=3,
+                missing_days=2,
+                prior_disappearances=1,
+            ),
+            change_key(net_new): ChangeContext(
+                classification="net_new_availability",
+                history_days=5,
+                missing_days=5,
+            ),
+        },
+    )["narrative"]
+
+    assert "1 net-new regional availability" in narrative
+    assert "1 restored availability" in narrative
+    assert "up to 1 prior disappearance" in narrative
+    assert "SRE impact:" in narrative

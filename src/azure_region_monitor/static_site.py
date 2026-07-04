@@ -1218,6 +1218,7 @@ def _style_block() -> str:
     .blog-highlights ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
     .blog-change { font-size: 13px; color: var(--text); }
     .blog-change-arrow { color: var(--muted); }
+    .blog-change-context { display: inline-block; margin-left: 6px; border-radius: 999px; padding: 1px 7px; background: #eef2f7; color: #3a4a60; font-size: 11px; font-weight: 700; }
     .blog-change-new code { color: #1c7a3e; }
     .blog-change-regression code { color: #b23131; }
     .blog-post-nav { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 14px 0; }

@@ -118,13 +118,21 @@ def test_blog_post_renders_headline_paragraphs_and_prev_next():
 
 def test_blog_post_includes_highlights():
     highlights = [
-        {"region": "eastus", "feature": "aiModels.openai.gpt-5.2025", "previous": "unavailable", "current": "available", "change_type": "new_availability"},
+        {
+            "region": "eastus",
+            "feature": "aiModels.openai.gpt-5.2025",
+            "previous": "unavailable",
+            "current": "available",
+            "change_type": "new_availability",
+            "classification_label": "net-new regional availability",
+        },
     ]
     posts = select_blog_posts(_history([_day("2026-07-03", "Head\n\nbody", highlights=highlights)]))
     html = render_blog_post(posts[0], None, None, SITE, STYLE)
     assert "Notable changes" in html
     assert "eastus" in html
     assert "aiModels.openai.gpt-5.2025" in html
+    assert "net-new regional availability" in html
 
 
 def test_blog_feed_is_valid_rss_with_one_item_per_post():

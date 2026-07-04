@@ -244,6 +244,12 @@ def _render_highlights(highlights: list[Any]) -> str:
         previous = str(item.get("previous", ""))
         current = str(item.get("current", ""))
         change_type = str(item.get("change_type", ""))
+        classification = str(item.get("classification_label", "")).strip()
+        classification_badge = (
+            f' <span class="blog-change-context">{html.escape(classification)}</span>'
+            if classification
+            else ""
+        )
         css = "blog-change"
         if change_type == "new_availability":
             css += " blog-change-new"
@@ -251,7 +257,8 @@ def _render_highlights(highlights: list[Any]) -> str:
             css += " blog-change-regression"
         items.append(
             f'<li class="{css}"><code>{html.escape(region)}</code> {html.escape(feature)} '
-            f"<span class=\"blog-change-arrow\">{html.escape(previous)} → {html.escape(current)}</span></li>"
+            f"<span class=\"blog-change-arrow\">{html.escape(previous)} → "
+            f"{html.escape(current)}</span>{classification_badge}</li>"
         )
     if not items:
         return ""
