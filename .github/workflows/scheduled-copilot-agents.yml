@@ -1,0 +1,92 @@
+name: Scheduled Copilot agent sessions
+
+on:
+  schedule:
+    # GitHub schedules are UTC. 07:00 UTC is fixed 09:00 EET.
+    - cron: "0 7 * * *"
+  workflow_dispatch:
+    inputs:
+      session:
+        description: "Which scheduled agent session to start"
+        required: false
+        type: choice
+        default: both
+        options:
+          - both
+          - docs
+          - unknowns
+      dry_run:
+        description: "Print the planned Copilot tasks without creating issues"
+        required: false
+        type: boolean
+        default: false
+      force:
+        description: "Create a new task even if a matching open task already exists"
+        required: false
+        type: boolean
+        default: false
+      force_unknowns_without_candidates:
+        description: "Run the unknowns agent even when the latest snapshot has no unknown checks"
+        required: false
+        type: boolean
+        default: false
+      model:
+        description: "Optional Copilot cloud-agent model id; blank uses auto selection"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scheduled-copilot-agent-sessions
+  cancel-in-progress: false
+
+jobs:
+  start-sessions:
+    name: Start Copilot agent sessions
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Start scheduled sessions
+        env:
+          COPILOT_AGENT_TOKEN: ${{ secrets.COPILOT_AGENT_TOKEN }}
+          SESSION: ${{ inputs.session || 'both' }}
+          DRY_RUN: ${{ inputs.dry_run || false }}
+          FORCE: ${{ inputs.force || false }}
+          FORCE_UNKNOWNS_WITHOUT_CANDIDATES: ${{ inputs.force_unknowns_without_candidates || false }}
+          MODEL: ${{ inputs.model || '' }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          BASE_BRANCH: ${{ github.event.repository.default_branch || 'main' }}
+        run: |
+          set -euo pipefail
+
+          args=(
+            --session "$SESSION"
+            --repo "$GITHUB_REPOSITORY"
+            --base-branch "$BASE_BRANCH"
+            --snapshot-url "https://azwatch.operator.lat/api/latest.json"
+          )
+
+          if [ "$DRY_RUN" = "true" ]; then
+            args+=(--dry-run)
+          fi
+          if [ "$FORCE" = "true" ]; then
+            args+=(--force)
+          fi
+          if [ "$FORCE_UNKNOWNS_WITHOUT_CANDIDATES" = "true" ]; then
+            args+=(--force-unknowns-without-candidates)
+          fi
+          if [ -n "$MODEL" ]; then
+            args+=(--model "$MODEL")
+          fi
+
+          python scripts/start_copilot_agent_sessions.py "${args[@]}"
