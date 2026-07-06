@@ -64,6 +64,8 @@ class AksExtensionCatalogCliProbe:
 
         if completed.returncode != 0:
             message = (completed.stderr or completed.stdout or "Azure CLI command failed.").strip()
+            if _is_unsupported_extension_catalog_location(message):
+                return set(), None
             return set(), AzureCliError("AzureCliCommandFailed", message)
 
         try:
@@ -91,3 +93,14 @@ def _extract_extension_type_names(payload: object) -> set[str]:
 
 def _feature_slug(extension_type: str) -> str:
     return re.sub(r"[^a-z0-9]+", ".", extension_type.lower()).strip(".")
+
+
+def _is_unsupported_extension_catalog_location(message: str) -> bool:
+    """Return True for region-scoped unsupported-location provider errors.
+
+    This keeps generic Azure CLI failures as unknown while allowing explicit
+    `locations/extensionTypes` unsupported-location responses to normalize as an
+    empty catalog for that region.
+    """
+    normalized = message.lower()
+    return "noregisteredproviderfound" in normalized and "locations/extensiontypes" in normalized

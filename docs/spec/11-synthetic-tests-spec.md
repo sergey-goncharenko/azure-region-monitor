@@ -7,7 +7,7 @@ The current production workflow prioritizes low-cost read-only evidence. These c
 ## AKS Extension Catalog Tests
 - Command: `az k8s-extension extension-types list-by-location`
 - `available`: extension type is listed in the region.
-- `unavailable`: command succeeded but the extension type is absent from that region's catalog.
+- `unavailable`: command succeeded but the extension type is absent from that region's catalog, or the `locations/extensionTypes` endpoint reports the region is outside its supported locations.
 - `unknown`: command failed, timed out, or returned invalid JSON.
 
 ## AKS Kubernetes Version Tests

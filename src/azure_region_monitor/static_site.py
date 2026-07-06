@@ -735,7 +735,7 @@ def _render_methodology_page(snapshot: Snapshot) -> str:
         <table>
           <thead><tr><th>Modality</th><th>Available means</th><th>Unavailable means</th></tr></thead>
           <tbody>
-            <tr><td>AKS extensions</td><td>The extension type was listed by the AKS extension catalog for the region.</td><td>The catalog call succeeded but did not list that extension type in the region.</td></tr>
+            <tr><td>AKS extensions</td><td>The extension type was listed by the AKS extension catalog for the region.</td><td>The extension type was absent from the regional catalog, or the regional <code>locations/extensionTypes</code> endpoint reported that the region is outside its supported locations.</td></tr>
             <tr><td>AKS Kubernetes versions</td><td><code>az aks get-versions</code> listed a Kubernetes version matching the configured prefix.</td><td>The version listing succeeded, but no matching version prefix was present.</td></tr>
             <tr><td>Azure AI models</td><td><code>az cognitiveservices model list --location &lt;region&gt;</code> listed the model/version in the region.</td><td>The model/version was not present in the regional catalog, or the regional <code>locations/models</code> endpoint reported that the region is outside its supported locations.</td></tr>
             <tr><td>Container Apps</td><td><code>az provider show --namespace Microsoft.App --expand resourceTypes/locations</code> advertised the resource type in the region.</td><td>The provider metadata call succeeded, but the resource type was not advertised in that region.</td></tr>
