@@ -70,4 +70,5 @@ def test_aks_extension_catalog_probe_treats_unsupported_location_as_empty_catalo
         snapshot.regions["eastusstg"]["aks"]["extensionTypes.microsoft.flux"].status
         == "unavailable"
     )
+    assert snapshot.regions["eastusstg"]["aks"]["extensionTypes.microsoft.flux"].error_code is None
     assert "extensionCatalog" not in snapshot.regions["eastusstg"]["aks"]

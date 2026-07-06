@@ -96,5 +96,11 @@ def _feature_slug(extension_type: str) -> str:
 
 
 def _is_unsupported_extension_catalog_location(message: str) -> bool:
+    """Return True for region-scoped unsupported-location provider errors.
+
+    This keeps generic Azure CLI failures as unknown while allowing explicit
+    `locations/extensionTypes` unsupported-location responses to normalize as an
+    empty catalog for that region.
+    """
     normalized = message.lower()
     return "noregisteredproviderfound" in normalized and "locations/extensiontypes" in normalized
