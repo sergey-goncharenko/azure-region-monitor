@@ -6,7 +6,7 @@ The PoC proves that synthetic checks can produce structured, region-by-region Az
 
 ## Current PoC Shape
 
-- Current probes: `aks-extension-catalog-cli`, `aks-version-cli`, `function-flex-cli`, `ai-model-catalog-cli`, `container-apps-provider-cli`, `vm-sku-cli`, and `model-latency-cli`
+- Current probes: `aks-extension-catalog-cli`, `aks-version-cli`, `function-flex-cli`, `ai-model-catalog-cli`, `container-apps-provider-cli`, `vm-sku-cli`, `model-latency-cli`, and `ai-model-latency-cli`
 - Original PoC regions: `westeurope`, `swedencentral`, `eastus`
 - Default workflow regions: blank workflow input, which falls back to the Python `DEFAULT_REGIONS` list
 - Default full run scope: Azure physical locations returned by Azure CLI, including recommended and other public cloud locations
@@ -39,7 +39,6 @@ The PoC proves that synthetic checks can produce structured, region-by-region Az
   - `.github/workflows/container-apps-tests.yml`
   - `.github/workflows/vm-sku-tests.yml`
   - `.github/workflows/model-latency-tests.yml`
-  - `.github/workflows/azure-latency-tests.yml`
   - `.github/workflows/azure-latency-tests.yml`
 - Shared runner workflow: `.github/workflows/regional-probe-run.yml`
 - Static host: Azure Static Web Apps
@@ -205,6 +204,8 @@ For Azure AI models, `unavailable` means `az cognitiveservices model list --loca
 For Container Apps, `unavailable` means `az provider show --namespace Microsoft.App --expand resourceTypes/locations --output json` completed successfully, but the configured Microsoft.App resource type did not advertise the region in its `locations` metadata. It does not test a real Container Apps environment or app deployment, Dapr runtime behavior, quota, capacity, policy, or provider registration for the subscription.
 
 For model latency, `available` means at least one timed inference call returned a trustworthy response; `latency_ms` is the p50 round-trip and the message carries p95, time-to-first-token, and tokens/sec. `unknown` means every sample failed. This probe never emits `unavailable` and is not an Azure CLI probe. Latency is a measurement that depends on the network path and the vantage the probe runs from; the default `github-global` vantage measures GitHub Models' single global endpoint and does not attribute timing to any Azure region. It is not an SLA, throughput, or availability guarantee.
+
+For Azure model latency (`ai-model-latency-cli`), `available` means a timed Azure OpenAI inference call succeeded for that region; `unknown` means every sample failed. Unlike the GitHub Models modality, each measured deployment is a single-region Standard Azure OpenAI deployment, so latency is attributable to the region. It still includes network distance from the probe runner's vantage and is not an SLA or throughput guarantee.
 
 ## Success Criteria
 

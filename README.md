@@ -179,11 +179,7 @@ azure-region-monitor run --probe container-apps-provider-cli --output data/snaps
 
 By default, the Container Apps probe checks Microsoft.App provider metadata for managed environments, apps, jobs, Dapr components, and connected environments.
 
-Default regions now cover a small global spread:
-
-```text
-eastus, eastus2, westus3, westeurope, northeurope, swedencentral, uksouth, germanywestcentral, southeastasia, australiaeast
-```
+Default regions now cover the full set of Azure public cloud physical locations returned by Azure CLI. The current `DEFAULT_REGIONS` list in `config.py` includes 70+ regions across all Azure geographies. Run with `--region` flags to restrict to a smaller set during local testing.
 
 Customize AKS extension features with comma-separated `feature=extensionType` pairs:
 
