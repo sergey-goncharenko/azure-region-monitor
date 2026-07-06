@@ -255,18 +255,133 @@ def _render_highlights(highlights: list[Any]) -> str:
             css += " blog-change-new"
         elif change_type == "regression":
             css += " blog-change-regression"
+        metrics = _render_change_metrics(item)
+        details = _render_change_details(item)
         items.append(
-            f'<li class="{css}"><code>{html.escape(region)}</code> {html.escape(feature)} '
-            f"<span class=\"blog-change-arrow\">{html.escape(previous)} → "
-            f"{html.escape(current)}</span>{classification_badge}</li>"
+            f'<li class="{css}"><div class="blog-change-main"><code>{html.escape(region)}</code> '
+            f"{html.escape(feature)} <span class=\"blog-change-arrow\">{html.escape(previous)} → "
+            f"{html.escape(current)}</span>{classification_badge}</div>{metrics}{details}</li>"
         )
     if not items:
         return ""
     rendered = "\n".join(items)
     return f"""<div class="blog-highlights">
-        <h3>Notable changes</h3>
+        <h3>Engineering context</h3>
         <ul>{rendered}</ul>
       </div>"""
+
+
+def _render_change_metrics(item: dict[str, Any]) -> str:
+    metrics: list[str] = []
+    history_days = _as_int(item.get("history_days"))
+    missing_days = _as_int(item.get("missing_days"))
+    unavailable_pct = _as_float(item.get("unavailable_pct"))
+    prior_disappearances = _as_int(item.get("prior_disappearances"))
+    if history_days > 0:
+        metrics.append(
+            f"unavailable {missing_days}/{history_days} prior days ({_format_pct(unavailable_pct)})"
+        )
+    if prior_disappearances > 0:
+        metrics.append(
+            f"{prior_disappearances} prior {_plural(prior_disappearances, 'disappearance')}"
+        )
+
+    current_regions = _as_int(item.get("feature_current_available_regions"))
+    total_regions = _as_int(item.get("feature_total_regions"))
+    coverage_pct = _as_float(item.get("feature_current_coverage_pct"))
+    coverage_delta = _as_int(item.get("feature_coverage_delta"))
+    if total_regions > 0:
+        delta = f", {coverage_delta:+d} {_plural(abs(coverage_delta), 'region')}" if coverage_delta else ""
+        metrics.append(
+            f"coverage {current_regions}/{total_regions} monitored regions ({_format_pct(coverage_pct)}{delta})"
+        )
+
+    deprecated_pct = _as_float(item.get("feature_deprecated_coverage_pct"))
+    if deprecated_pct > 0:
+        metrics.append(f"coverage removed from {_format_pct(deprecated_pct)} of prior regions")
+
+    region_group = str(item.get("region_group") or "").strip()
+    group_current = _as_int(item.get("region_group_current_available_regions"))
+    group_previous = _as_int(item.get("region_group_previous_available_regions"))
+    if region_group and group_current:
+        metrics.append(f"{region_group}: {group_current} current, {group_previous} prior")
+
+    expansion = str(item.get("expansion_label") or "").strip()
+    if expansion:
+        metrics.append(expansion)
+
+    if not metrics:
+        return ""
+    spans = "".join(f"<span>{html.escape(metric)}</span>" for metric in metrics)
+    return f'<div class="blog-change-metrics">{spans}</div>'
+
+
+def _render_change_details(item: dict[str, Any]) -> str:
+    details: list[str] = []
+    same_day_regions = _as_str_list(item.get("same_day_new_regions"))
+    if same_day_regions:
+        details.append(f"Also newly available in {_sample_regions(same_day_regions)}.")
+    still_available = _as_str_list(item.get("still_available_regions"))
+    change_type = str(item.get("change_type") or "")
+    if change_type == "regression" and still_available:
+        details.append(f"Still available in {_sample_regions(still_available)}.")
+    note = str(item.get("feature_note") or "").strip()
+    if note:
+        details.append(note)
+
+    details_url = str(item.get("details_url") or "").strip()
+    details_label = str(item.get("details_label") or "Learn more").strip()
+    if details_url:
+        details.append(
+            f'<a class="blog-change-link" href="{html.escape(details_url)}">{html.escape(details_label)}</a>'
+        )
+
+    if not details:
+        return ""
+    return '<div class="blog-change-details">' + " ".join(_render_detail(detail) for detail in details) + "</div>"
+
+
+def _render_detail(detail: str) -> str:
+    if detail.startswith('<a class="blog-change-link"'):
+        return detail
+    return html.escape(detail)
+
+
+def _sample_regions(regions: list[str], limit: int = 6) -> str:
+    shown = regions[:limit]
+    rendered = ", ".join(shown)
+    remaining = len(regions) - len(shown)
+    if remaining > 0:
+        rendered += f", and {remaining} more"
+    return rendered
+
+
+def _as_str_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value if str(item).strip()]
+
+
+def _as_int(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _as_float(value: Any) -> float:
+    try:
+        return float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _format_pct(value: float) -> str:
+    return f"{value:.1f}%"
+
+
+def _plural(count: int, word: str) -> str:
+    return word if count == 1 else f"{word}s"
 
 
 def _render_prev_next(newer: dict[str, Any] | None, older: dict[str, Any] | None) -> str:

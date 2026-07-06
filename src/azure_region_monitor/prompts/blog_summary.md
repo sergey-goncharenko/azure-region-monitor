@@ -3,12 +3,13 @@ Write a short, SRE-oriented mini blog post about only the structured change fact
 
 Format:
 - First line: a punchy headline, no markdown, no '#', no more than about 10 words.
-- Then 2 to 3 short paragraphs separated by blank lines.
+- Then 4 to 6 short paragraphs separated by blank lines.
 
 Audience and goal:
 - The reader is an SRE, platform engineer, or cloud architect scanning recent Azure regional availability changes.
 - Explain what changed and why it matters operationally: placement choice, capacity planning, failover options, latency or data residency, upgrade targets, scaling behavior, feature enablement, or cost/performance tuning.
 - Lead with regressions/deprecations when they exist because they are usually more urgent than rollouts.
+- Write like something worth receiving in an engineering inbox: specific, factual, comparative, and decision-oriented.
 
 Classification semantics:
 - net_new_availability: the monitor has never previously seen that feature available in that region; treat this as a new regional rollout or newly observed deployment signal.
@@ -17,8 +18,14 @@ Classification semantics:
 - recurring_regression: a feature is gone now and has gone missing before; frame as recurring instability, catalog churn, or lowered confidence rather than a clean deprecation.
 - availability gain/loss without history: use cautious wording because the monitor lacks enough history to classify the pattern.
 
+Datapoints to use when present:
+- Stability: include unavailable_pct, history_days, missing_days, and prior_disappearances when they change the interpretation.
+- Rollouts: distinguish a new feature across monitored regions from regional expansion of an existing feature. If expansion says first observed in a geography, mention the geography.
+- Deprecations/regressions: include current and previous feature coverage, deprecated coverage percentage, and still_available_regions so readers know where fallback placement remains possible.
+- Feature context: when details_url and feature_note are present, summarize the useful capability and include the URL naturally.
+
 Rules:
 - Stay grounded in the facts. Do not invent regions, services, models, SKUs, dates, counts, causes, quotas, customer impact, or SLA conclusions.
 - Preserve probe semantics: unavailable means absent from the read-only catalog/list used by the probe, not proof of quota, capacity, or deployment failure.
 - Do not add disclaimers, caveats, sign-offs, or a call to action.
-- Keep the whole post under about 170 words.
+- Keep the whole post under about 350 words.

@@ -422,7 +422,7 @@ def test_build_static_site_writes_blog_from_history_index(tmp_path):
     assert not (output_dir / "blog" / "2026-07-02.html").exists()
     assert "Germany North floods with DCv5" in blog_index
     assert "Germany North floods with DCv5" in post
-    assert "Notable changes" in post
+    assert "Engineering context" in post
     assert "germanynorth" in post
     # Sitemap lists the blog index and dated posts.
     assert "<loc>https://azwatch.operator.lat/blog/</loc>" in sitemap

@@ -125,14 +125,33 @@ def test_blog_post_includes_highlights():
             "current": "available",
             "change_type": "new_availability",
             "classification_label": "net-new regional availability",
+            "expansion_label": "first observed in North America",
+            "history_days": 30,
+            "missing_days": 30,
+            "unavailable_pct": 100.0,
+            "feature_current_available_regions": 2,
+            "feature_total_regions": 10,
+            "feature_current_coverage_pct": 20.0,
+            "feature_coverage_delta": 2,
+            "region_group": "North America",
+            "region_group_current_available_regions": 2,
+            "same_day_new_regions": ["eastus", "westus3"],
+            "still_available_regions": ["eastus", "westus3"],
+            "details_label": "Azure OpenAI model availability",
+            "details_url": "https://learn.microsoft.com/azure/ai-foundry/openai/concepts/models",
+            "feature_note": "Use this to evaluate model capabilities, regional deployment options, latency, and data residency.",
         },
     ]
     posts = select_blog_posts(_history([_day("2026-07-03", "Head\n\nbody", highlights=highlights)]))
     html = render_blog_post(posts[0], None, None, SITE, STYLE)
-    assert "Notable changes" in html
+    assert "Engineering context" in html
     assert "eastus" in html
     assert "aiModels.openai.gpt-5.2025" in html
     assert "net-new regional availability" in html
+    assert "unavailable 30/30 prior days (100.0%)" in html
+    assert "coverage 2/10 monitored regions (20.0%, +2 regions)" in html
+    assert "Also newly available in eastus, westus3" in html
+    assert "Azure OpenAI model availability" in html
 
 
 def test_blog_feed_is_valid_rss_with_one_item_per_post():

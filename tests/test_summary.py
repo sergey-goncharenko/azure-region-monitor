@@ -85,9 +85,20 @@ def test_ai_facts_include_history_classification_and_sre_impact():
                 history_days=7,
                 available_days=5,
                 missing_days=2,
+                unavailable_pct=28.6,
                 prior_disappearances=2,
                 last_available_date="2026-07-01",
                 last_missing_date="2026-07-03",
+                region_group="North America",
+                expansion_kind="restored_region",
+                feature_total_regions=10,
+                feature_previous_available_regions=4,
+                feature_current_available_regions=5,
+                feature_current_coverage_pct=50.0,
+                feature_coverage_delta=1,
+                still_available_regions=("eastus", "westus3"),
+                details_url="https://learn.microsoft.com/azure/ai-foundry/openai/concepts/models",
+                feature_note="Use this to evaluate model capabilities.",
             )
         },
     )
@@ -95,6 +106,10 @@ def test_ai_facts_include_history_classification_and_sre_impact():
     _system, user = client.calls[0]
     assert "classification=restored_availability" in user
     assert "prior_disappearances=2" in user
+    assert "unavailable_pct=28.6%" in user
+    assert "feature_coverage=5/10" in user
+    assert "still_available_regions=eastus, westus3" in user
+    assert "details_url=https://learn.microsoft.com/azure/ai-foundry/openai/concepts/models" in user
     assert "sre_impact=" in user
 
 
@@ -175,12 +190,19 @@ def test_rule_summary_uses_history_classification_breakdown():
                 history_days=5,
                 available_days=3,
                 missing_days=2,
+                unavailable_pct=40.0,
                 prior_disappearances=1,
+                feature_total_regions=4,
+                feature_current_available_regions=2,
             ),
             change_key(net_new): ChangeContext(
                 classification="net_new_availability",
                 history_days=5,
                 missing_days=5,
+                unavailable_pct=100.0,
+                expansion_kind="new_feature",
+                feature_total_regions=4,
+                feature_current_available_regions=2,
             ),
         },
     )["narrative"]
@@ -188,4 +210,7 @@ def test_rule_summary_uses_history_classification_breakdown():
     assert "1 net-new regional availability" in narrative
     assert "1 restored availability" in narrative
     assert "up to 1 prior disappearance" in narrative
+    assert "Coverage now ranges from 2 to 2 of 4 monitored regions" in narrative
+    assert "unavailable 100.0% of prior observations" in narrative
+    assert "first observed anywhere" in narrative
     assert "SRE impact:" in narrative

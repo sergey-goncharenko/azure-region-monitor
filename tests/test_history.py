@@ -98,6 +98,11 @@ def test_update_history_classifies_net_new_and_restored_availability(tmp_path):
     }
     restored = next(item for item in change_day["highlights"] if item["region"] == "westus3")
     assert restored["prior_disappearances"] == 1
+    net_new = next(item for item in change_day["highlights"] if item["region"] == "eastus")
+    assert net_new["expansion_kind"] == "regional_expansion"
+    assert net_new["feature_current_available_regions"] == 2
+    assert net_new["feature_coverage_delta"] == 2
+    assert net_new["details_url"] == "https://learn.microsoft.com/azure/ai-foundry/openai/concepts/models"
 
 
 def test_update_history_classifies_deprecation_and_recurring_regression(tmp_path):
@@ -137,6 +142,41 @@ def test_update_history_classifies_deprecation_and_recurring_regression(tmp_path
     }
     recurring = next(item for item in change_day["highlights"] if item["region"] == "westus3")
     assert recurring["prior_disappearances"] == 1
+    deprecation = next(item for item in change_day["highlights"] if item["region"] == "eastus")
+    assert deprecation["feature_previous_available_regions"] == 2
+    assert deprecation["feature_current_available_regions"] == 0
+    assert deprecation["feature_deprecated_coverage_pct"] == 100.0
+    assert deprecation["still_available_regions"] == []
+
+
+def test_update_history_marks_first_region_in_geography(tmp_path):
+    history_dir = tmp_path / "history"
+    snapshots = {
+        "2026-05-07": {
+            "eastus": {"compute": {"vmSkus.standard.ncads.h100.v5": {"status": "available"}}},
+            "westeurope": {"compute": {"vmSkus.standard.ncads.h100.v5": {"status": "unavailable"}}},
+        },
+        "2026-05-08": {
+            "eastus": {"compute": {"vmSkus.standard.ncads.h100.v5": {"status": "available"}}},
+            "westeurope": {"compute": {"vmSkus.standard.ncads.h100.v5": {"status": "available"}}},
+        },
+    }
+    for date, regions in snapshots.items():
+        path = tmp_path / f"{date}.json"
+        path.write_text(
+            json.dumps({"timestamp": f"{date}T00:00:00Z", "regions": regions}),
+            encoding="utf-8",
+        )
+        update_history(path, history_dir)
+
+    change_day = json.loads((history_dir / "changes" / "2026-05-08.json").read_text(encoding="utf-8"))
+    highlight = change_day["highlights"][0]
+
+    assert highlight["region_group"] == "Europe"
+    assert highlight["expansion_kind"] == "region_group_first"
+    assert highlight["expansion_label"] == "first observed in Europe"
+    assert highlight["region_group_previous_available_regions"] == 0
+    assert highlight["region_group_current_available_regions"] == 1
 
 
 def test_update_history_migrates_legacy_json_snapshots(tmp_path):

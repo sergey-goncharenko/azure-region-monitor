@@ -17,7 +17,7 @@ Write a short, SRE-oriented mini blog post using only the structured facts provi
 
 Format:
 - First line: a punchy headline, no markdown, no '#'.
-- Then 2 to 3 short paragraphs, separated by blank lines.
+- Then 4 to 6 short paragraphs, separated by blank lines.
 
 Interpret the change classifications: net-new availability means a feature has never been
 seen available in that region before; restored availability means it was available before,
@@ -27,7 +27,7 @@ Explain the practical impact for SREs, such as placement choice, capacity, cost,
 latency, upgrade paths, or feature enablement. Keep every claim grounded in the facts.
 
 Rules: do not invent regions, models, features, dates, numbers, causes, quotas, or SLAs.
-Do not add disclaimers, caveats, sign-offs, or a call to action. Keep it under ~170 words.
+Do not add disclaimers, caveats, sign-offs, or a call to action. Keep it under ~350 words.
 """
 
 
@@ -55,9 +55,26 @@ class ChangeContext:
     available_days: int = 0
     missing_days: int = 0
     unknown_days: int = 0
+    unavailable_pct: float = 0.0
     prior_disappearances: int = 0
     last_available_date: str | None = None
     last_missing_date: str | None = None
+    region_group: str | None = None
+    expansion_kind: str | None = None
+    feature_total_regions: int = 0
+    feature_previous_available_regions: int = 0
+    feature_current_available_regions: int = 0
+    feature_previous_coverage_pct: float = 0.0
+    feature_current_coverage_pct: float = 0.0
+    feature_coverage_delta: int = 0
+    feature_deprecated_coverage_pct: float = 0.0
+    region_group_previous_available_regions: int = 0
+    region_group_current_available_regions: int = 0
+    same_day_new_regions: tuple[str, ...] = ()
+    still_available_regions: tuple[str, ...] = ()
+    details_url: str | None = None
+    details_label: str | None = None
+    feature_note: str | None = None
 
     @property
     def label(self) -> str:
@@ -93,6 +110,46 @@ _CLASSIFICATION_ORDER = (
     "regression_signal",
     "new_availability_signal",
 )
+
+_EXPANSION_LABELS = {
+    "new_feature": "first observed anywhere in the monitored regions",
+    "regional_expansion": "regional expansion of an existing signal",
+    "region_group_first": "first observed in this geography",
+    "restored_region": "restored regional signal",
+}
+
+_DETAILS_BY_MODALITY: dict[str, tuple[str, str, str]] = {
+    "Azure AI models": (
+        "Azure OpenAI model availability",
+        "https://learn.microsoft.com/azure/ai-foundry/openai/concepts/models",
+        "Use this to evaluate model capabilities, regional deployment options, latency, and data residency.",
+    ),
+    "AKS extensions": (
+        "AKS cluster extensions",
+        "https://learn.microsoft.com/azure/aks/cluster-extensions",
+        "Cluster extensions provide Azure Resource Manager-driven installation and lifecycle management for AKS capabilities.",
+    ),
+    "AKS Kubernetes versions": (
+        "AKS supported Kubernetes versions",
+        "https://learn.microsoft.com/azure/aks/supported-kubernetes-versions",
+        "Version availability affects upgrade targets, support windows, and regional rollout planning.",
+    ),
+    "Azure Functions": (
+        "Azure Functions Flex Consumption plan",
+        "https://learn.microsoft.com/azure/azure-functions/flex-consumption-plan",
+        "Flex Consumption adds serverless scale with private networking, memory sizing, and fast scale-out options.",
+    ),
+    "Container Apps": (
+        "Azure Container Apps overview",
+        "https://learn.microsoft.com/azure/container-apps/overview",
+        "Container Apps provides managed serverless containers with autoscale, ingress, revisions, jobs, and Dapr support.",
+    ),
+    "VM SKUs": (
+        "Azure VM sizes",
+        "https://learn.microsoft.com/azure/virtual-machines/sizes/overview",
+        "VM size availability affects right-sizing, performance, cost, and capacity fallback choices.",
+    ),
+}
 
 _SRE_IMPACT: dict[tuple[str, str], str] = {
     (
@@ -192,6 +249,18 @@ def classification_label(classification: str) -> str:
     return _CLASSIFICATION_LABELS.get(classification, classification.replace("_", " "))
 
 
+def expansion_label(expansion_kind: str | None, region_group: str | None = None) -> str:
+    if expansion_kind == "region_group_first" and region_group:
+        return f"first observed in {region_group}"
+    if expansion_kind is None:
+        return ""
+    return _EXPANSION_LABELS.get(expansion_kind, expansion_kind.replace("_", " "))
+
+
+def feature_details(feature: str) -> tuple[str | None, str | None, str | None]:
+    return _DETAILS_BY_MODALITY.get(_modality(feature), (None, None, None))
+
+
 def change_key(change: Change) -> ChangeKey:
     return (change.region, change.service, change.feature)
 
@@ -280,12 +349,46 @@ def _opinionated_sentences(
         group = by_modality[modality]
         breakdown = _classification_breakdown(group, context_map)
         impact = _impact(modality, change_type)
+        datapoints = _context_datapoints(group, context_map)
         sentences.append(
             f"{modality}: {_interpretation(modality, change_type)} "
             f"({len(group)} {_plural(len(group), 'signal')}; {breakdown}). "
-            f"SRE impact: {impact}. Examples: {_examples(group)}."
+            f"SRE impact: {impact}. {datapoints} Examples: {_examples(group)}."
         )
     return sentences
+
+
+def _context_datapoints(
+    changes: list[Change],
+    context_map: Mapping[ChangeKey, ChangeContext],
+) -> str:
+    contexts = [_context_for(change, context_map) for change in changes]
+    max_unavailable = max((context.unavailable_pct for context in contexts), default=0.0)
+    coverage_counts = [
+        context.feature_current_available_regions
+        for context in contexts
+        if context.feature_total_regions > 0
+    ]
+    coverage_total = next((context.feature_total_regions for context in contexts if context.feature_total_regions), 0)
+    expansion_labels = sorted(
+        {
+            expansion_label(context.expansion_kind, context.region_group)
+            for context in contexts
+            if expansion_label(context.expansion_kind, context.region_group)
+        }
+    )
+
+    parts: list[str] = []
+    if coverage_counts and coverage_total:
+        parts.append(
+            f"Coverage now ranges from {min(coverage_counts)} to {max(coverage_counts)} "
+            f"of {coverage_total} monitored regions."
+        )
+    if max_unavailable > 0:
+        parts.append(f"The noisiest affected signal was unavailable {_format_pct(max_unavailable)} of prior observations.")
+    if expansion_labels:
+        parts.append(f"Expansion pattern: {'; '.join(expansion_labels)}.")
+    return " ".join(parts)
 
 
 def _classification_breakdown(
@@ -342,8 +445,23 @@ def _facts_block(
             f"prior_disappearances={context.prior_disappearances} | "
             f"history_days={context.history_days} | available_days={context.available_days} | "
             f"missing_days={context.missing_days} | unknown_days={context.unknown_days} | "
+            f"unavailable_pct={_format_pct(context.unavailable_pct)} | "
             f"last_available={context.last_available_date or 'never'} | "
             f"last_missing={context.last_missing_date or 'never'} | "
+            f"region_group={context.region_group or 'unknown'} | "
+            f"expansion={expansion_label(context.expansion_kind, context.region_group) or 'none'} | "
+            f"feature_coverage={context.feature_current_available_regions}/{context.feature_total_regions} "
+            f"({_format_pct(context.feature_current_coverage_pct)}) | "
+            f"previous_feature_coverage={context.feature_previous_available_regions}/{context.feature_total_regions} "
+            f"({_format_pct(context.feature_previous_coverage_pct)}) | "
+            f"coverage_delta={context.feature_coverage_delta:+d} regions | "
+            f"deprecated_coverage={_format_pct(context.feature_deprecated_coverage_pct)} | "
+            f"region_group_coverage={context.region_group_current_available_regions} current, "
+            f"{context.region_group_previous_available_regions} previous | "
+            f"same_day_new_regions={_csv(context.same_day_new_regions) or 'none'} | "
+            f"still_available_regions={_csv(context.still_available_regions) or 'none'} | "
+            f"details_url={context.details_url or 'none'} | "
+            f"feature_note={context.feature_note or 'none'} | "
             f"sre_impact={_impact(modality, change.change_type)}"
         )
     remaining = len(signals) - MAX_FACTS
@@ -354,6 +472,14 @@ def _facts_block(
 
 def _plural(count: int, word: str) -> str:
     return word if count == 1 else f"{word}s"
+
+
+def _format_pct(value: float) -> str:
+    return f"{value:.1f}%"
+
+
+def _csv(values: tuple[str, ...]) -> str:
+    return ", ".join(values)
 
 
 def _context_for(

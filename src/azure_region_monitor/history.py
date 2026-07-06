@@ -23,11 +23,77 @@ from azure_region_monitor.summary import (
     NarrativeClient,
     build_change_narrative,
     change_key,
+    expansion_label,
+    feature_details,
 )
 
 RECENT_CHANGE_DAYS = 10
 CHANGE_HIGHLIGHTS = 10
 LATENCY_HISTORY_DAYS = 60
+_REGION_GROUPS: dict[str, str] = {
+    "australiaeast": "Oceania",
+    "australiacentral": "Oceania",
+    "australiacentral2": "Oceania",
+    "australiasoutheast": "Oceania",
+    "newzealandnorth": "Oceania",
+    "austriaeast": "Europe",
+    "belgiumcentral": "Europe",
+    "denmarkeast": "Europe",
+    "francecentral": "Europe",
+    "francesouth": "Europe",
+    "germanynorth": "Europe",
+    "germanywestcentral": "Europe",
+    "italynorth": "Europe",
+    "northeurope": "Europe",
+    "norwayeast": "Europe",
+    "norwaywest": "Europe",
+    "polandcentral": "Europe",
+    "spaincentral": "Europe",
+    "swedencentral": "Europe",
+    "switzerlandnorth": "Europe",
+    "switzerlandwest": "Europe",
+    "uksouth": "Europe",
+    "ukwest": "Europe",
+    "westeurope": "Europe",
+    "brazilsouth": "South America",
+    "brazilsoutheast": "South America",
+    "chilecentral": "South America",
+    "canadacentral": "North America",
+    "canadaeast": "North America",
+    "centralus": "North America",
+    "centraluseuap": "North America",
+    "eastus": "North America",
+    "eastus2": "North America",
+    "eastus2euap": "North America",
+    "eastusstg": "North America",
+    "mexicocentral": "North America",
+    "northcentralus": "North America",
+    "southcentralus": "North America",
+    "southcentralusstg": "North America",
+    "westcentralus": "North America",
+    "westus": "North America",
+    "westus2": "North America",
+    "westus3": "North America",
+    "centralindia": "Asia",
+    "eastasia": "Asia",
+    "indonesiacentral": "Asia",
+    "japaneast": "Asia",
+    "japanwest": "Asia",
+    "jioindiacentral": "Asia",
+    "jioindiawest": "Asia",
+    "koreacentral": "Asia",
+    "koreasouth": "Asia",
+    "malaysiawest": "Asia",
+    "southindia": "Asia",
+    "southeastasia": "Asia",
+    "westindia": "Asia",
+    "israelcentral": "Middle East",
+    "qatarcentral": "Middle East",
+    "uaecentral": "Middle East",
+    "uaenorth": "Middle East",
+    "southafricanorth": "Africa",
+    "southafricawest": "Africa",
+}
 
 
 def fetch_history(history_dir: Path, base_url: str) -> bool:
@@ -65,7 +131,7 @@ def update_history(
     previous = _load_previous_snapshot(history_dir, previous_entry)
     diff = build_diff(previous, current) if previous else None
     changes = diff.changes if diff else []
-    change_contexts = _build_change_contexts(history_dir, existing_index, current_date, changes)
+    change_contexts = _build_change_contexts(history_dir, existing_index, current_date, changes, previous, current)
 
     _write_snapshot_gzip(history_dir / snapshot_history_path, current)
     day_summary = _build_day_summary(
@@ -257,9 +323,31 @@ def _summarize_change(change: Change, context: ChangeContext | None = None) -> d
             {
                 "classification": context.classification,
                 "classification_label": context.label,
+                "expansion_kind": context.expansion_kind,
+                "expansion_label": expansion_label(context.expansion_kind, context.region_group),
+                "region_group": context.region_group,
+                "history_days": context.history_days,
+                "available_days": context.available_days,
+                "missing_days": context.missing_days,
+                "unknown_days": context.unknown_days,
+                "unavailable_pct": context.unavailable_pct,
                 "prior_disappearances": context.prior_disappearances,
                 "last_available_date": context.last_available_date,
                 "last_missing_date": context.last_missing_date,
+                "feature_total_regions": context.feature_total_regions,
+                "feature_previous_available_regions": context.feature_previous_available_regions,
+                "feature_current_available_regions": context.feature_current_available_regions,
+                "feature_previous_coverage_pct": context.feature_previous_coverage_pct,
+                "feature_current_coverage_pct": context.feature_current_coverage_pct,
+                "feature_coverage_delta": context.feature_coverage_delta,
+                "feature_deprecated_coverage_pct": context.feature_deprecated_coverage_pct,
+                "region_group_previous_available_regions": context.region_group_previous_available_regions,
+                "region_group_current_available_regions": context.region_group_current_available_regions,
+                "same_day_new_regions": list(context.same_day_new_regions),
+                "still_available_regions": list(context.still_available_regions),
+                "details_url": context.details_url,
+                "details_label": context.details_label,
+                "feature_note": context.feature_note,
             }
         )
     return summary
@@ -270,15 +358,30 @@ def _build_change_contexts(
     existing_index: dict[str, Any],
     current_date: str,
     changes: list[Change],
+    previous: Snapshot | None,
+    current: Snapshot,
 ) -> dict[ChangeKey, ChangeContext]:
     signals = [change for change in changes if change.change_type in {"new_availability", "regression"}]
     if not signals:
         return {}
 
     keys = {change_key(change) for change in signals}
+    features = {(change.service, change.feature) for change in signals}
     timelines = _historical_timelines(history_dir, existing_index, current_date, keys)
+    historical_feature_regions = _historical_feature_regions(
+        history_dir,
+        existing_index,
+        current_date,
+        features,
+    )
     return {
-        change_key(change): _classify_change_context(change, timelines.get(change_key(change), []))
+        change_key(change): _classify_change_context(
+            change,
+            timelines.get(change_key(change), []),
+            previous,
+            current,
+            historical_feature_regions.get((change.service, change.feature), set()),
+        )
         for change in signals
     }
 
@@ -310,13 +413,46 @@ def _historical_timelines(
     return timelines
 
 
+def _historical_feature_regions(
+    history_dir: Path,
+    existing_index: dict[str, Any],
+    current_date: str,
+    features: set[tuple[str, str]],
+) -> dict[tuple[str, str], set[str]]:
+    regions_by_feature = {feature: set() for feature in features}
+    days: list[tuple[str, str]] = []
+    for day in existing_index.get("days", []):
+        if not isinstance(day, dict):
+            continue
+        date = str(day.get("date", "")).strip()
+        snapshot_path = day.get("snapshot_path")
+        if not date or date >= current_date or not isinstance(snapshot_path, str):
+            continue
+        days.append((date, snapshot_path))
+
+    for _date, snapshot_path in sorted(days):
+        try:
+            snapshot = _load_history_snapshot(_safe_history_path(history_dir, snapshot_path))
+        except (OSError, ValueError, json.JSONDecodeError):
+            continue
+        for service, feature in features:
+            regions_by_feature[(service, feature)].update(_available_regions(snapshot, service, feature))
+    return regions_by_feature
+
+
 def _snapshot_status(snapshot: Snapshot, key: ChangeKey) -> str | None:
     region, service, feature = key
     result = snapshot.regions.get(region, {}).get(service, {}).get(feature)
     return result.status if result is not None else None
 
 
-def _classify_change_context(change: Change, timeline: list[tuple[str, str | None]]) -> ChangeContext:
+def _classify_change_context(
+    change: Change,
+    timeline: list[tuple[str, str | None]],
+    previous: Snapshot | None,
+    current: Snapshot,
+    historical_feature_regions: set[str],
+) -> ChangeContext:
     first_available = next((index for index, (_, status) in enumerate(timeline) if status == "available"), None)
     statuses_since_first = timeline[first_available:] if first_available is not None else []
     prior_disappearances = _prior_disappearance_count(statuses_since_first)
@@ -325,6 +461,8 @@ def _classify_change_context(change: Change, timeline: list[tuple[str, str | Non
     unknown_days = sum(1 for _, status in timeline if status in {"unknown", "partial"})
     last_available_date = _last_status_date(timeline, {"available"})
     last_missing_date = _last_status_date(timeline, {None, "unavailable"})
+    unavailable_pct = _pct(missing_days, len(timeline))
+    feature_context = _feature_context(change, previous, current, available_days, historical_feature_regions)
 
     if change.change_type == "new_availability":
         classification = "restored_availability" if available_days else "net_new_availability"
@@ -341,10 +479,98 @@ def _classify_change_context(change: Change, timeline: list[tuple[str, str | Non
         available_days=available_days,
         missing_days=missing_days,
         unknown_days=unknown_days,
+        unavailable_pct=unavailable_pct,
         prior_disappearances=prior_disappearances,
         last_available_date=last_available_date,
         last_missing_date=last_missing_date,
+        **feature_context,
     )
+
+
+def _feature_context(
+    change: Change,
+    previous: Snapshot | None,
+    current: Snapshot,
+    historical_region_available_days: int,
+    historical_feature_regions: set[str],
+) -> dict[str, Any]:
+    previous_regions = _available_regions(previous, change.service, change.feature) if previous else set()
+    current_regions = _available_regions(current, change.service, change.feature)
+    total_regions = len(current.regions)
+    region_group = _region_group(change.region)
+    previous_group_regions = _regions_in_group(previous_regions, region_group)
+    current_group_regions = _regions_in_group(current_regions, region_group)
+    same_day_new_regions = tuple(sorted(current_regions - previous_regions))
+    coverage_delta = len(current_regions) - len(previous_regions)
+    deprecated_coverage_pct = _pct(max(len(previous_regions) - len(current_regions), 0), len(previous_regions))
+    expansion_kind = _expansion_kind(
+        change,
+        historical_region_available_days,
+        historical_feature_regions,
+        _regions_in_group(historical_feature_regions, region_group),
+    )
+    details_label, details_url, feature_note = feature_details(change.feature)
+
+    return {
+        "region_group": region_group,
+        "expansion_kind": expansion_kind,
+        "feature_total_regions": total_regions,
+        "feature_previous_available_regions": len(previous_regions),
+        "feature_current_available_regions": len(current_regions),
+        "feature_previous_coverage_pct": _pct(len(previous_regions), total_regions),
+        "feature_current_coverage_pct": _pct(len(current_regions), total_regions),
+        "feature_coverage_delta": coverage_delta,
+        "feature_deprecated_coverage_pct": deprecated_coverage_pct,
+        "region_group_previous_available_regions": len(previous_group_regions),
+        "region_group_current_available_regions": len(current_group_regions),
+        "same_day_new_regions": same_day_new_regions,
+        "still_available_regions": tuple(sorted(current_regions)),
+        "details_url": details_url,
+        "details_label": details_label,
+        "feature_note": feature_note,
+    }
+
+
+def _available_regions(snapshot: Snapshot, service: str, feature: str) -> set[str]:
+    regions: set[str] = set()
+    for region, services in snapshot.regions.items():
+        result = services.get(service, {}).get(feature)
+        if result is not None and result.status == "available":
+            regions.add(region)
+    return regions
+
+
+def _regions_in_group(regions: set[str], region_group: str | None) -> set[str]:
+    if region_group is None:
+        return set()
+    return {region for region in regions if _region_group(region) == region_group}
+
+
+def _expansion_kind(
+    change: Change,
+    historical_region_available_days: int,
+    historical_feature_regions: set[str],
+    historical_group_regions: set[str],
+) -> str | None:
+    if change.change_type != "new_availability":
+        return None
+    if historical_region_available_days > 0:
+        return "restored_region"
+    if not historical_feature_regions:
+        return "new_feature"
+    if not historical_group_regions:
+        return "region_group_first"
+    return "regional_expansion"
+
+
+def _region_group(region: str) -> str | None:
+    return _REGION_GROUPS.get(region)
+
+
+def _pct(numerator: int, denominator: int) -> float:
+    if denominator <= 0:
+        return 0.0
+    return round(numerator * 100 / denominator, 1)
 
 
 def _prior_disappearance_count(timeline: list[tuple[str, str | None]]) -> int:
