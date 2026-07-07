@@ -14,6 +14,8 @@ The alpha includes these read-only modalities:
 - Azure AI model catalog listings
 - Container Apps provider metadata
 - VM SKU regional listings
+- GitHub Models global inference latency
+- Azure per-region OpenAI inference latency
 
 ## Pre-Release Checks
 
