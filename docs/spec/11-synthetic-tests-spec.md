@@ -48,6 +48,25 @@ The current production workflow prioritizes low-cost read-only evidence. These c
 - `unknown`: command failed, timed out, or returned invalid JSON.
 - This does not test quota, provisioned throughput, content filtering, account approval, deployment creation, or inference success.
 
+## GitHub Models Global Inference Latency Tests
+
+- Probe: `model-latency-cli`
+- Vantage: `github-global` (GitHub Models' single global endpoint; not an Azure region)
+- Default scope: curated and auto-discovered GitHub Models catalog (OpenAI text chat models plus non-OpenAI anchors)
+- `available`: at least one timed inference call returned a trustworthy response; `latency_ms` is the p50 round-trip; p95, time-to-first-token, and tokens/sec are in the message.
+- `unknown`: every sample failed, timed out, or returned no tokens.
+- This probe never emits `unavailable`. Latency depends on the network path from the probe runner to GitHub's endpoint and is not an Azure regional availability or SLA signal.
+
+## Azure Per-Region OpenAI Inference Latency Tests
+
+- Probe: `ai-model-latency-cli`
+- Vantage: one Azure region per measured deployment (Standard Azure OpenAI deployment from `infra/regional-latency`)
+- Default scope: per-region Azure OpenAI Standard deployments created by the `infra/regional-latency` Bicep template
+- `available`: a timed Azure OpenAI inference call succeeded for that region; `latency_ms` is the p50 round-trip.
+- `unknown`: every sample failed.
+- Unlike the GitHub Models modality, latency is attributable to the Azure region because each deployment is a single-region Standard deployment. It still includes network distance from the probe runner and is not an SLA or throughput guarantee.
+- This probe is not part of the daily `daily-scan.yml` run because it requires the `infra/regional-latency` infrastructure to be deployed. Run it with the focused `azure-latency-tests.yml` workflow.
+
 ## Future Lifecycle Tests
 
 Lifecycle tests should be added only when the read-only signal is not enough. These tests cost more and need cleanup safeguards.
