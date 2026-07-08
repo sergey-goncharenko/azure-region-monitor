@@ -65,7 +65,7 @@ The current production workflow prioritizes low-cost read-only evidence. These c
 - `available`: a timed Azure OpenAI inference call succeeded for that region; `latency_ms` is the p50 round-trip.
 - `unknown`: every sample failed.
 - Unlike the GitHub Models modality, latency is attributable to the Azure region because each deployment is a single-region Standard deployment. It still includes network distance from the probe runner and is not an SLA or throughput guarantee.
-- This probe is not part of the daily `daily-scan.yml` run because it requires the `infra/regional-latency` infrastructure to be deployed. Run it with the focused `azure-latency-tests.yml` workflow.
+- This probe is part of the daily `daily-scan.yml` run. If the `infra/regional-latency` infrastructure is not deployed, the probe produces no artifact and its last-good data is carried forward from the live snapshot. It can also be run independently with the focused `azure-latency-tests.yml` workflow.
 
 ## Future Lifecycle Tests
 
