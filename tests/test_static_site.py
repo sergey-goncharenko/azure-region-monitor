@@ -161,6 +161,8 @@ def test_build_static_site_writes_dashboard_and_latest_json(tmp_path):
     assert "Azure Regional Feature Availability Monitor" in index_html
     assert (output_dir / "heatmap.html").exists()
     assert (output_dir / "methodology.html").exists()
+    assert (output_dir / "insights" / "index.html").exists()
+    assert (output_dir / "insights" / "azure-openai-regional-availability.html").exists()
     assert (output_dir / "favicon.svg").exists()
     assert (output_dir / "robots.txt").exists()
     assert (output_dir / "sitemap.xml").exists()
@@ -229,9 +231,12 @@ def test_build_static_site_writes_crawl_and_llm_resources(tmp_path):
 
     assert "Sitemap: https://azwatch.operator.lat/sitemap.xml" in robots_txt
     assert "<loc>https://azwatch.operator.lat/</loc>" in sitemap_xml
+    assert "<loc>https://azwatch.operator.lat/insights/</loc>" in sitemap_xml
+    assert "<loc>https://azwatch.operator.lat/insights/azure-openai-regional-availability.html</loc>" in sitemap_xml
     assert "<loc>https://azwatch.operator.lat/api/latest.json</loc>" in sitemap_xml
     assert "# Azure Regional Feature Availability Monitor" in llms_txt
     assert "api/latest.json" in llms_txt
+    assert "insights/" in llms_txt
     assert "Snapshot Shape" in llms_full_txt
     assert '<link rel="icon" href="/favicon.svg" type="image/svg+xml">' in index_html
     assert '<link rel="alternate" href="/llms.txt" type="text/plain" title="LLM guide">' in index_html
@@ -431,6 +436,28 @@ def test_build_static_site_writes_blog_from_history_index(tmp_path):
     assert feed.count("<item>") == 2
     assert 'type="application/rss+xml"' in index_html
     assert 'href="blog/"' in index_html
+
+
+def test_build_static_site_writes_insight_pages_with_seo_metadata(tmp_path):
+    output_dir = tmp_path / "public"
+
+    build_static_site(
+        output_dir,
+        snapshot_path=Path("data/snapshots/2026-05-08.json"),
+        diff_path=tmp_path / "missing-diff.json",
+    )
+
+    insights_index = (output_dir / "insights" / "index.html").read_text(encoding="utf-8")
+    openai_page = (output_dir / "insights" / "azure-openai-regional-availability.html").read_text(
+        encoding="utf-8"
+    )
+
+    assert "Azure Regional Availability Insights" in insights_index
+    assert "Azure OpenAI Regional Availability Tracker" in openai_page
+    assert '<meta property="og:title" content="Azure OpenAI Regional Availability Tracker">' in openai_page
+    assert '<script type="application/ld+json">' in openai_page
+    assert "Azure OpenAI regional availability" in openai_page
+    assert "does not prove quota" in openai_page
 
 
 def test_build_static_site_writes_empty_blog_without_history(tmp_path):

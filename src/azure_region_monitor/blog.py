@@ -8,6 +8,7 @@ back HTML pages, an RSS feed, and sitemap entries. No I/O happens here.
 from __future__ import annotations
 
 import html
+import json
 import re
 from datetime import datetime, timezone
 from email.utils import format_datetime
@@ -268,7 +269,19 @@ def _counts_line(post: dict[str, Any]) -> str:
     )
 
 
-def _page(title: str, description: str, canonical: str, site_url: str, style_block: str, body: str) -> str:
+def _page(
+    title: str,
+    description: str,
+    canonical: str,
+    site_url: str,
+    style_block: str,
+    body: str,
+    *,
+    page_type: str = "website",
+    structured_data: dict[str, Any] | None = None,
+) -> str:
+    metadata = _social_metadata(title, description, canonical, page_type)
+    json_ld = _json_ld_script(structured_data)
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -279,6 +292,8 @@ def _page(title: str, description: str, canonical: str, site_url: str, style_blo
   <link rel="canonical" href="{html.escape(canonical)}">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="alternate" type="application/rss+xml" title="Azure regional changes feed" href="{html.escape(site_url)}/{FEED_PATH}">
+    {metadata}
+    {json_ld}
   {style_block}
 </head>
 <body>
@@ -290,12 +305,35 @@ def _page(title: str, description: str, canonical: str, site_url: str, style_blo
 """
 
 
+def _social_metadata(title: str, description: str, canonical: str, page_type: str) -> str:
+    return "\n  ".join(
+        [
+            '<meta property="og:site_name" content="Azure Regional Feature Availability Monitor">',
+            f'<meta property="og:type" content="{html.escape(page_type)}">',
+            f'<meta property="og:title" content="{html.escape(title)}">',
+            f'<meta property="og:description" content="{html.escape(description)}">',
+            f'<meta property="og:url" content="{html.escape(canonical)}">',
+            '<meta name="twitter:card" content="summary">',
+            f'<meta name="twitter:title" content="{html.escape(title)}">',
+            f'<meta name="twitter:description" content="{html.escape(description)}">',
+        ]
+    )
+
+
+def _json_ld_script(data: dict[str, Any] | None) -> str:
+    if not data:
+        return ""
+    payload = json.dumps(data, ensure_ascii=False, sort_keys=True).replace("</", "<\\/")
+    return f'<script type="application/ld+json">{payload}</script>'
+
+
 def _nav() -> str:
     return """      <nav class="links" aria-label="Dashboard links">
         <a href="/index.html">Summary</a>
         <a href="/heatmap.html">Detailed heatmap</a>
         <a href="/latency.html">Model latency</a>
         <a href="/methodology.html">Status meanings</a>
+                <a href="/insights/">Insights</a>
         <a href="/blog/feed.xml">RSS feed</a>
       </nav>"""
 
@@ -332,6 +370,13 @@ def render_blog_index(posts: list[dict[str, Any]], site_url: str, style_block: s
         site_url,
         style_block,
         body,
+        structured_data={
+            "@context": "https://schema.org",
+            "@type": "Blog",
+            "name": "Azure Regional Changes Daily Blog",
+            "description": "Daily summaries of Azure regional availability changes from read-only catalog and listing evidence.",
+            "url": canonical,
+        },
     )
 
 
@@ -386,13 +431,54 @@ def render_blog_post(
       <a href="/blog/">all posts</a>.</p>
     </section>"""
     return _page(
-        post["title"],
-        _excerpt(post) or f"Azure regional changes for {post['date']}.",
+        f"{post['title']} | Azure regional availability {post['date']}",
+        _excerpt(post) or f"Azure regional availability changes for {post['date']}.",
         canonical,
         site_url,
         style_block,
         body,
+        page_type="article",
+        structured_data=_blog_post_json_ld(post, canonical),
     )
+
+
+def _blog_post_json_ld(post: dict[str, Any], canonical: str) -> dict[str, Any]:
+    description = _excerpt(post) or f"Azure regional availability changes for {post['date']}."
+    return {
+        "@context": "https://schema.org",
+        "@type": "BlogPosting",
+        "headline": post["title"],
+        "description": description,
+        "datePublished": post["date"],
+        "dateModified": post["date"],
+        "mainEntityOfPage": canonical,
+        "url": canonical,
+        "author": {
+            "@type": "Organization",
+            "name": "Azure Regional Feature Availability Monitor",
+        },
+        "publisher": {
+            "@type": "Organization",
+            "name": "Azure Regional Feature Availability Monitor",
+        },
+        "keywords": _post_keywords(post),
+    }
+
+
+def _post_keywords(post: dict[str, Any]) -> list[str]:
+    keywords = {
+        "Azure regional availability",
+        "Azure region rollout",
+        "Azure availability monitor",
+    }
+    for item in post.get("highlights", [])[:8]:
+        if not isinstance(item, dict):
+            continue
+        for key in ("modality", "group", "feature", "region"):
+            value = str(item.get(key, "")).strip()
+            if value:
+                keywords.add(value)
+    return sorted(keywords)
 
 
 def _render_highlights(highlights: list[Any]) -> str:

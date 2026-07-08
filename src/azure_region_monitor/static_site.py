@@ -118,6 +118,29 @@ _LATEST_SNAPSHOT_HEADERS = {
   **_API_HEADERS,
   "Content-Disposition": 'attachment; filename="azure-region-monitor-latest.json"',
 }
+_INSIGHT_PAGES = (
+  {
+    "slug": "azure-openai-regional-availability",
+    "title": "Azure OpenAI Regional Availability Tracker",
+    "description": "Evidence-based tracking of Azure OpenAI model availability by Azure region, including model rollout and delisting signals.",
+    "categories": ("Azure AI models", "Azure model latency"),
+    "keywords": "Azure OpenAI regional availability, Azure AI Foundry model regions, GPT model rollout",
+  },
+  {
+    "slug": "azure-vm-sku-regional-availability",
+    "title": "Azure VM SKU Regional Availability Tracker",
+    "description": "Read-only VM SKU listing evidence by Azure region for capacity planning, right-sizing, and regional fallback analysis.",
+    "categories": ("VM SKUs",),
+    "keywords": "Azure VM SKU regional availability, Azure VM sizes by region, GPU VM availability",
+  },
+  {
+    "slug": "aks-version-regional-rollout",
+    "title": "AKS Version And Extension Regional Rollout Tracker",
+    "description": "Regional rollout evidence for AKS Kubernetes versions and AKS extension catalog signals.",
+    "categories": ("AKS Kubernetes versions", "AKS extensions"),
+    "keywords": "AKS Kubernetes version availability, AKS regional rollout, AKS extensions by region",
+  },
+)
 
 
 def build_static_site(
@@ -158,6 +181,7 @@ def build_static_site(
     (output_dir / "methodology.html").write_text(_render_methodology_page(snapshot), encoding="utf-8")
     blog_posts = select_blog_posts(_load_history_index(history_path))
     _write_blog(output_dir, blog_posts)
+    _write_insights(output_dir, snapshot, blog_posts)
     _write_latency_api(api_dir, snapshot)
     _write_discovery_assets(
         output_dir, snapshot, recent_changes=recent_changes, blog_posts=blog_posts
@@ -179,6 +203,19 @@ def _write_blog(output_dir: Path, posts: list[dict[str, Any]]) -> None:
         older = posts[index + 1] if index + 1 < len(posts) else None
         (blog_dir / f"{post['date']}.html").write_text(
             render_blog_post(post, newer, older, _SITE_URL, style), encoding="utf-8"
+        )
+
+
+def _write_insights(output_dir: Path, snapshot: Snapshot, posts: list[dict[str, Any]]) -> None:
+    insights_dir = output_dir / "insights"
+    insights_dir.mkdir(parents=True, exist_ok=True)
+    style = _style_block()
+    (insights_dir / "index.html").write_text(
+        _render_insights_index(snapshot, posts, style), encoding="utf-8"
+    )
+    for page in _INSIGHT_PAGES:
+        (insights_dir / f"{page['slug']}.html").write_text(
+            _render_insight_page(snapshot, posts, page, style), encoding="utf-8"
         )
 
 
@@ -269,6 +306,9 @@ def _render_sitemap(
         ("/api/modalities/manifest.json", "0.6", lastmod),
         ("/api/history/index.json", "0.5", lastmod),
     ]
+    urls.append(("/insights/", "0.8", lastmod))
+    for page in _INSIGHT_PAGES:
+        urls.append((f"/insights/{page['slug']}.html", "0.7", lastmod))
     # Blog index + every dated post, so the changelog is discoverable via the sitemap.
     for path, priority, post_lastmod in blog_sitemap_entries(blog_posts or []):
         urls.append((path, priority, post_lastmod))
@@ -285,6 +325,264 @@ def _render_sitemap(
 {entries}
 </urlset>
 """
+
+
+def _render_insights_index(snapshot: Snapshot, posts: list[dict[str, Any]], style: str) -> str:
+    lastmod = _snapshot_lastmod(snapshot)
+    cards = "\n".join(_render_insight_card(snapshot, page) for page in _INSIGHT_PAGES)
+    latest_posts = _render_insight_recent_posts(posts[:5])
+    description = (
+        "Evergreen Azure regional availability guides for Azure OpenAI, VM SKUs, and AKS rollout evidence."
+    )
+    canonical = f"{_SITE_URL}/insights/"
+    body = f"""    <header>
+      <div>
+        <h1>Azure Regional Availability Insights</h1>
+        <div class="timestamp">Latest snapshot: {html.escape(snapshot.timestamp.isoformat())}</div>
+      </div>
+      {_insights_nav()}
+    </header>
+    {_render_alpha_notice(len(snapshot.regions))}
+    <section class="panel prose" aria-label="About these insights">
+      <div class="panel-header">
+        <h2>Evergreen Search Guides</h2>
+        <div class="panel-subtitle">Stable topic pages backed by the latest read-only monitor snapshot</div>
+      </div>
+      <div class="prose-body">
+        <p>These pages turn the daily evidence stream into durable references for engineers searching for Azure regional availability, rollout, delisting, and fallback-planning signals.</p>
+      </div>
+    </section>
+    <section class="insight-grid" aria-label="Insight topics">
+      {cards}
+    </section>
+    {latest_posts}"""
+    return _content_page(
+        title="Azure Regional Availability Insights",
+        description=description,
+        canonical=canonical,
+        style=style,
+        body=body,
+        structured_data={
+            "@context": "https://schema.org",
+            "@type": "CollectionPage",
+            "name": "Azure Regional Availability Insights",
+            "description": description,
+            "url": canonical,
+            "dateModified": lastmod,
+        },
+    )
+
+
+def _render_insight_card(snapshot: Snapshot, page: dict[str, Any]) -> str:
+    rows = _insight_rows(snapshot, page)
+    statuses = _status_counts(rows)
+    features = {str(row["feature"]) for row in rows}
+    available = statuses.get("available", 0)
+    checks = len(rows)
+    available_pct = round(available / checks * 100) if checks else 0
+    href = f"{html.escape(str(page['slug']))}.html"
+    return f"""<article class="insight-card">
+        <h2><a href="{href}">{html.escape(str(page['title']))}</a></h2>
+        <p>{html.escape(str(page['description']))}</p>
+        <div class="blog-card-counts">
+          <span class="blog-count">{len(features):,} features</span>
+          <span class="blog-count blog-count-new">{available_pct}% listed available</span>
+          <span class="blog-count">{checks:,} checks</span>
+        </div>
+      </article>"""
+
+
+def _render_insight_page(
+    snapshot: Snapshot,
+    posts: list[dict[str, Any]],
+    page: dict[str, Any],
+    style: str,
+) -> str:
+    rows = _insight_rows(snapshot, page)
+    statuses = _status_counts(rows)
+    groups = _feature_group_summaries(rows)[:12]
+    features = {str(row["feature"]) for row in rows}
+    regions = {str(row["region"]) for row in rows}
+    checks = len(rows)
+    available = statuses.get("available", 0)
+    available_pct = round(available / checks * 100) if checks else 0
+    canonical = f"{_SITE_URL}/insights/{page['slug']}.html"
+    group_rows = "\n".join(_render_group_row(row) for row in groups) or _empty_table_row(5)
+    related_posts = _render_insight_recent_posts(_related_insight_posts(posts, page))
+    keywords = str(page["keywords"])
+    body = f"""    <header>
+      <div>
+        <h1>{html.escape(str(page['title']))}</h1>
+        <div class="timestamp">Latest snapshot: {html.escape(snapshot.timestamp.isoformat())}</div>
+      </div>
+      {_insights_nav()}
+    </header>
+    {_render_alpha_notice(len(snapshot.regions))}
+    <section class="metrics" aria-label="Insight summary">
+      {_render_metric("Features", len(features))}
+      {_render_metric("Regions", len(regions))}
+      {_render_metric("Checks", checks)}
+      {_render_metric("Listed available", f"{available_pct}%")}
+    </section>
+    <section class="panel prose" aria-label="What this insight tracks">
+      <div class="panel-header">
+        <h2>What This Tracks</h2>
+        <div class="panel-subtitle">{html.escape(keywords)}</div>
+      </div>
+      <div class="prose-body">
+        <p>{html.escape(str(page['description']))}</p>
+        <p>Read the data as catalog, listing, provider metadata, or latency-measurement evidence. It does not prove quota, live capacity, successful deployment, customer eligibility, or SLA.</p>
+        <p>Use this page to decide which regions deserve closer deployment testing, IaC fallback review, or follow-up investigation.</p>
+      </div>
+    </section>
+    <section class="panel" aria-label="Current feature groups">
+      <div class="panel-header">
+        <h2>Current Feature Groups</h2>
+        <div class="panel-subtitle">Latest snapshot grouped for quick scanability</div>
+      </div>
+      <div class="table-wrap compact-table">
+        <table>
+          <thead>
+            <tr>
+              <th>Modality</th>
+              <th>Group</th>
+              <th class="number">Features</th>
+              <th class="number">Available</th>
+              <th class="number">Checks</th>
+            </tr>
+          </thead>
+          <tbody>{group_rows}</tbody>
+        </table>
+      </div>
+    </section>
+    {related_posts}"""
+    return _content_page(
+        title=str(page["title"]),
+        description=str(page["description"]),
+        canonical=canonical,
+        style=style,
+        body=body,
+        structured_data={
+            "@context": "https://schema.org",
+            "@type": "WebPage",
+            "name": str(page["title"]),
+            "description": str(page["description"]),
+            "url": canonical,
+            "keywords": keywords,
+            "dateModified": _snapshot_lastmod(snapshot),
+        },
+    )
+
+
+def _content_page(
+    *,
+    title: str,
+    description: str,
+    canonical: str,
+    style: str,
+    body: str,
+    structured_data: dict[str, Any] | None = None,
+) -> str:
+    social = _page_social_metadata(title, description, canonical)
+    json_ld = _structured_data_script(structured_data)
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="{html.escape(description)}">
+  <title>{html.escape(title)}</title>
+  <link rel="canonical" href="{html.escape(canonical)}">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="alternate" href="/llms.txt" type="text/plain" title="LLM guide">
+  <link rel="alternate" type="application/rss+xml" title="Azure regional changes feed" href="/blog/feed.xml">
+  {social}
+  {json_ld}
+  {style}
+</head>
+<body>
+  <main class="content-page">
+{body}
+  </main>
+</body>
+</html>
+"""
+
+
+def _page_social_metadata(title: str, description: str, canonical: str) -> str:
+    return "\n  ".join(
+        [
+            '<meta property="og:site_name" content="Azure Regional Feature Availability Monitor">',
+            '<meta property="og:type" content="website">',
+            f'<meta property="og:title" content="{html.escape(title)}">',
+            f'<meta property="og:description" content="{html.escape(description)}">',
+            f'<meta property="og:url" content="{html.escape(canonical)}">',
+            '<meta name="twitter:card" content="summary">',
+            f'<meta name="twitter:title" content="{html.escape(title)}">',
+            f'<meta name="twitter:description" content="{html.escape(description)}">',
+        ]
+    )
+
+
+def _structured_data_script(data: dict[str, Any] | None) -> str:
+    if not data:
+        return ""
+    payload = json.dumps(data, ensure_ascii=False, sort_keys=True).replace("</", "<\\/")
+    return f'<script type="application/ld+json">{payload}</script>'
+
+
+def _insights_nav() -> str:
+    return """      <nav class="links" aria-label="Dashboard links">
+        <a href="/index.html">Summary</a>
+        <a href="/heatmap.html">Detailed heatmap</a>
+        <a href="/methodology.html">Status meanings</a>
+        <a href="/blog/">Blog</a>
+        <a href="/api/latest.json" download="azure-region-monitor-latest.json">Download latest JSON</a>
+      </nav>"""
+
+
+def _insight_rows(snapshot: Snapshot, page: dict[str, Any]) -> list[dict[str, object]]:
+    categories = set(page["categories"])
+    return [row for row in _flatten_snapshot(snapshot) if str(row["category"]) in categories]
+
+
+def _related_insight_posts(posts: list[dict[str, Any]], page: dict[str, Any]) -> list[dict[str, Any]]:
+    categories = set(page["categories"])
+    matches = []
+    for post in posts:
+        highlights = post.get("highlights", [])
+        if not isinstance(highlights, list):
+            continue
+        for item in highlights:
+            if not isinstance(item, dict):
+                continue
+            feature = str(item.get("feature", ""))
+            modality = str(item.get("modality") or _feature_category(feature))
+            if modality in categories:
+                matches.append(post)
+                break
+    return matches[:5]
+
+
+def _render_insight_recent_posts(posts: list[dict[str, Any]]) -> str:
+    if not posts:
+        return """<section class="panel prose" aria-label="Recent related posts">
+      <div class="panel-header"><h2>Recent Related Posts</h2></div>
+      <div class="prose-body"><p>No related daily posts are available yet.</p></div>
+    </section>"""
+    items = "\n".join(
+        f'<li><a href="/{html.escape(post["slug"])}">{html.escape(post["title"])}</a> '
+        f'<span class="timestamp">{html.escape(post["date"])}</span></li>'
+        for post in posts
+    )
+    return f"""<section class="panel prose" aria-label="Recent related posts">
+      <div class="panel-header"><h2>Recent Related Posts</h2></div>
+      <div class="prose-body"><ul class="insight-post-list">{items}</ul></div>
+    </section>"""
+
+
+def _empty_table_row(columns: int) -> str:
+    return f'<tr><td colspan="{columns}" class="empty">No matching checks in the latest snapshot.</td></tr>'
 
 
 def _render_llms_txt(snapshot: Snapshot) -> str:
@@ -306,6 +604,7 @@ Latest snapshot: {snapshot.timestamp.isoformat()}
 - [{_SITE_URL}/latency.html]({_SITE_URL}/latency.html): LLM model response-latency leaderboard measured from the GitHub Models global vantage.
 - [{_SITE_URL}/methodology.html]({_SITE_URL}/methodology.html): status semantics and probe evidence notes.
 - [{_SITE_URL}/blog/]({_SITE_URL}/blog/): daily changelog blog — a short post per day summarizing region availability changes (RSS at {_SITE_URL}/blog/feed.xml).
+- [{_SITE_URL}/insights/]({_SITE_URL}/insights/): evergreen topic pages for Azure OpenAI, VM SKU, and AKS regional availability search/discovery.
 - [{_SITE_URL}/api/latest.json]({_SITE_URL}/api/latest.json): complete current machine-readable snapshot.
 - [{_SITE_URL}/api/summary.json]({_SITE_URL}/api/summary.json): tiny headline counts (status and per-modality totals).
 - [{_SITE_URL}/api/modalities/manifest.json]({_SITE_URL}/api/modalities/manifest.json): per-modality shard index; each modality is a smaller JSON under api/modalities/.

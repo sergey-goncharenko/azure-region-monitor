@@ -115,6 +115,10 @@ def test_blog_post_renders_headline_paragraphs_and_prev_next():
     assert 'href="/blog/2026-07-01.html"' in html  # older
     assert 'href="/blog/2026-07-03.html"' in html  # newer
     assert f'<link rel="canonical" href="{SITE}/blog/2026-07-02.html">' in html
+    assert '<meta property="og:type" content="article">' in html
+    assert '<meta name="twitter:card" content="summary">' in html
+    assert '<script type="application/ld+json">' in html
+    assert '"@type": "BlogPosting"' in html
 
 
 def test_blog_post_includes_highlights():
