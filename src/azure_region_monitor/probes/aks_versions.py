@@ -71,6 +71,8 @@ class AksKubernetesVersionCliProbe:
 
         if completed.returncode != 0:
             message = (completed.stderr or completed.stdout or "Azure CLI command failed.").strip()
+            if _is_unsupported_aks_versions_location(message):
+                return set(), None
             return set(), AzureCliError("AzureCliCommandFailed", message)
 
         try:
@@ -79,6 +81,11 @@ class AksKubernetesVersionCliProbe:
             return set(), AzureCliError("AzureCliInvalidJson", str(error))
 
         return _extract_versions(payload), None
+
+
+def _is_unsupported_aks_versions_location(message: str) -> bool:
+    normalized = message.lower()
+    return "noregisteredproviderfound" in normalized and "locations/kubernetesversions" in normalized
 
 
 def _matches_version_prefix(version: str, version_prefix: str) -> bool:

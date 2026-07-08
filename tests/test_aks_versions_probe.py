@@ -70,5 +70,27 @@ def test_aks_version_probe_captures_cli_error_as_unknown():
     assert results[0].result.error_code == "AzureCliCommandFailed"
 
 
+def test_aks_version_probe_treats_unregistered_provider_location_as_unavailable():
+    def cli_runner(command: list[str]) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(
+            command,
+            1,
+            stdout="",
+            stderr=(
+                "ERROR: (NoRegisteredProviderFound) No registered resource provider found "
+                "for location 'centraluseuap' and API version '2026-03-01' "
+                "for type 'locations/kubernetesVersions'. The supported api-versions are ..."
+            ),
+        )
+
+    probe = AksKubernetesVersionCliProbe(version_prefixes=["1.32", "1.33"], cli_runner=cli_runner)
+
+    results = list(probe.run("centraluseuap"))
+
+    assert len(results) == 2
+    assert results[0].result.status == "unavailable"
+    assert results[1].result.status == "unavailable"
+
+
 def test_parse_aks_kubernetes_version_prefixes_from_environment_value():
     assert parse_aks_kubernetes_version_prefixes("1.33, 1.34") == ["1.33", "1.34"]
