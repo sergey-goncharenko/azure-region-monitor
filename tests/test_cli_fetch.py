@@ -1,5 +1,7 @@
 import gzip
 import io
+import json
+from argparse import Namespace
 
 from azure_region_monitor import cli
 
@@ -68,3 +70,32 @@ def test_fetch_url_text_raises_after_exhausting_retries(monkeypatch):
         raise AssertionError("expected RuntimeError")
     except RuntimeError as error:
         assert "after 3 attempts" in str(error)
+
+
+def test_social_drafts_cli_reads_history_index(tmp_path, capsys):
+    history_dir = tmp_path / "history"
+    history_dir.mkdir()
+    (history_dir / "index.json").write_text(
+        json.dumps(
+            {
+                "days": [
+                    {
+                        "date": "2026-07-08",
+                        "narrative": "A useful rollout\n\nTwo monitored regions gained a signal.",
+                        "narrative_source": "ai",
+                        "change_type_counts": {"new_availability": 2, "regression": 0},
+                        "parked_unknown_changes": 0,
+                        "highlights": [],
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    cli._social_drafts(Namespace(history=history_dir, site_url="https://example.test", limit=1))
+
+    output = capsys.readouterr().out
+    assert "## Social post drafts" in output
+    assert "#### LinkedIn draft" in output
+    assert "https://example.test/blog/2026-07-08.html" in output

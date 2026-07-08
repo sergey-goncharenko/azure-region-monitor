@@ -17,6 +17,7 @@ BLOG_DIR = "blog"
 FEED_PATH = "blog/feed.xml"
 INDEX_PATH = "blog/index.html"
 _EXCERPT_CHARS = 220
+_SOCIAL_POST_LIMIT = 1
 # A real blog-post headline is short. Anything longer is almost certainly a
 # single-paragraph rule/older summary, so it is demoted to body text and the post
 # gets a clean date-based title instead of a runaway one-line headline.
@@ -93,6 +94,166 @@ def _excerpt(post: dict[str, Any]) -> str:
     if len(body) <= _EXCERPT_CHARS:
         return body
     return body[:_EXCERPT_CHARS].rsplit(" ", 1)[0].rstrip(",.;:") + "…"
+
+
+def render_social_drafts(
+    posts: list[dict[str, Any]],
+    site_url: str,
+    limit: int = _SOCIAL_POST_LIMIT,
+) -> str:
+    """Return review-only social post drafts for the latest narrated days."""
+
+    sections = [
+        "## Social post drafts",
+        (
+            "Review-only drafts generated from the daily blog narrative and structured change "
+            "evidence. Availability claims are read-only catalog/list signals from this monitor; "
+            "`unavailable` means absent from the monitored evidence, not proof of quota, capacity, "
+            "deployment failure, or SLA impact."
+        ),
+    ]
+    selected = posts[: max(limit, 0)]
+    if not selected:
+        sections.append("No narrated blog posts were available for social drafts.")
+        return "\n\n".join(sections) + "\n"
+
+    for post in selected:
+        url = f"{site_url.rstrip('/')}/{post['slug']}"
+        sections.extend(
+            [
+                f"### {post['date']} - {post['title']}",
+                "#### LinkedIn draft",
+                f"```text\n{_linkedin_draft(post, url)}\n```",
+                "#### Short-post draft",
+                f"```text\n{_short_post_draft(post, url)}\n```",
+            ]
+        )
+    return "\n\n".join(sections) + "\n"
+
+
+def _linkedin_draft(post: dict[str, Any], url: str) -> str:
+    lines = [
+        f"Azure regional availability changed on {post['date']}: {post['title']}.",
+    ]
+    excerpt = _excerpt(post)
+    if excerpt:
+        lines.extend(["", excerpt])
+
+    lines.extend(
+        [
+            "",
+            "Signal counts:",
+            f"- {post['new_availability']:,} new availability signals",
+            f"- {post['regressions']:,} regressions",
+            f"- {post['parked_unknown']:,} parked unknown transitions",
+        ]
+    )
+    bullets = _social_highlight_bullets(post)
+    if bullets:
+        lines.extend(["", "Engineering context:"])
+        lines.extend(f"- {bullet}" for bullet in bullets)
+    lines.extend(
+        [
+            "",
+            (
+                "Evidence note: these are read-only Azure catalog/list signals; "
+                "unavailable does not mean quota, capacity, deployment failure, or SLA impact."
+            ),
+            "",
+            f"Full digest: {url}",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def _short_post_draft(post: dict[str, Any], url: str) -> str:
+    counts = (
+        f"{post['new_availability']:,} new availability, "
+        f"{post['regressions']:,} regressions, "
+        f"{post['parked_unknown']:,} parked unknown."
+    )
+    highlight = _top_social_highlight(post)
+    context = f" {highlight}" if highlight else ""
+    return (
+        f"Azure regional availability watch ({post['date']}): {counts}{context}\n\n"
+        f"Read-only catalog/list evidence, not quota or SLA proof.\n{url}"
+    )
+
+
+def _social_highlight_bullets(post: dict[str, Any], limit: int = 4) -> list[str]:
+    bullets: list[str] = []
+    highlights = post.get("highlights", [])
+    if not isinstance(highlights, list):
+        return bullets
+    for item in highlights:
+        if not isinstance(item, dict):
+            continue
+        bullets.extend(_social_bullets_for_highlight(item))
+        if len(bullets) >= limit:
+            return bullets[:limit]
+    return bullets
+
+
+def _top_social_highlight(post: dict[str, Any]) -> str:
+    bullets = _social_highlight_bullets(post, limit=1)
+    return bullets[0] if bullets else ""
+
+
+def _social_bullets_for_highlight(item: dict[str, Any]) -> list[str]:
+    region = str(item.get("region") or "").strip()
+    feature = str(item.get("feature") or "").strip()
+    previous = str(item.get("previous") or "absent")
+    current = str(item.get("current") or "absent")
+    classification = str(item.get("classification_label") or "").strip()
+    expansion = str(item.get("expansion_label") or "").strip()
+    bullets: list[str] = []
+    if region and feature:
+        suffix = f" ({classification})" if classification else ""
+        bullets.append(f"{region}: {feature} moved {previous} -> {current}{suffix}.")
+    if expansion:
+        bullets.append(f"Rollout pattern: {expansion}.")
+
+    coverage = _social_coverage(item)
+    if coverage:
+        bullets.append(coverage)
+    stability = _social_stability(item)
+    if stability:
+        bullets.append(stability)
+
+    still_available = _as_str_list(item.get("still_available_regions"))
+    if str(item.get("change_type") or "") == "regression" and still_available:
+        bullets.append(f"Fallback signal remains in {_sample_regions(still_available)}.")
+    return bullets
+
+
+def _social_coverage(item: dict[str, Any]) -> str:
+    current_regions = _as_int(item.get("feature_current_available_regions"))
+    total_regions = _as_int(item.get("feature_total_regions"))
+    coverage_pct = _as_float(item.get("feature_current_coverage_pct"))
+    coverage_delta = _as_int(item.get("feature_coverage_delta"))
+    if total_regions <= 0:
+        return ""
+    delta = f", {coverage_delta:+d} {_plural(abs(coverage_delta), 'region')}" if coverage_delta else ""
+    return f"Coverage: {current_regions}/{total_regions} monitored regions ({_format_pct(coverage_pct)}{delta})."
+
+
+def _social_stability(item: dict[str, Any]) -> str:
+    history_days = _as_int(item.get("history_days"))
+    missing_days = _as_int(item.get("missing_days"))
+    unavailable_pct = _as_float(item.get("unavailable_pct"))
+    prior_disappearances = _as_int(item.get("prior_disappearances"))
+    if history_days <= 0 and prior_disappearances <= 0:
+        return ""
+    parts = []
+    if history_days > 0:
+        parts.append(
+            f"unavailable {missing_days}/{history_days} prior days ({_format_pct(unavailable_pct)})"
+        )
+    if prior_disappearances > 0:
+        parts.append(
+            f"{prior_disappearances} prior {_plural(prior_disappearances, 'disappearance')}"
+        )
+    return "Stability: " + "; ".join(parts) + "."
 
 
 def _source_label(source: str) -> str:

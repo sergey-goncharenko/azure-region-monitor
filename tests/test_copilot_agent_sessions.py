@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import sys
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 
@@ -13,6 +13,14 @@ agent_sessions = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
 sys.modules[SPEC.name] = agent_sessions
 SPEC.loader.exec_module(agent_sessions)
+
+CODEX_PROMPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "build_azure_codex_docs_prompt.py"
+CODEX_SPEC = importlib.util.spec_from_file_location("build_azure_codex_docs_prompt", CODEX_PROMPT_PATH)
+assert CODEX_SPEC is not None
+codex_prompt = importlib.util.module_from_spec(CODEX_SPEC)
+assert CODEX_SPEC.loader is not None
+sys.modules[CODEX_SPEC.name] = codex_prompt
+CODEX_SPEC.loader.exec_module(codex_prompt)
 
 
 def test_rank_unknown_groups_selects_largest_modality():
@@ -88,7 +96,7 @@ def test_unknowns_session_includes_precomputed_candidate_context():
     assert session.title == "[agent/unknowns] Investigate parked unknowns: functions"
 
 
-def test_planned_sessions_skip_unknowns_when_no_candidates_by_default():
+def test_planned_sessions_leave_docs_for_azure_codex_by_default():
     snapshot_result = agent_sessions.SnapshotLoadResult(snapshot={"regions": {}}, source="local")
 
     sessions = agent_sessions.planned_sessions(
@@ -99,7 +107,7 @@ def test_planned_sessions_skip_unknowns_when_no_candidates_by_default():
         force_unknowns_without_candidates=False,
     )
 
-    assert [session.key for session in sessions] == ["docs"]
+    assert sessions == []
 
 
 def test_planned_sessions_can_force_unknowns_without_candidates():
@@ -115,3 +123,12 @@ def test_planned_sessions_can_force_unknowns_without_candidates():
 
     assert [session.key for session in sessions] == ["unknowns"]
     assert "No current `unknown` statuses" in sessions[0].body
+
+
+def test_azure_codex_docs_prompt_preserves_status_semantics():
+    prompt = codex_prompt.build_prompt(date(2026, 7, 8))
+
+    assert "Scheduled Azure Codex task" in prompt
+    assert "Run date: 2026-07-08" in prompt
+    assert "do not describe unavailable as quota, capacity, deployment failure, or SLA impact" in prompt
+    assert "Do not run Azure create/delete probes" in prompt

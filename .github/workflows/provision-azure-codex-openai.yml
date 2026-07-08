@@ -1,0 +1,205 @@
+name: Provision Azure Codex OpenAI
+
+on:
+  workflow_dispatch:
+    inputs:
+      resource_group:
+        description: "Azure resource group for the AI Services resource"
+        required: false
+        default: "azure-region-monitor-codex"
+      location:
+        description: "Azure region for the AI Services resource and model deployment"
+        required: false
+        default: "eastus"
+      account_name:
+        description: "AI Services account name; leave blank to generate a unique name"
+        required: false
+        default: ""
+      deployment_name:
+        description: "Azure OpenAI deployment name used by Codex"
+        required: false
+        default: "codex-gpt-5-4-mini"
+      model_name:
+        description: "Azure OpenAI model name to deploy"
+        required: false
+        default: "gpt-5.4-mini"
+      model_version:
+        description: "Azure OpenAI model version to deploy"
+        required: false
+        default: "2026-03-17"
+      sku_name:
+        description: "Deployment SKU name"
+        required: false
+        default: "GlobalStandard"
+      sku_capacity:
+        description: "Deployment capacity"
+        required: false
+        default: "10"
+      api_version:
+        description: "Azure OpenAI API version for the scheduled Codex workflow"
+        required: false
+        default: "2025-04-01-preview"
+      configure_repo_settings:
+        description: "Set AZURE_OPENAI_* repo variables/secrets after provisioning"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  provision:
+    name: Provision Azure OpenAI for Codex
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Resolve provisioning inputs
+        id: inputs
+        env:
+          ACCOUNT_NAME_INPUT: ${{ inputs.account_name }}
+          DEPLOYMENT_NAME: ${{ inputs.deployment_name }}
+          MODEL_NAME: ${{ inputs.model_name }}
+          MODEL_VERSION: ${{ inputs.model_version }}
+          RESOURCE_GROUP: ${{ inputs.resource_group }}
+          LOCATION: ${{ inputs.location }}
+          SKU_NAME: ${{ inputs.sku_name }}
+          SKU_CAPACITY: ${{ inputs.sku_capacity }}
+          API_VERSION: ${{ inputs.api_version }}
+        run: |
+          set -euo pipefail
+
+          account_name="$ACCOUNT_NAME_INPUT"
+          if [ -z "$account_name" ]; then
+            account_name="azrm-codex-${GITHUB_RUN_ID}"
+          fi
+          account_name="$(echo "$account_name" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9-')"
+
+          echo "account_name=$account_name" >> "$GITHUB_OUTPUT"
+          echo "deployment_name=$DEPLOYMENT_NAME" >> "$GITHUB_OUTPUT"
+          echo "model_name=$MODEL_NAME" >> "$GITHUB_OUTPUT"
+          echo "model_version=$MODEL_VERSION" >> "$GITHUB_OUTPUT"
+          echo "resource_group=$RESOURCE_GROUP" >> "$GITHUB_OUTPUT"
+          echo "location=$LOCATION" >> "$GITHUB_OUTPUT"
+          echo "sku_name=$SKU_NAME" >> "$GITHUB_OUTPUT"
+          echo "sku_capacity=$SKU_CAPACITY" >> "$GITHUB_OUTPUT"
+          echo "api_version=$API_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Create AI Services account and model deployment
+        id: provision
+        env:
+          ACCOUNT_NAME: ${{ steps.inputs.outputs.account_name }}
+          DEPLOYMENT_NAME: ${{ steps.inputs.outputs.deployment_name }}
+          MODEL_NAME: ${{ steps.inputs.outputs.model_name }}
+          MODEL_VERSION: ${{ steps.inputs.outputs.model_version }}
+          RESOURCE_GROUP: ${{ steps.inputs.outputs.resource_group }}
+          LOCATION: ${{ steps.inputs.outputs.location }}
+          SKU_NAME: ${{ steps.inputs.outputs.sku_name }}
+          SKU_CAPACITY: ${{ steps.inputs.outputs.sku_capacity }}
+        run: |
+          set -euo pipefail
+
+          az provider register --namespace Microsoft.CognitiveServices --wait
+          az group create --name "$RESOURCE_GROUP" --location "$LOCATION" --output none
+
+          if ! az cognitiveservices account show --name "$ACCOUNT_NAME" --resource-group "$RESOURCE_GROUP" --output none 2>/dev/null; then
+            az cognitiveservices account create \
+              --name "$ACCOUNT_NAME" \
+              --resource-group "$RESOURCE_GROUP" \
+              --kind AIServices \
+              --sku S0 \
+              --location "$LOCATION" \
+              --yes \
+              --output none
+          fi
+
+          catalog="$(az cognitiveservices model list --location "$LOCATION" --output json)"
+          if ! jq -e \
+            --arg model "$MODEL_NAME" \
+            --arg version "$MODEL_VERSION" \
+            --arg sku "$SKU_NAME" \
+            '[.[] | select(.model.name == $model and .model.version == $version and ((.model.skus // []) | any(.name == $sku)))] | length > 0' \
+            <<< "$catalog" >/dev/null; then
+            echo "Model $MODEL_NAME version $MODEL_VERSION with SKU $SKU_NAME was not advertised in $LOCATION." >&2
+            exit 2
+          fi
+
+          if ! az cognitiveservices account deployment show \
+            --name "$ACCOUNT_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --deployment-name "$DEPLOYMENT_NAME" \
+            --output none 2>/dev/null; then
+            az cognitiveservices account deployment create \
+              --name "$ACCOUNT_NAME" \
+              --resource-group "$RESOURCE_GROUP" \
+              --deployment-name "$DEPLOYMENT_NAME" \
+              --model-format OpenAI \
+              --model-name "$MODEL_NAME" \
+              --model-version "$MODEL_VERSION" \
+              --sku-name "$SKU_NAME" \
+              --sku-capacity "$SKU_CAPACITY" \
+              --output none
+          fi
+
+          endpoint="$(az cognitiveservices account show --name "$ACCOUNT_NAME" --resource-group "$RESOURCE_GROUP" --query properties.endpoint -o tsv)"
+          echo "endpoint=$endpoint" >> "$GITHUB_OUTPUT"
+
+      - name: Configure repository settings
+        if: ${{ inputs.configure_repo_settings }}
+        env:
+          GH_TOKEN: ${{ secrets.GH_REPO_SETTINGS_TOKEN }}
+          ACCOUNT_NAME: ${{ steps.inputs.outputs.account_name }}
+          RESOURCE_GROUP: ${{ steps.inputs.outputs.resource_group }}
+          ENDPOINT: ${{ steps.provision.outputs.endpoint }}
+          DEPLOYMENT_NAME: ${{ steps.inputs.outputs.deployment_name }}
+          API_VERSION: ${{ steps.inputs.outputs.api_version }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "Set GH_REPO_SETTINGS_TOKEN to a token that can write repository Actions secrets and variables, or rerun with configure_repo_settings=false." >&2
+            exit 2
+          fi
+
+          azure_openai_key="$(az cognitiveservices account keys list --name "$ACCOUNT_NAME" --resource-group "$RESOURCE_GROUP" --query key1 -o tsv)"
+          echo "::add-mask::$azure_openai_key"
+
+          gh variable set AZURE_OPENAI_ENDPOINT --body "$ENDPOINT"
+          gh variable set AZURE_OPENAI_DEPLOYMENT --body "$DEPLOYMENT_NAME"
+          gh variable set AZURE_OPENAI_API_VERSION --body "$API_VERSION"
+          gh secret set AZURE_OPENAI_KEY --body "$azure_openai_key"
+
+      - name: Summary
+        env:
+          ACCOUNT_NAME: ${{ steps.inputs.outputs.account_name }}
+          DEPLOYMENT_NAME: ${{ steps.inputs.outputs.deployment_name }}
+          MODEL_NAME: ${{ steps.inputs.outputs.model_name }}
+          MODEL_VERSION: ${{ steps.inputs.outputs.model_version }}
+          RESOURCE_GROUP: ${{ steps.inputs.outputs.resource_group }}
+          LOCATION: ${{ steps.inputs.outputs.location }}
+          ENDPOINT: ${{ steps.provision.outputs.endpoint }}
+          CONFIGURED_REPO_SETTINGS: ${{ inputs.configure_repo_settings }}
+        run: |
+          {
+            echo "## Azure Codex OpenAI provisioning"
+            echo
+            echo "Provisioned or verified Azure AI Services account and model deployment for the Azure Codex documentation task."
+            echo
+            echo "- Resource group: \`$RESOURCE_GROUP\`"
+            echo "- Location: \`$LOCATION\`"
+            echo "- Account: \`$ACCOUNT_NAME\`"
+            echo "- Deployment: \`$DEPLOYMENT_NAME\`"
+            echo "- Model: \`$MODEL_NAME\` version \`$MODEL_VERSION\`"
+            echo "- Endpoint: \`$ENDPOINT\`"
+            echo "- Repository settings configured: \`$CONFIGURED_REPO_SETTINGS\`"
+            echo
+            echo "Next check: run \`Scheduled agent sessions\` with \`session=docs\` and \`dry_run=true\`, then with \`dry_run=false\`."
+          } >> "$GITHUB_STEP_SUMMARY"

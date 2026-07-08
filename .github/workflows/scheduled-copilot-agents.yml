@@ -1,4 +1,4 @@
-name: Scheduled Copilot agent sessions
+name: Scheduled agent sessions
 
 on:
   schedule:
@@ -16,7 +16,7 @@ on:
           - docs
           - unknowns
       dry_run:
-        description: "Print the planned Copilot tasks without creating issues"
+        description: "Print planned prompts without creating issues or PRs"
         required: false
         type: boolean
         default: false
@@ -31,12 +31,14 @@ on:
         type: boolean
         default: false
       model:
-        description: "Optional Copilot cloud-agent model id; blank uses auto selection"
+        description: "Optional Copilot cloud-agent model id for unknowns; blank uses auto selection"
         required: false
         default: ""
 
 permissions:
-  contents: read
+  contents: write
+  pull-requests: write
+  issues: read
 
 concurrency:
   group: scheduled-copilot-agent-sessions
@@ -44,7 +46,7 @@ concurrency:
 
 jobs:
   start-sessions:
-    name: Start Copilot agent sessions
+    name: Start scheduled agent sessions
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -56,10 +58,103 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Set up Node.js for Azure Codex
+        if: ${{ github.event_name == 'schedule' || inputs.session == 'both' || inputs.session == 'docs' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Python dependencies for Azure Codex
+        if: ${{ github.event_name == 'schedule' || inputs.session == 'both' || inputs.session == 'docs' }}
+        run: python -m pip install ".[dev]"
+
+      - name: Run Azure Codex documentation alignment
+        if: ${{ github.event_name == 'schedule' || inputs.session == 'both' || inputs.session == 'docs' }}
+        env:
+          DRY_RUN: ${{ inputs.dry_run || false }}
+          FORCE: ${{ inputs.force || false }}
+          BASE_BRANCH: ${{ github.event.repository.default_branch || 'main' }}
+          GH_TOKEN: ${{ github.token }}
+          AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_KEY }}
+          AZURE_OPENAI_ENDPOINT: ${{ vars.AZURE_OPENAI_ENDPOINT }}
+          AZURE_OPENAI_DEPLOYMENT: ${{ vars.AZURE_OPENAI_DEPLOYMENT }}
+          AZURE_OPENAI_API_VERSION: ${{ vars.AZURE_OPENAI_API_VERSION || '2025-04-01-preview' }}
+        run: |
+          set -euo pipefail
+
+          prompt_path="$RUNNER_TEMP/azure-codex-docs-prompt.md"
+          pr_body_path="$RUNNER_TEMP/azure-codex-docs-pr.md"
+          branch="azure-codex/docs-alignment"
+
+          python scripts/build_azure_codex_docs_prompt.py > "$prompt_path"
+
+          {
+            echo "## Azure Codex documentation alignment"
+            echo
+            echo "Docs alignment now runs through Azure-backed Codex, not the GitHub Copilot cloud-agent issue flow."
+            echo
+            echo "### Prompt"
+            echo
+            echo '```markdown'
+            cat "$prompt_path"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "Dry run requested; skipped Codex execution." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          if [ -z "${AZURE_OPENAI_API_KEY:-}" ] || [ -z "${AZURE_OPENAI_ENDPOINT:-}" ] || [ -z "${AZURE_OPENAI_DEPLOYMENT:-}" ]; then
+            echo "Missing Azure Codex configuration. Set AZURE_OPENAI_KEY secret plus AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_DEPLOYMENT repository variables." >&2
+            exit 2
+          fi
+
+          existing_pr="$(gh pr list --head "$branch" --state open --json number --jq '.[0].number // empty')"
+          if [ -n "$existing_pr" ] && [ "$FORCE" != "true" ]; then
+            echo "Skipped Azure Codex docs alignment: PR #$existing_pr is already open for $branch." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$branch"
+
+          npm install -g @openai/codex
+          codex -p azure exec --full-auto "$(cat "$prompt_path")"
+
+          python -m pytest tests/test_static_site.py tests/test_summary.py tests/test_copilot_agent_sessions.py
+          python -m ruff check .
+
+          if git diff --quiet; then
+            echo "Azure Codex docs alignment found no repository changes." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          git add -A
+          git commit -m "docs: refresh monitor docs and agent instructions"
+          git push --force-with-lease origin "$branch"
+
+          cat > "$pr_body_path" <<'PR_BODY'
+          Azure-backed Codex documentation alignment run.
+
+          Validation:
+          - python -m pytest tests/test_static_site.py tests/test_summary.py tests/test_copilot_agent_sessions.py
+          - python -m ruff check .
+          PR_BODY
+
+          gh pr create \
+            --draft \
+            --base "$BASE_BRANCH" \
+            --head "$branch" \
+            --title "docs: refresh monitor docs and agent instructions" \
+            --body-file "$pr_body_path"
+
       - name: Start scheduled sessions
+        if: ${{ github.event_name == 'schedule' || inputs.session == 'both' || inputs.session == 'unknowns' }}
         env:
           COPILOT_AGENT_TOKEN: ${{ secrets.COPILOT_AGENT_TOKEN }}
-          SESSION: ${{ inputs.session || 'both' }}
+          SESSION: ${{ (github.event_name == 'schedule' || inputs.session == 'both') && 'unknowns' || inputs.session }}
           DRY_RUN: ${{ inputs.dry_run || false }}
           FORCE: ${{ inputs.force || false }}
           FORCE_UNKNOWNS_WITHOUT_CANDIDATES: ${{ inputs.force_unknowns_without_candidates || false }}

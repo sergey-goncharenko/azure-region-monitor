@@ -370,8 +370,6 @@ def planned_sessions(
     force_unknowns_without_candidates: bool,
 ) -> list[AgentSession]:
     sessions = []
-    if selected in {"both", "docs"}:
-        sessions.append(build_docs_session(now))
     if selected in {"both", "unknowns"}:
         unknowns_session = build_unknowns_session(
             now,

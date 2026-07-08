@@ -3,6 +3,7 @@ from azure_region_monitor.blog import (
     render_blog_feed,
     render_blog_index,
     render_blog_post,
+    render_social_drafts,
     select_blog_posts,
     split_narrative,
 )
@@ -188,3 +189,45 @@ def test_blog_sitemap_entries_cover_index_and_posts():
 
 def test_blog_sitemap_entries_empty_without_posts():
     assert blog_sitemap_entries([]) == []
+
+
+def test_social_drafts_include_review_note_and_platform_drafts():
+    highlights = [
+        {
+            "region": "eastus",
+            "feature": "vmSkus.standard.ncads.h100.v5",
+            "previous": "unavailable",
+            "current": "available",
+            "change_type": "new_availability",
+            "classification_label": "net-new regional availability",
+            "expansion_label": "first observed in North America",
+            "history_days": 30,
+            "missing_days": 30,
+            "unavailable_pct": 100.0,
+            "feature_current_available_regions": 2,
+            "feature_total_regions": 10,
+            "feature_current_coverage_pct": 20.0,
+            "feature_coverage_delta": 2,
+        }
+    ]
+    posts = select_blog_posts(
+        _history(
+            [
+                _day(
+                    "2026-07-03",
+                    "GPU expands\n\nH100 VM coverage moved in two monitored regions.",
+                    new=2,
+                    highlights=highlights,
+                )
+            ]
+        )
+    )
+
+    drafts = render_social_drafts(posts, SITE)
+
+    assert "Review-only drafts" in drafts
+    assert "not proof of quota, capacity, deployment failure, or SLA impact" in drafts
+    assert "#### LinkedIn draft" in drafts
+    assert "#### Short-post draft" in drafts
+    assert "Coverage: 2/10 monitored regions (20.0%, +2 regions)." in drafts
+    assert f"Full digest: {SITE}/blog/2026-07-03.html" in drafts

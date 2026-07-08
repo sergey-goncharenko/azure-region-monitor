@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import gzip
+import json
 import os
 import time
 import urllib.request
@@ -84,6 +85,14 @@ def main() -> None:
     static_parser.add_argument("--history", type=Path, default=Path("data/history"))
     static_parser.set_defaults(handler=_build_static)
 
+    social_parser = subparsers.add_parser(
+        "social-drafts", help="Render review-only social post drafts from history"
+    )
+    social_parser.add_argument("--history", type=Path, default=Path("data/history"))
+    social_parser.add_argument("--site-url", default="https://azwatch.operator.lat")
+    social_parser.add_argument("--limit", type=int, default=1)
+    social_parser.set_defaults(handler=_social_drafts)
+
     fetch_history_parser = subparsers.add_parser(
         "fetch-history", help="Fetch existing static dashboard history files"
     )
@@ -147,6 +156,16 @@ def _build_static(args: argparse.Namespace) -> None:
         args.output, snapshot_path=args.snapshot, diff_path=args.diff, history_path=args.history
     )
     print(f"Built static site in {args.output}")
+
+
+def _social_drafts(args: argparse.Namespace) -> None:
+    from azure_region_monitor.blog import render_social_drafts, select_blog_posts
+
+    history_path = args.history / "index.json" if args.history.is_dir() else args.history
+    history_index = {}
+    if history_path.exists():
+        history_index = json.loads(history_path.read_text(encoding="utf-8"))
+    print(render_social_drafts(select_blog_posts(history_index), args.site_url, limit=args.limit))
 
 
 def _fetch_history(args: argparse.Namespace) -> None:
