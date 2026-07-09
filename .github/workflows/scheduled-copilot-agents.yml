@@ -121,7 +121,26 @@ jobs:
           git checkout -B "$branch"
 
           npm install -g @openai/codex
-          codex -p azure exec --full-auto "$(cat "$prompt_path")"
+          mkdir -p "$HOME/.codex"
+          azure_base_url="${AZURE_OPENAI_ENDPOINT%/}/openai/v1"
+          cat > "$HOME/.codex/config.toml" <<EOF
+          model = "$AZURE_OPENAI_DEPLOYMENT"
+          model_provider = "azure"
+          model_reasoning_effort = "medium"
+
+          [profiles.azure]
+          model = "$AZURE_OPENAI_DEPLOYMENT"
+          model_provider = "azure"
+          model_reasoning_effort = "medium"
+
+          [model_providers.azure]
+          name = "Azure OpenAI"
+          base_url = "$azure_base_url"
+          env_key = "AZURE_OPENAI_API_KEY"
+          wire_api = "responses"
+          EOF
+
+          codex -p azure exec --sandbox workspace-write "$(cat "$prompt_path")"
 
           python -m pytest tests/test_static_site.py tests/test_summary.py tests/test_copilot_agent_sessions.py
           python -m ruff check .
