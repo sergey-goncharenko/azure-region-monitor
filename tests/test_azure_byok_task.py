@@ -186,6 +186,19 @@ def test_agent_environment_uses_reduced_provider_token_limits(monkeypatch):
     assert environment["COPILOT_PROVIDER_MAX_OUTPUT_TOKENS"] == "500"
 
 
+def test_agent_environment_uses_nano_token_limits(monkeypatch):
+    monkeypatch.setenv("AZURE_OPENAI_API_KEY", "azure-key")
+    monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://eastus.api.cognitive.microsoft.com")
+    monkeypatch.setenv("AZURE_OPENAI_DEPLOYMENT", "copilot-gpt-5-4-nano")
+    monkeypatch.setenv("COPILOT_BYOK_MODEL_ID", "gpt-5.4-nano")
+    monkeypatch.setattr(byok_task.tempfile, "mkdtemp", lambda prefix: "C:/temporary/copilot")
+
+    environment = byok_task._agent_environment()
+
+    assert environment["COPILOT_PROVIDER_MAX_PROMPT_TOKENS"] == "16000"
+    assert environment["COPILOT_PROVIDER_MAX_OUTPUT_TOKENS"] == "2000"
+
+
 def test_agent_invocation_exposes_only_file_tools(monkeypatch):
     captured = {}
     monkeypatch.setattr(byok_task, "_copilot_command", lambda: ["copilot"])
@@ -207,6 +220,7 @@ def test_agent_invocation_exposes_only_file_tools(monkeypatch):
     assert "--available-tools=glob" in captured["args"]
     assert "--available-tools=rg" in captured["args"]
     assert "--available-tools=view" in captured["args"]
+    assert "--available-tools=task_complete" in captured["args"]
     assert "--autopilot" in captured["args"]
     assert "--max-autopilot-continues" in captured["args"]
     assert not any("shell(" in argument for argument in captured["args"])

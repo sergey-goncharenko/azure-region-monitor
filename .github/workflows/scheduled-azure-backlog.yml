@@ -83,7 +83,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_KEY }}
           AZURE_OPENAI_ENDPOINT: ${{ vars.AZURE_OPENAI_ENDPOINT }}
-          AZURE_OPENAI_DEPLOYMENT: ${{ vars.AZURE_OPENAI_DEPLOYMENT }}
+          AZURE_OPENAI_DEPLOYMENT: ${{ vars.AZURE_COPILOT_DEPLOYMENT || vars.AZURE_OPENAI_DEPLOYMENT }}
           COPILOT_BYOK_MODEL_ID: ${{ vars.COPILOT_BYOK_MODEL_ID || 'gpt-5.4-mini' }}
           BYOK_TASK_COOLDOWN_SECONDS: "65"
         run: |

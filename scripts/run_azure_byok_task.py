@@ -136,6 +136,8 @@ def _agent_environment() -> dict[str, str]:
     deployment = os.environ.get("AZURE_OPENAI_DEPLOYMENT", "").strip()
     if not api_key or not endpoint or not deployment:
         raise ValueError("Missing Azure OpenAI BYOK configuration.")
+    model_id = os.environ.get("COPILOT_BYOK_MODEL_ID", CLI_MODEL_ID)
+    prompt_tokens, output_tokens = _provider_token_limits(model_id)
     environment = {
         name: value
         for name, value in os.environ.items()
@@ -149,16 +151,20 @@ def _agent_environment() -> dict[str, str]:
             "COPILOT_PROVIDER_BASE_URL": _byok_base_url(endpoint),
             "COPILOT_PROVIDER_API_KEY": api_key,
             "COPILOT_PROVIDER_WIRE_API": "responses",
-            "COPILOT_PROVIDER_MODEL_ID": os.environ.get(
-                "COPILOT_BYOK_MODEL_ID", CLI_MODEL_ID
-            ),
+            "COPILOT_PROVIDER_MODEL_ID": model_id,
             "COPILOT_PROVIDER_WIRE_MODEL": deployment,
-            "COPILOT_PROVIDER_MAX_PROMPT_TOKENS": "5500",
-            "COPILOT_PROVIDER_MAX_OUTPUT_TOKENS": "500",
+            "COPILOT_PROVIDER_MAX_PROMPT_TOKENS": prompt_tokens,
+            "COPILOT_PROVIDER_MAX_OUTPUT_TOKENS": output_tokens,
             "COPILOT_HOME": str(Path(tempfile.mkdtemp(prefix="copilot-byok-"))),
         }
     )
     return environment
+
+
+def _provider_token_limits(model_id: str) -> tuple[str, str]:
+    if model_id == "gpt-5.4-nano":
+        return "16000", "2000"
+    return "5500", "500"
 
 
 def _agent_prompt(task: dict[str, Any]) -> str:
@@ -237,6 +243,7 @@ def _run_agent(task: dict[str, Any]) -> subprocess.CompletedProcess[str]:
         "--available-tools=glob",
         "--available-tools=rg",
         "--available-tools=view",
+        "--available-tools=task_complete",
         # `--available-tools` controls what is exposed; this only auto-approves that filtered set.
         "--allow-all-tools",
         "--disallow-temp-dir",
