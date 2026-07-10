@@ -10,7 +10,6 @@ from typing import Any
 from azure_region_monitor.social_client import AzureOpenAiTextClient
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_SNAPSHOT_URL = "https://azwatch.operator.lat/api/latest.json"
 
 _DOCS_PATCH_SYSTEM = """You are a cautious technical writer for an Azure regional availability monitor.
 
@@ -39,53 +38,33 @@ def _load_module(name: str, script_name: str):
     return module
 
 
-def _max_goal_items(goals_path: Path) -> int:
-    try:
-        payload = json.loads(goals_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return 2
-    value = payload.get("max_items_per_run", 2) if isinstance(payload, dict) else 2
+def _max_issue_items(value: object) -> int:
     try:
         return max(0, min(2, int(value)))
     except (TypeError, ValueError):
         return 2
 
 
-def _propose_unknowns(client: AzureOpenAiTextClient, snapshot_url: str) -> dict[str, Any]:
-    unknowns = _load_module("azure_backlog_unknowns", "run_azure_unknowns_agent.py")
-    context = unknowns.build_proposal_context(snapshot_url)
-    if not context["category"]:
-        proposal = unknowns._no_change(context, context["summary"])
-    else:
-        raw = client.generate(
-            system=unknowns._SYSTEM_PROMPT,
-            user="Bounded unknown-status evidence:\n" + json.dumps(
-                context["evidence"], ensure_ascii=False, sort_keys=True
-            ),
-        )
-        proposal = unknowns._parse_proposal(raw, context)
-    return {"kind": "unknowns", "proposal": proposal}
-
-
-def _propose_goals(
-    client: AzureOpenAiTextClient, goals_path: Path, limit: int
+def _propose_issues(
+    client: AzureOpenAiTextClient, issues_path: Path, limit: int
 ) -> list[dict[str, Any]]:
-    goals = _load_module("azure_backlog_goals", "run_azure_goal_agent.py")
-    unknowns = _load_module("azure_backlog_goal_unknowns", "run_azure_unknowns_agent.py")
+    issues = _load_module("azure_backlog_issues", "run_azure_issue_agent.py")
+    unknowns = _load_module("azure_backlog_issue_unknowns", "run_azure_unknowns_agent.py")
     proposals = []
-    for index in range(min(limit, _max_goal_items(goals_path))):
-        context = goals.build_goal_context(goals_path, index)
+    for index in range(limit):
+        context = issues.build_issue_context(issues_path, index)
         if not context["category"]:
             proposal = unknowns._no_change(context, context["summary"])
         else:
             raw = client.generate(
-                system=goals._SYSTEM_PROMPT,
-                user="Approved goal and bounded local evidence:\n" + json.dumps(
+                system=issues._SYSTEM_PROMPT,
+                user="Approved GitHub issue and bounded local evidence:\n" + json.dumps(
                     context["evidence"], ensure_ascii=False, sort_keys=True
                 ),
             )
             proposal = unknowns._parse_proposal(raw, context)
-        proposals.append({"kind": "goal", "proposal": proposal})
+            proposal["issue_number"] = context["issue_number"]
+        proposals.append({"kind": "issue", "proposal": proposal})
     return proposals
 
 
@@ -132,8 +111,7 @@ def render_cycle_markdown(cycle: dict[str, Any]) -> str:
     for item in cycle["proposals"]:
         proposal = item["proposal"]
         prefix = {
-            "unknowns": "Unknowns",
-            "goal": "Backlog",
+            "issue": "GitHub backlog issue",
             "docs": "Documentation alignment",
         }[item["kind"]]
         lines.extend([f"### {prefix}: `{proposal['category'] or 'none'}`", "", proposal["summary"], ""])
@@ -145,23 +123,23 @@ def render_cycle_markdown(cycle: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def build_cycle(
+    client: AzureOpenAiTextClient, issues_path: Path, max_issues: object
+) -> dict[str, list[dict[str, Any]]]:
+    proposals = _propose_issues(client, issues_path, _max_issue_items(max_issues))
+    proposals.append(_propose_docs(client))
+    return {"proposals": proposals}
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Generate bounded Azure backlog patch proposals.")
-    parser.add_argument("--snapshot-url", default=DEFAULT_SNAPSHOT_URL)
-    parser.add_argument("--goals", type=Path, default=REPO_ROOT / "config" / "azure_agent_backlog.json")
+    parser = argparse.ArgumentParser(description="Generate bounded Azure GitHub issue patch proposals.")
+    parser.add_argument("--issues", type=Path, required=True)
+    parser.add_argument("--max-issues", type=int, default=2)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
 
     client = AzureOpenAiTextClient.from_env(max_output_tokens=1_600)
-    max_items = _max_goal_items(args.goals)
-    unknown = _propose_unknowns(client, args.snapshot_url)
-    proposals = []
-    if unknown["proposal"]["category"]:
-        proposals.append(unknown)
-    remaining = max(0, max_items - len(proposals))
-    proposals.extend(_propose_goals(client, args.goals, remaining))
-    proposals.append(_propose_docs(client))
-    cycle = {"proposals": proposals}
+    cycle = build_cycle(client, args.issues, args.max_issues)
     args.output.write_text(json.dumps(cycle, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(render_cycle_markdown(cycle))
 

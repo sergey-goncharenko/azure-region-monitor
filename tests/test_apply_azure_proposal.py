@@ -103,3 +103,11 @@ def test_invalid_category_never_runs_commands(monkeypatch, capsys):
 
     assert result == 0
     assert "Invalid patch category" in capsys.readouterr().out
+
+
+def test_pull_request_body_closes_source_issue():
+    body_path = proposal_applier._write_pr_body(_proposal(issue_number=42))
+    try:
+        assert "Closes #42" in body_path.read_text(encoding="utf-8")
+    finally:
+        body_path.unlink(missing_ok=True)

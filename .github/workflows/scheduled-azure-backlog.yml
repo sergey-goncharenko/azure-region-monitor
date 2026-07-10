@@ -19,6 +19,7 @@ on:
 
 permissions:
   contents: write
+  issues: read
   pull-requests: write
 
 concurrency:
@@ -44,7 +45,20 @@ jobs:
       - name: Install project dependencies
         run: python -m pip install ".[dev]"
 
-      - name: Generate bounded Azure backlog proposals
+      - name: Fetch eligible GitHub backlog issues
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh issue list \
+            --repo "$GITHUB_REPOSITORY" \
+            --state open \
+            --label azure-backlog \
+            --limit 100 \
+            --json number,title,body,labels,url > "$RUNNER_TEMP/azure-backlog-issues.json"
+
+      - name: Generate bounded Azure issue proposals
         env:
           AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_KEY }}
           AZURE_OPENAI_ENDPOINT: ${{ vars.AZURE_OPENAI_ENDPOINT }}
@@ -58,7 +72,7 @@ jobs:
           fi
 
           python scripts/run_azure_backlog_cycle.py \
-            --snapshot-url "https://azwatch.operator.lat/api/latest.json" \
+            --issues "$RUNNER_TEMP/azure-backlog-issues.json" \
             --output "$RUNNER_TEMP/azure-backlog-cycle.json" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Validate, branch, and open bounded draft PRs
@@ -96,8 +110,7 @@ jobs:
           PY
             )"
             case "$kind" in
-              unknowns) branch_prefix="azure-unknowns" ;;
-              goal) branch_prefix="azure-goals" ;;
+              issue) branch_prefix="azure-issues" ;;
               docs) branch_prefix="azure-docs" ;;
               *)
                 echo "Unknown backlog proposal kind: $kind" >&2

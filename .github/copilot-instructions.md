@@ -25,7 +25,7 @@ The dashboard is deployed to Azure Static Web Apps. Focused modality workflows c
 - After dashboard generator changes, run focused static-site tests, full `pytest`, and Ruff.
 - After workflow changes, push first, then run the focused workflow before deploying or expanding scope.
 - For dashboard-only UI/docs changes, use `dashboard-redeploy.yml` instead of rerunning probes.
-- Scheduled Copilot cloud-agent sessions are configured by `.github/workflows/scheduled-copilot-agents.yml` and documented in `docs/agentic-sessions.md`. Keep those prompts bounded: one PR per session, no Azure create/delete probes, and no manual edits to generated live snapshot data.
+- Scheduled Azure-funded backlog work is configured by `.github/workflows/scheduled-azure-backlog.yml` and documented in `docs/agentic-sessions.md`. It selects up to two eligible GitHub issues before the always-last documentation alignment lane. Keep all proposals bounded: no Azure create/delete probes and no manual edits to generated live snapshot data. The Copilot cloud-agent workflow remains manual-only.
 
 ## Status Semantics
 

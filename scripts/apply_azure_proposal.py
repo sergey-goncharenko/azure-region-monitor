@@ -47,6 +47,8 @@ def _is_safe_repo_path(value: object) -> bool:
 def _write_pr_body(proposal: dict[str, Any]) -> Path:
     handle = tempfile.NamedTemporaryFile("w", suffix=".md", encoding="utf-8", delete=False)
     tests = proposal["tests"] or [""]
+    issue_number = proposal.get("issue_number")
+    closes_issue = f"\n\nCloses #{issue_number}" if type(issue_number) is int and issue_number > 0 else ""
     handle.write(
         "Azure-funded backlog proposal.\n\n"
         + proposal["summary"]
@@ -55,6 +57,7 @@ def _write_pr_body(proposal: dict[str, Any]) -> Path:
         + "\n\nValidation:\n"
         + "\n".join(f"- python -m pytest {path}".rstrip() for path in tests)
         + "\n- python -m ruff check .\n"
+        + closes_issue
     )
     handle.close()
     return Path(handle.name)

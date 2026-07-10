@@ -1,0 +1,48 @@
+name: Azure autonomous backlog item
+description: Queue a bounded improvement for the daily Azure-funded coding workflow
+title: "[azure-backlog] "
+labels:
+  - azure-backlog
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Create one outcome-oriented task. Do not prescribe files, tests, branches, or implementation details: the workflow derives a narrow safe scope and refuses ambiguous work.
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      description: Higher-priority open items are selected first.
+      options:
+        - High
+        - Normal
+        - Low
+      default: 1
+    validations:
+      required: true
+
+  - type: textarea
+    id: objective
+    attributes:
+      label: Objective
+      description: Describe the user or operator outcome the task should achieve.
+      placeholder: Make the availability-change explanation more useful to engineers without weakening status semantics.
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context or acceptance evidence
+      description: Optional factual context, example, or observable success condition. Do not include secrets or implementation paths.
+
+  - type: checkboxes
+    id: safeguards
+    attributes:
+      label: Safeguards
+      options:
+        - label: Do not manually edit generated live snapshot data.
+          required: true
+        - label: Preserve the monitor's documented status semantics.
+          required: true

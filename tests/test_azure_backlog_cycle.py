@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import importlib.util
-import json
 import sys
 from pathlib import Path
 
@@ -15,18 +14,12 @@ sys.modules[SPEC.name] = backlog_cycle
 SPEC.loader.exec_module(backlog_cycle)
 
 
-def test_max_goal_items_is_bounded_to_two_coding_slots(tmp_path):
-    path = tmp_path / "backlog.json"
-    path.write_text(json.dumps({"max_items_per_run": 8}), encoding="utf-8")
-
-    assert backlog_cycle._max_goal_items(path) == 2
+def test_max_issue_items_is_bounded_to_two_coding_slots():
+    assert backlog_cycle._max_issue_items(8) == 2
 
 
-def test_max_goal_items_uses_safe_default_for_invalid_configuration(tmp_path):
-    path = tmp_path / "backlog.json"
-    path.write_text(json.dumps({"max_items_per_run": "not-a-number"}), encoding="utf-8")
-
-    assert backlog_cycle._max_goal_items(path) == 2
+def test_max_issue_items_uses_safe_default_for_invalid_input():
+    assert backlog_cycle._max_issue_items("not-a-number") == 2
 
 
 def test_cycle_markdown_identifies_docs_as_the_alignment_lane():
@@ -48,3 +41,43 @@ def test_cycle_markdown_identifies_docs_as_the_alignment_lane():
 
     assert "### Documentation alignment: `documentation-alignment`" in rendered
     assert "No safe patch proposal was produced." in rendered
+
+
+def test_cycle_markdown_identifies_github_issue_lane():
+    rendered = backlog_cycle.render_cycle_markdown(
+        {
+            "proposals": [
+                {
+                    "kind": "issue",
+                    "proposal": {
+                        "category": "issue-42",
+                        "decision": "no_change",
+                        "summary": "No patch.",
+                        "pr_title": "",
+                    },
+                }
+            ]
+        }
+    )
+
+    assert "### GitHub backlog issue: `issue-42`" in rendered
+
+
+def test_documentation_alignment_is_always_last(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        backlog_cycle,
+        "_propose_issues",
+        lambda client, issues_path, limit: [
+            {"kind": "issue", "proposal": {"category": "issue-1"}},
+            {"kind": "issue", "proposal": {"category": "issue-2"}},
+        ][:limit],
+    )
+    monkeypatch.setattr(
+        backlog_cycle,
+        "_propose_docs",
+        lambda client: {"kind": "docs", "proposal": {"category": "documentation-alignment"}},
+    )
+
+    cycle = backlog_cycle.build_cycle(object(), tmp_path / "issues.json", 2)
+
+    assert [item["kind"] for item in cycle["proposals"]] == ["issue", "issue", "docs"]
