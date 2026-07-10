@@ -120,7 +120,7 @@ jobs:
             if [ "$FORCE" = "true" ]; then
               args+=(--force)
             fi
-            if ! python scripts/run_azure_byok_task.py "${args[@]}" >> "$GITHUB_STEP_SUMMARY"; then
+            if ! python scripts/run_azure_byok_task.py "${args[@]}" 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"; then
               failures=1
             fi
           done
