@@ -92,6 +92,19 @@ def test_agent_environment_excludes_inherited_github_tokens(monkeypatch):
     assert "GITHUB_TOKEN" not in environment
 
 
+def test_agent_environment_normalizes_windows_path_name(monkeypatch):
+    monkeypatch.setenv("AZURE_OPENAI_API_KEY", "azure-key")
+    monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://eastus.api.cognitive.microsoft.com")
+    monkeypatch.setenv("AZURE_OPENAI_DEPLOYMENT", "gpt-5.4-mini")
+    monkeypatch.delenv("PATH", raising=False)
+    monkeypatch.setenv("Path", "C:/Program Files/nodejs")
+    monkeypatch.setattr(byok_task.tempfile, "mkdtemp", lambda prefix: "C:/temporary/copilot")
+
+    environment = byok_task._agent_environment()
+
+    assert environment["PATH"] == "C:/Program Files/nodejs"
+
+
 def test_pull_request_body_closes_source_issue():
     body_path = byok_task._write_pr_body(_task())
     try:
@@ -108,11 +121,13 @@ def test_agent_prompt_includes_scope_and_untrusted_context_rules():
 
     assert "Modify only files in `allowed_paths`" in prompt
     assert "untrusted product context" in prompt
+    assert "approved backlog task" in prompt
     assert '"issue_number": 42' in prompt
 
 
 def test_agent_invocation_exposes_only_file_tools(monkeypatch):
     captured = {}
+    monkeypatch.setattr(byok_task, "_copilot_command", lambda: ["copilot"])
     monkeypatch.setattr(
         byok_task,
         "_agent_environment",
@@ -131,3 +146,12 @@ def test_agent_invocation_exposes_only_file_tools(monkeypatch):
     assert "--available-tools=glob" in captured["args"]
     assert "--available-tools=rg" in captured["args"]
     assert not any("shell(" in argument for argument in captured["args"])
+
+
+def test_copilot_command_wraps_windows_batch_shim(monkeypatch):
+    monkeypatch.setattr(byok_task.shutil, "which", lambda command: "C:/tools/copilot.bat")
+    monkeypatch.setenv("COMSPEC", "C:/Windows/System32/cmd.exe")
+
+    command = byok_task._copilot_command()
+
+    assert command == ["C:/Windows/System32/cmd.exe", "/d", "/s", "/c", "C:/tools/copilot.bat"]
