@@ -7,10 +7,10 @@ on:
   workflow_dispatch:
     inputs:
       session:
-        description: "Which scheduled agent session to start"
+        description: "Which agent task to start"
         required: false
         type: choice
-        default: both
+        default: docs
         options:
           - both
           - docs
@@ -31,7 +31,7 @@ on:
         type: boolean
         default: false
       model:
-        description: "Optional Copilot cloud-agent model id for unknowns; blank uses auto selection"
+        description: "Optional Copilot cloud-agent model id for a manual unknowns test; blank uses auto selection"
         required: false
         default: ""
 
@@ -180,10 +180,10 @@ jobs:
             --body-file "$pr_body_path"
 
       - name: Start scheduled sessions
-        if: ${{ github.event_name == 'schedule' || inputs.session == 'both' || inputs.session == 'unknowns' }}
+        if: ${{ github.event_name == 'workflow_dispatch' && (inputs.session == 'both' || inputs.session == 'unknowns') }}
         env:
           COPILOT_AGENT_TOKEN: ${{ secrets.COPILOT_AGENT_TOKEN }}
-          SESSION: ${{ (github.event_name == 'schedule' || inputs.session == 'both') && 'unknowns' || inputs.session }}
+          SESSION: ${{ inputs.session == 'both' && 'unknowns' || inputs.session }}
           DRY_RUN: ${{ inputs.dry_run || false }}
           FORCE: ${{ inputs.force || false }}
           FORCE_UNKNOWNS_WITHOUT_CANDIDATES: ${{ inputs.force_unknowns_without_candidates || false }}

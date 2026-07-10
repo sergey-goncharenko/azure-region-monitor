@@ -1,5 +1,7 @@
 import json
 
+import azure_region_monitor.blog as blog
+
 from azure_region_monitor.blog import (
     blog_sitemap_entries,
     render_blog_feed,
@@ -281,3 +283,55 @@ def test_social_drafts_fall_back_when_ai_response_is_invalid():
 
     assert "Source: Structured fallback" in drafts
     assert "Signal counts:" in drafts
+
+
+def test_social_drafts_preserve_compact_ai_evidence_note_without_duplication():
+    class _Client:
+        def generate(self, *, system, user):
+            return json.dumps(
+                {
+                    "linkedin": "Read-only catalog/list evidence; unavailable does not mean quota, "
+                    "capacity, deployment failure, or SLA impact.\nhttps://azwatch.operator.lat/blog/2026-07-03.html",
+                    "short_post": "Read-only catalog/list evidence: unavailable does not mean quota, "
+                    "capacity, deployment failure, or SLA impact.\nhttps://azwatch.operator.lat/blog/2026-07-03.html",
+                }
+            )
+
+    posts = select_blog_posts(_history([_day("2026-07-03", "Headline\n\nBody.", new=1)]))
+
+    drafts = render_social_drafts(posts, SITE, client=_Client())
+
+    assert drafts.count("Evidence note:") == 0
+    assert "Source: AI social copy" in drafts
+
+
+def test_social_facts_compact_large_highlight_arrays():
+    post = {
+        "date": "2026-07-03",
+        "title": "Large rollout",
+        "paragraphs": ["A " * 2_000],
+        "new_availability": 10,
+        "regressions": 5,
+        "parked_unknown": 1,
+        "highlights": [
+            {
+                "region": "eastus",
+                "feature": "vmSkus.standard.d2as.v5",
+                "still_available_regions": [f"region-{index}" for index in range(20)],
+                "same_day_new_regions": [f"new-{index}" for index in range(20)],
+                "unrelated_large_field": "x" * 10_000,
+            }
+        ],
+    }
+
+    facts = json.loads(blog._social_facts(post, "https://example.test/post" ).split("\n", 1)[1])
+
+    assert len(facts["narrative"]) <= 1_601
+    assert facts["highlights"][0]["still_available_regions"] == [
+        "region-0",
+        "region-1",
+        "region-2",
+        "region-3",
+        "region-4",
+    ]
+    assert "unrelated_large_field" not in facts["highlights"][0]

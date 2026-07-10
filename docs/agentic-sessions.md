@@ -4,14 +4,14 @@ This repository has a lightweight scheduled workflow for bounded agentic mainten
 
 ## Sessions
 
-The workflow starts at most two bounded tasks per day:
+The scheduled workflow starts one Azure-funded bounded task per day:
 
 - Documentation and instructions maintenance: runs Azure-backed Codex from GitHub Actions, checks whether docs, runbooks, workflow notes, and [.github/copilot-instructions.md](../.github/copilot-instructions.md) still match the current codebase, recent commits, and recent GitHub Actions behavior, and opens a draft PR only when changes are needed.
-- Parked unknowns investigation: reads the latest public snapshot, ranks `unknown` results by modality/check count, and asks GitHub Copilot cloud agent to investigate only the top modality.
+- Parked unknowns investigation: reads the latest public snapshot, ranks `unknown` results by modality/check count, and asks GitHub Copilot cloud agent to investigate only the top modality. This is now manual-only so it can remain an occasional Copilot test without consuming scheduled Copilot usage.
 
 The unknowns session is created as a GitHub issue assigned to `copilot-swe-agent[bot]` with an `agent_assignment`. Copilot should open one pull request when it finds a justified repository change. If there is no useful change, the prompt tells Copilot to comment on the issue and close it instead of opening an empty PR.
 
-The docs task does not use a Copilot cloud-agent issue. It builds the prompt with [scripts/build_azure_codex_docs_prompt.py](../scripts/build_azure_codex_docs_prompt.py), runs `codex -p azure exec --full-auto`, validates the result, and opens a draft PR from the fixed `azure-codex/docs-alignment` branch when the working tree changed.
+The docs task does not use a Copilot cloud-agent issue. It builds the prompt with [scripts/build_azure_codex_docs_prompt.py](../scripts/build_azure_codex_docs_prompt.py), runs `codex -p azure exec --sandbox workspace-write` with outbound network disabled, validates the result, and opens a draft PR from the fixed `azure-codex/docs-alignment` branch when the working tree changed.
 
 ## Required Secrets And Variables
 
@@ -43,7 +43,7 @@ The token holder must have a paid Copilot plan with Copilot cloud agent enabled 
 ## Cost Controls
 
 - The docs task uses a fixed branch, `azure-codex/docs-alignment`, and skips when an open PR already exists for that branch unless `force` is set.
-- The scheduler creates no more than one open unknowns task per session label. If an earlier unknowns issue is still open, the next scheduled run skips that session.
+- A manual unknowns task creates no more than one open issue per session label. If an earlier unknowns issue is still open, the next manual run skips that session.
 - The unknowns session is skipped when the loaded snapshot has no `unknown` statuses, unless the workflow is manually run with `force_unknowns_without_candidates`.
 - Prompts target 30 minutes of focused work and tell the agent to stop before 45 minutes if the task is not converging. Copilot cloud agent also has GitHub's hard session limit for the unknowns lane.
 - The unknowns prompt includes a precomputed top modality so the agent does not need to spend tokens reading the full snapshot just to choose a target.
@@ -53,7 +53,7 @@ The token holder must have a paid Copilot plan with Copilot cloud agent enabled 
 
 1. Open Actions in GitHub.
 2. Select `Scheduled agent sessions`.
-3. Use `Run workflow`.
+3. Use `Run workflow`. The default `session=docs` remains Azure-funded; choose `unknowns` only when you intentionally want to spend a Copilot cloud-agent test.
 4. Keep `dry_run` enabled for the first check, then run again with `dry_run` disabled after verifying the generated prompts.
 
 Use `force` only when you intentionally want another session while an earlier one is still open.

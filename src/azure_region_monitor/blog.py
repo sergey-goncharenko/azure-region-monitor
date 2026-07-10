@@ -22,6 +22,9 @@ _EXCERPT_CHARS = 220
 _SOCIAL_POST_LIMIT = 1
 _SOCIAL_LINKEDIN_MAX_CHARS = 2_800
 _SOCIAL_SHORT_POST_MAX_CHARS = 600
+_SOCIAL_MAX_HIGHLIGHTS = 4
+_SOCIAL_NARRATIVE_MAX_CHARS = 1_600
+_SOCIAL_MAX_REGION_SAMPLES = 5
 _SOCIAL_EVIDENCE_NOTE = (
     "Evidence note: these are read-only Azure catalog/list signals; unavailable does not mean "
     "quota, capacity, deployment failure, or SLA impact."
@@ -198,19 +201,66 @@ def _social_facts(post: dict[str, Any], url: str) -> str:
     facts = {
         "date": post["date"],
         "title": post["title"],
-        "narrative": "\n\n".join(post.get("paragraphs", [])),
+        "narrative": _social_narrative(post),
         "counts": {
             "new_availability": post["new_availability"],
             "regressions": post["regressions"],
             "parked_unknown": post["parked_unknown"],
         },
-        "highlights": post.get("highlights", [])[:8],
+        "highlights": _compact_social_highlights(post.get("highlights", [])),
         "full_digest_url": url,
         "evidence_note": _SOCIAL_EVIDENCE_NOTE,
     }
     return "Structured facts (use only these facts):\n" + json.dumps(
         facts, ensure_ascii=False, sort_keys=True
     )
+
+
+def _social_narrative(post: dict[str, Any]) -> str:
+    narrative = "\n\n".join(post.get("paragraphs", []))
+    if len(narrative) <= _SOCIAL_NARRATIVE_MAX_CHARS:
+        return narrative
+    return narrative[:_SOCIAL_NARRATIVE_MAX_CHARS].rsplit(" ", 1)[0].rstrip(".,;:") + "…"
+
+
+def _compact_social_highlights(value: object) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    keys = (
+        "region",
+        "feature",
+        "previous",
+        "current",
+        "change_type",
+        "classification_label",
+        "expansion_label",
+        "history_days",
+        "missing_days",
+        "unavailable_pct",
+        "prior_disappearances",
+        "feature_total_regions",
+        "feature_previous_available_regions",
+        "feature_current_available_regions",
+        "feature_current_coverage_pct",
+        "feature_coverage_delta",
+        "feature_deprecated_coverage_pct",
+        "region_group",
+        "region_group_current_available_regions",
+        "region_group_previous_available_regions",
+    )
+    highlights: list[dict[str, Any]] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        compact = {key: item[key] for key in keys if key in item}
+        for list_key in ("same_day_new_regions", "still_available_regions"):
+            regions = _as_str_list(item.get(list_key))
+            if regions:
+                compact[list_key] = regions[:_SOCIAL_MAX_REGION_SAMPLES]
+        highlights.append(compact)
+        if len(highlights) >= _SOCIAL_MAX_HIGHLIGHTS:
+            break
+    return highlights
 
 
 def _parse_social_drafts(response: str, url: str) -> dict[str, str] | None:
@@ -239,11 +289,23 @@ def _validated_social_copy(value: object, url: str, maximum_length: int) -> str 
         return None
     if url not in text:
         text = f"{text}\n\n{url}"
-    if _SOCIAL_EVIDENCE_NOTE not in text:
+    if not _has_social_evidence_note(text):
         text = f"{text}\n\n{_SOCIAL_EVIDENCE_NOTE}"
     if len(text) > maximum_length:
         return None
     return text
+
+
+def _has_social_evidence_note(text: str) -> bool:
+    normalized = " ".join(text.lower().split())
+    return (
+        "read-only" in normalized
+        and "catalog/list" in normalized
+        and "unavailable does not mean quota" in normalized
+        and "capacity" in normalized
+        and "deployment failure" in normalized
+        and "sla impact" in normalized
+    )
 
 
 def _linkedin_draft(post: dict[str, Any], url: str) -> str:

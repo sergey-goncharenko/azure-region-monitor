@@ -59,7 +59,6 @@ on:
 permissions:
   contents: read
   id-token: write
-  models: read
 
 jobs:
   azure-latency:
@@ -302,6 +301,10 @@ jobs:
       - name: Update snapshot history
         env:
           HISTORY_BASE_URL: "https://azwatch.operator.lat/api/history"
+          AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_KEY }}
+          AZURE_OPENAI_ENDPOINT: ${{ vars.AZURE_OPENAI_ENDPOINT }}
+          AZURE_OPENAI_DEPLOYMENT: ${{ vars.AZURE_OPENAI_DEPLOYMENT }}
+          AI_SUMMARY_MAX_TOKENS: "900"
         run: |
           azure-region-monitor update-history \
             --snapshot data/snapshots/latest.json \
@@ -313,8 +316,9 @@ jobs:
 
       - name: Draft social posts
         env:
-          GITHUB_MODELS_TOKEN: ${{ secrets.GH_MODELS_TOKEN || github.token }}
-          AI_SOCIAL_MODEL: ${{ vars.AI_SOCIAL_MODEL || 'openai/gpt-5,openai/gpt-5-chat,openai/gpt-5-mini' }}
+          AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_KEY }}
+          AZURE_OPENAI_ENDPOINT: ${{ vars.AZURE_OPENAI_ENDPOINT }}
+          AZURE_OPENAI_DEPLOYMENT: ${{ vars.AZURE_OPENAI_DEPLOYMENT }}
           AI_SOCIAL_MAX_TOKENS: "1200"
         run: azure-region-monitor social-drafts --history data/history >> "$GITHUB_STEP_SUMMARY"
 
