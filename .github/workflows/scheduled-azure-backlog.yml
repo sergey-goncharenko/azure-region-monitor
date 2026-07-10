@@ -85,6 +85,7 @@ jobs:
           AZURE_OPENAI_ENDPOINT: ${{ vars.AZURE_OPENAI_ENDPOINT }}
           AZURE_OPENAI_DEPLOYMENT: ${{ vars.AZURE_OPENAI_DEPLOYMENT }}
           COPILOT_BYOK_MODEL_ID: ${{ vars.COPILOT_BYOK_MODEL_ID || 'gpt-5.4-mini' }}
+          BYOK_TASK_COOLDOWN_SECONDS: "65"
         run: |
           set -euo pipefail
 
@@ -109,7 +110,9 @@ jobs:
 
           shopt -s nullglob
           failures=0
-          for task_path in "$RUNNER_TEMP"/azure-byok-task-*.json; do
+          task_paths=("$RUNNER_TEMP"/azure-byok-task-*.json)
+          for index in "${!task_paths[@]}"; do
+            task_path="${task_paths[$index]}"
             args=(
               --task "$task_path"
               --base-branch "$BASE_BRANCH"
@@ -122,6 +125,10 @@ jobs:
             fi
             if ! python scripts/run_azure_byok_task.py "${args[@]}" 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"; then
               failures=1
+            fi
+            if [ "$DRY_RUN" != "true" ] && [ "$index" -lt "$(( ${#task_paths[@]} - 1 ))" ]; then
+              echo "Waiting ${BYOK_TASK_COOLDOWN_SECONDS}s for Azure BYOK TPM capacity before the next task." | tee -a "$GITHUB_STEP_SUMMARY"
+              sleep "$BYOK_TASK_COOLDOWN_SECONDS"
             fi
           done
           exit "$failures"

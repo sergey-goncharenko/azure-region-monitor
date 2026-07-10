@@ -153,6 +153,38 @@ def test_agent_prompt_includes_scope_and_untrusted_context_rules():
     assert '"issue_number": 42' in prompt
 
 
+def test_model_task_manifest_excludes_raw_file_excerpts_and_bounds_rich_context(monkeypatch):
+    monkeypatch.setattr(byok_task, "MAX_AGENT_EVIDENCE_CHARS", 40)
+    task = _task(
+        evidence={
+            "issue_title": "Improve API",
+            "objective": "Add API tests.",
+            "file_excerpts": {"src/api.py": "sensitive implementation text"},
+            "github_issue_context": {"comments": [{"body": "x" * 200}]},
+        }
+    )
+
+    manifest = byok_task._model_task_manifest(task)
+    prompt = byok_task._agent_prompt(task)
+
+    assert "file_excerpts" not in manifest["evidence"]
+    assert isinstance(manifest["evidence"]["github_issue_context"], str)
+    assert "context truncated for model rate budget" in manifest["evidence"]["github_issue_context"]
+    assert "sensitive implementation text" not in prompt
+
+
+def test_agent_environment_uses_reduced_provider_token_limits(monkeypatch):
+    monkeypatch.setenv("AZURE_OPENAI_API_KEY", "azure-key")
+    monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://eastus.api.cognitive.microsoft.com")
+    monkeypatch.setenv("AZURE_OPENAI_DEPLOYMENT", "gpt-5.4-mini")
+    monkeypatch.setattr(byok_task.tempfile, "mkdtemp", lambda prefix: "C:/temporary/copilot")
+
+    environment = byok_task._agent_environment()
+
+    assert environment["COPILOT_PROVIDER_MAX_PROMPT_TOKENS"] == "6000"
+    assert environment["COPILOT_PROVIDER_MAX_OUTPUT_TOKENS"] == "2000"
+
+
 def test_agent_invocation_exposes_only_file_tools(monkeypatch):
     captured = {}
     monkeypatch.setattr(byok_task, "_copilot_command", lambda: ["copilot"])

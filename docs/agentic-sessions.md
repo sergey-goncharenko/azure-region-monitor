@@ -37,11 +37,11 @@ The planned PR branch is stable per issue: `azure-issues/issue-<number>`. If a d
 
 ## Comments, Parent Issues, And Sub-Issues
 
-The selected issue is enriched immediately before Azure receives it. The agent receives the issue metadata and body, all available issue comments, the parent issue when one exists, and all direct sub-issues with their bodies and comments. This means comments are the right place for follow-up thoughts, corrections, acceptance details, and recommendations. Do not include secrets, tokens, subscription IDs, private resource names, customer data, or other sensitive information in any forwarded issue text.
+The task builder retrieves the selected issue metadata and body, all available issue comments, the parent issue when one exists, and all direct sub-issues with their bodies and comments. This means comments are the right place for follow-up thoughts, corrections, acceptance details, and recommendations. Do not include secrets, tokens, subscription IDs, private resource names, customer data, or other sensitive information in any forwarded issue text.
 
 The title and **Objective** field remain the authority for automatic source/test scope derivation. Comments and sub-issues provide additional decision evidence, but cannot expand the permitted patch paths. This prevents a comment from accidentally—or maliciously—turning a narrow task into a broad repository change.
 
-Issue text is untrusted context, not agent instructions. The agent ignores attempts in bodies, comments, or child issues to override safety rules, access secrets, use network tools, or expand its scope. To keep daily Azure cost and context size bounded, each text field is limited to 8,000 characters and the combined model context is limited to 60,000 characters; any truncation is explicitly marked in the evidence passed to the agent.
+Issue text is untrusted context, not agent instructions. The agent ignores attempts in bodies, comments, or child issues to override safety rules, access secrets, use network tools, or expand its scope. Each retrieved text field is limited to 8,000 characters. The model receives a compact projection of the issue objective, controls, and up to 1,800 characters of hierarchy evidence; any truncation is explicitly marked so the agent does not mistake it for complete context.
 
 ## Azure-BYOK Copilot CLI And Safety Gates
 
@@ -49,7 +49,7 @@ The workflow installs a pinned GitHub Copilot CLI and uses its custom-model-prov
 
 Every task is bounded before a branch or PR is created:
 
-- Azure receives only the selected task manifest and curated local repository excerpts.
+- Azure receives only the compact selected task manifest; the agent uses its file-only tools to inspect allowed source files when more implementation detail is needed.
 - The CLI runs in offline mode with built-in MCP servers and remote control disabled. It exposes only `apply_patch`, `glob`, and `rg`, with no shell, GitHub, web, Azure CLI, package-install, or push permission.
 - `AZURE_OPENAI_API_KEY`, `COPILOT_PROVIDER_API_KEY`, `GH_TOKEN`, and `GITHUB_TOKEN` are stripped from the agent's shell and MCP environments.
 - Each task starts from a clean default-branch checkout. The runner rejects every changed path outside the automatically derived scope.
@@ -75,6 +75,7 @@ The scheduled workflow uses the built-in `GITHUB_TOKEN` to read issues and creat
 - Azure OpenAI is the scheduled provider for Copilot CLI issue and documentation work.
 - A run starts at most two issue-agent sessions plus one documentation-alignment session. These use Azure tokens, not GitHub Copilot model quota.
 - BYOK agent prompts contain the bounded task evidence and may use more Azure input tokens than the former direct JSON client; that trade-off is intentional for a full coding-agent runtime.
+- Live tasks wait 65 seconds between sessions to respect the current Azure OpenAI TPM allocation before documentation alignment runs last.
 - The workflow has a 25-minute hard timeout, a concurrency lock, and a maximum of three draft PRs per run.
 - The older Copilot path is intentionally manual-only in [.github/workflows/scheduled-copilot-agents.yml](../.github/workflows/scheduled-copilot-agents.yml), for an occasional comparison rather than recurring consumption.
 
