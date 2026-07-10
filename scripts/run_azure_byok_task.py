@@ -13,6 +13,7 @@ from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CLI_MODEL_ID = "gpt-5.4-mini"
+MAX_FAILURE_DETAIL_CHARS = 800
 _SAFE_BRANCH_COMPONENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,63}")
 
 
@@ -238,6 +239,18 @@ def _write_pr_body(task: dict[str, Any]) -> Path:
     return Path(handle.name)
 
 
+def _safe_failure_detail(stderr: str) -> str:
+    diagnostic_lines = [
+        line.strip()
+        for line in stderr.splitlines()
+        if re.search(r"error|failed|invalid|missing|unsupported|unknown|denied|not found", line, re.I)
+    ]
+    detail = "\n".join(diagnostic_lines)[:MAX_FAILURE_DETAIL_CHARS]
+    detail = re.sub(r"(?i)(api[_ -]?key|token|authorization)\s*[:=]\s*\S+", r"\1=[REDACTED]", detail)
+    detail = re.sub(r"\b(?:sk|gh[opsu])[-_A-Za-z0-9]{8,}\b", "[REDACTED]", detail)
+    return detail
+
+
 def run_task(task: dict[str, Any], *, base_branch: str, dry_run: bool, force: bool) -> int:
     validation_error = _validate_task(task)
     if validation_error:
@@ -263,7 +276,11 @@ def run_task(task: dict[str, Any], *, base_branch: str, dry_run: bool, force: bo
     agent = _run_agent(task)
     if agent.returncode != 0:
         _reset()
-        _summary("Azure BYOK Copilot task failed; no PR was created.")
+        detail = _safe_failure_detail(agent.stderr)
+        message = "Azure BYOK Copilot task failed; no PR was created."
+        if detail:
+            message += "\nSanitized CLI diagnostic:\n" + detail
+        _summary(message)
         return 0
 
     changed = _changed_paths()

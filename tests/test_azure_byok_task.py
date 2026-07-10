@@ -155,3 +155,16 @@ def test_copilot_command_wraps_windows_batch_shim(monkeypatch):
     command = byok_task._copilot_command()
 
     assert command == ["C:/Windows/System32/cmd.exe", "/d", "/s", "/c", "C:/tools/copilot.bat"]
+
+
+def test_failure_detail_filters_noise_and_redacts_secrets():
+    detail = byok_task._safe_failure_detail(
+        "normal output\nError: invalid provider api_key=secret-value\n"
+        "Authorization: Bearer ghp_abcdefghijklmnop\n"
+    )
+
+    assert "normal output" not in detail
+    assert "invalid provider" in detail
+    assert "secret-value" not in detail
+    assert "ghp_abcdefghijklmnop" not in detail
+    assert "[REDACTED]" in detail
