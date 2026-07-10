@@ -15,6 +15,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 CLI_MODEL_ID = "gpt-5.4-mini"
 MAX_FAILURE_DETAIL_CHARS = 800
 _SAFE_BRANCH_COMPONENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,63}")
+_SECRET_ENV_NAME = re.compile(r"token|key|secret|password|credential|connection[_-]?string", re.I)
 
 
 def _run(*args: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
@@ -112,6 +113,8 @@ def _byok_base_url(endpoint: str) -> str:
 
 def _copilot_command() -> list[str]:
     executable = shutil.which("copilot")
+    if not executable:
+        raise FileNotFoundError("Copilot CLI was not found in PATH.")
     if executable and executable.lower().endswith(".ps1"):
         shell = shutil.which("pwsh") or shutil.which("powershell")
         if shell:
@@ -123,7 +126,7 @@ def _copilot_command() -> list[str]:
             return [shell, "-File", str(powershell_shim)]
         shell = os.environ.get("COMSPEC") or shutil.which("cmd") or "cmd.exe"
         return [shell, "/d", "/s", "/c", executable]
-    return [executable or "copilot"]
+    return [executable]
 
 
 def _agent_environment() -> dict[str, str]:
@@ -134,12 +137,10 @@ def _agent_environment() -> dict[str, str]:
         raise ValueError("Missing Azure OpenAI BYOK configuration.")
     environment = {
         name: value
-        for name in ("HOME", "LANG", "SYSTEMROOT", "TEMP", "TMP", "USERPROFILE")
-        if (value := os.environ.get(name))
+        for name, value in os.environ.items()
+        if not _SECRET_ENV_NAME.search(name)
+        and not name.startswith(("ACTIONS_", "AZURE_", "GH_", "GITHUB_"))
     }
-    path = os.environ.get("PATH") or os.environ.get("Path")
-    if path:
-        environment["PATH"] = path
     environment.update(
         {
             "COPILOT_OFFLINE": "true",
@@ -243,7 +244,11 @@ def _safe_failure_detail(stderr: str) -> str:
     diagnostic_lines = [
         line.strip()
         for line in stderr.splitlines()
-        if re.search(r"error|failed|invalid|missing|unsupported|unknown|denied|not found", line, re.I)
+        if re.search(
+            r"error|failed|invalid|missing|unsupported|unknown|denied|not found|no such file|command",
+            line,
+            re.I,
+        )
     ]
     detail = "\n".join(diagnostic_lines)[:MAX_FAILURE_DETAIL_CHARS]
     detail = re.sub(r"(?i)(api[_ -]?key|token|authorization)\s*[:=]\s*\S+", r"\1=[REDACTED]", detail)
@@ -273,7 +278,16 @@ def run_task(task: dict[str, Any], *, base_branch: str, dry_run: bool, force: bo
         return 0
     _reset()
 
-    agent = _run_agent(task)
+    try:
+        agent = _run_agent(task)
+    except OSError as error:
+        _reset()
+        detail = _safe_failure_detail(str(error))
+        message = "Azure BYOK Copilot task could not start; no PR was created."
+        if detail:
+            message += "\nSanitized launcher diagnostic:\n" + detail
+        _summary(message)
+        return 0
     if agent.returncode != 0:
         _reset()
         detail = _safe_failure_detail(agent.stderr)

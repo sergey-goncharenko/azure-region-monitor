@@ -92,7 +92,7 @@ def test_agent_environment_excludes_inherited_github_tokens(monkeypatch):
     assert "GITHUB_TOKEN" not in environment
 
 
-def test_agent_environment_normalizes_windows_path_name(monkeypatch):
+def test_agent_environment_preserves_windows_path_name(monkeypatch):
     monkeypatch.setenv("AZURE_OPENAI_API_KEY", "azure-key")
     monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://eastus.api.cognitive.microsoft.com")
     monkeypatch.setenv("AZURE_OPENAI_DEPLOYMENT", "gpt-5.4-mini")
@@ -102,7 +102,35 @@ def test_agent_environment_normalizes_windows_path_name(monkeypatch):
 
     environment = byok_task._agent_environment()
 
-    assert environment["PATH"] == "C:/Program Files/nodejs"
+    assert next(value for name, value in environment.items() if name.lower() == "path") == (
+        "C:/Program Files/nodejs"
+    )
+
+
+def test_agent_environment_preserves_runtime_and_strips_secret_like_values(monkeypatch):
+    monkeypatch.setenv("AZURE_OPENAI_API_KEY", "azure-key")
+    monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://eastus.api.cognitive.microsoft.com")
+    monkeypatch.setenv("AZURE_OPENAI_DEPLOYMENT", "gpt-5.4-mini")
+    monkeypatch.setenv("LD_LIBRARY_PATH", "/opt/node/lib")
+    monkeypatch.setenv("NPM_TOKEN", "npm-secret")
+    monkeypatch.setenv("CUSTOM_PASSWORD", "password-secret")
+    monkeypatch.setattr(byok_task.tempfile, "mkdtemp", lambda prefix: "C:/temporary/copilot")
+
+    environment = byok_task._agent_environment()
+
+    assert environment["LD_LIBRARY_PATH"] == "/opt/node/lib"
+    assert "NPM_TOKEN" not in environment
+    assert "CUSTOM_PASSWORD" not in environment
+    assert "AZURE_OPENAI_API_KEY" not in environment
+
+
+def test_copilot_command_requires_installed_cli(monkeypatch):
+    monkeypatch.setattr(byok_task.shutil, "which", lambda command: None)
+
+    import pytest
+
+    with pytest.raises(FileNotFoundError):
+        byok_task._copilot_command()
 
 
 def test_pull_request_body_closes_source_issue():
