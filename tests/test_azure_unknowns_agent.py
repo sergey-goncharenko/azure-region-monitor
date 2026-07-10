@@ -60,3 +60,25 @@ def test_parse_proposal_fails_closed_for_invalid_json():
 
     assert proposal["decision"] == "no_change"
     assert proposal["patch"] == ""
+
+
+def test_missing_snapshot_warning_is_reported_in_no_change_context(monkeypatch):
+    class Sessions:
+        @staticmethod
+        def load_snapshot(snapshot_url, snapshot_path):
+            return type(
+                "SnapshotResult",
+                (),
+                {"snapshot": None, "warning": "request timed out"},
+            )()
+
+        @staticmethod
+        def rank_unknown_groups(snapshot):
+            raise AssertionError("no snapshot should not be ranked")
+
+    monkeypatch.setattr(unknowns_agent, "_load_sessions_module", lambda: Sessions)
+
+    context = unknowns_agent.build_proposal_context("https://example.invalid/latest.json")
+
+    assert context["category"] == ""
+    assert "Snapshot warning: request timed out" in context["summary"]

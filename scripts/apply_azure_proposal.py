@@ -3,12 +3,14 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import tempfile
 from pathlib import Path
 from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+_SAFE_BRANCH_COMPONENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,63}")
 
 
 def _run(*args: str, check: bool = False) -> subprocess.CompletedProcess[str]:
@@ -27,6 +29,19 @@ def _summary(message: str) -> None:
 
 def _proposal(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _is_safe_repo_path(value: object) -> bool:
+    if not isinstance(value, str) or not value:
+        return False
+    candidate = Path(value)
+    if candidate.is_absolute() or ".." in candidate.parts:
+        return False
+    try:
+        (REPO_ROOT / candidate).resolve().relative_to(REPO_ROOT.resolve())
+    except ValueError:
+        return False
+    return (REPO_ROOT / candidate).is_file()
 
 
 def _write_pr_body(proposal: dict[str, Any]) -> Path:
@@ -65,11 +80,21 @@ def apply_proposal(
     ):
         _summary("Invalid patch test scope; no branch or PR was created.")
         return 0
+    if not isinstance(proposal.get("allowed_paths"), list) or not all(
+        _is_safe_repo_path(path) for path in proposal["allowed_paths"]
+    ):
+        _summary("Invalid patch file scope; no branch or PR was created.")
+        return 0
     if dry_run:
         _summary("Dry run requested; patch proposal was not applied.")
         return 0
 
     category = str(proposal["category"])
+    if not _SAFE_BRANCH_COMPONENT.fullmatch(category) or not _SAFE_BRANCH_COMPONENT.fullmatch(
+        branch_prefix
+    ):
+        _summary("Invalid patch category or branch prefix; no branch or PR was created.")
+        return 0
     branch = f"{branch_prefix}/{category}"
     existing = _existing_pr(branch)
     if existing and not force:

@@ -84,3 +84,22 @@ def test_invalid_tests_scope_never_runs_commands(monkeypatch, capsys):
 
     assert result == 0
     assert "Invalid patch test scope" in capsys.readouterr().out
+
+
+def test_invalid_category_never_runs_commands(monkeypatch, capsys):
+    monkeypatch.setattr(
+        proposal_applier,
+        "_run",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("command should not run")),
+    )
+
+    result = proposal_applier.apply_proposal(
+        _proposal(category="bad/category"),
+        branch_prefix="azure-docs",
+        base_branch="main",
+        dry_run=False,
+        force=False,
+    )
+
+    assert result == 0
+    assert "Invalid patch category" in capsys.readouterr().out

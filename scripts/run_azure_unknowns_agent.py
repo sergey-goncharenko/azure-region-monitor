@@ -80,9 +80,12 @@ def build_proposal_context(snapshot_url: str) -> dict[str, Any]:
     snapshot_result = sessions.load_snapshot(snapshot_url, None)
     groups = sessions.rank_unknown_groups(snapshot_result.snapshot) if snapshot_result.snapshot else []
     if not groups:
+        summary = "No current unknown-status candidate was found in the published snapshot."
+        if snapshot_result.warning:
+            summary += f" Snapshot warning: {snapshot_result.warning}"
         return {
             "category": "",
-            "summary": "No current unknown-status candidate was found in the published snapshot.",
+            "summary": summary,
             "allowed_paths": [],
             "tests": [],
             "evidence": {},
