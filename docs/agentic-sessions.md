@@ -6,12 +6,12 @@ This repository has a lightweight scheduled workflow for bounded agentic mainten
 
 The scheduled workflow starts one Azure-funded bounded task per day:
 
-- Documentation and instructions maintenance: runs Azure-backed Codex from GitHub Actions, checks whether docs, runbooks, workflow notes, and [.github/copilot-instructions.md](../.github/copilot-instructions.md) still match the current codebase, recent commits, and recent GitHub Actions behavior, and opens a draft PR only when changes are needed.
+- Documentation and instructions maintenance: runs a bounded Azure OpenAI reviewer from GitHub Actions over curated local excerpts of docs, instructions, workflow files, and recent git history. The review is advisory and writes confirmed drift findings to the Actions summary without editing files or opening a PR.
 - Parked unknowns investigation: reads the latest public snapshot, ranks `unknown` results by modality/check count, and asks GitHub Copilot cloud agent to investigate only the top modality. This is now manual-only so it can remain an occasional Copilot test without consuming scheduled Copilot usage.
 
 The unknowns session is created as a GitHub issue assigned to `copilot-swe-agent[bot]` with an `agent_assignment`. Copilot should open one pull request when it finds a justified repository change. If there is no useful change, the prompt tells Copilot to comment on the issue and close it instead of opening an empty PR.
 
-The docs task does not use a Copilot cloud-agent issue. It builds the prompt with [scripts/build_azure_codex_docs_prompt.py](../scripts/build_azure_codex_docs_prompt.py), runs `codex -p azure exec --sandbox danger-full-access` inside the disposable GitHub-hosted runner, validates the result, and opens a draft PR from the fixed `azure-codex/docs-alignment` branch when the working tree changed. The prompt forbids network use and the Codex shell environment excludes Azure, GitHub, token, key, and secret variables.
+The docs task does not use a Copilot cloud-agent issue. It runs [scripts/run_azure_docs_review.py](../scripts/run_azure_docs_review.py), which sends a bounded local evidence package to the configured Azure OpenAI deployment and writes the advisory review to the Actions summary. It does not edit files, create PRs, access network tools, or expose secrets to a model-run shell.
 
 ## Required Secrets And Variables
 
@@ -42,7 +42,7 @@ The token holder must have a paid Copilot plan with Copilot cloud agent enabled 
 
 ## Cost Controls
 
-- The docs task uses a fixed branch, `azure-codex/docs-alignment`, and skips when an open PR already exists for that branch unless `force` is set.
+- The docs task is bounded to curated local excerpts and an advisory summary, so it has no automatic branch, commit, or PR side effect.
 - A manual unknowns task creates no more than one open issue per session label. If an earlier unknowns issue is still open, the next manual run skips that session.
 - The unknowns session is skipped when the loaded snapshot has no `unknown` statuses, unless the workflow is manually run with `force_unknowns_without_candidates`.
 - Prompts target 30 minutes of focused work and tell the agent to stop before 45 minutes if the task is not converging. Copilot cloud agent also has GitHub's hard session limit for the unknowns lane.

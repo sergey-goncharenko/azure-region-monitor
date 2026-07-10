@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import sys
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -13,15 +13,6 @@ agent_sessions = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
 sys.modules[SPEC.name] = agent_sessions
 SPEC.loader.exec_module(agent_sessions)
-
-CODEX_PROMPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "build_azure_codex_docs_prompt.py"
-CODEX_SPEC = importlib.util.spec_from_file_location("build_azure_codex_docs_prompt", CODEX_PROMPT_PATH)
-assert CODEX_SPEC is not None
-codex_prompt = importlib.util.module_from_spec(CODEX_SPEC)
-assert CODEX_SPEC.loader is not None
-sys.modules[CODEX_SPEC.name] = codex_prompt
-CODEX_SPEC.loader.exec_module(codex_prompt)
-
 
 def test_rank_unknown_groups_selects_largest_modality():
     snapshot = {
@@ -125,12 +116,3 @@ def test_planned_sessions_can_force_unknowns_without_candidates():
     assert "No current `unknown` statuses" in sessions[0].body
 
 
-def test_azure_codex_docs_prompt_preserves_status_semantics():
-    prompt = codex_prompt.build_prompt(date(2026, 7, 8))
-
-    assert "Scheduled Azure Codex task" in prompt
-    assert "Run date: 2026-07-08" in prompt
-    assert "do not describe unavailable as quota, capacity, deployment failure, or SLA impact" in prompt
-    assert "Do not run Azure create/delete probes" in prompt
-    assert "Read at most six files total" in prompt
-    assert "Never use `cat`" in prompt
