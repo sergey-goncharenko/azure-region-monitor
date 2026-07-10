@@ -195,11 +195,11 @@ def test_agent_environment_uses_nano_token_limits(monkeypatch):
 
     environment = byok_task._agent_environment()
 
-    assert environment["COPILOT_PROVIDER_MAX_PROMPT_TOKENS"] == "16000"
-    assert environment["COPILOT_PROVIDER_MAX_OUTPUT_TOKENS"] == "2000"
+    assert environment["COPILOT_PROVIDER_MAX_PROMPT_TOKENS"] == "32000"
+    assert environment["COPILOT_PROVIDER_MAX_OUTPUT_TOKENS"] == "4000"
 
 
-def test_agent_invocation_exposes_only_file_tools(monkeypatch):
+def test_agent_invocation_enables_internal_autopilot_but_denies_shell(monkeypatch):
     captured = {}
     monkeypatch.setattr(byok_task, "_copilot_command", lambda: ["copilot"])
     monkeypatch.setattr(
@@ -216,14 +216,12 @@ def test_agent_invocation_exposes_only_file_tools(monkeypatch):
 
     byok_task._run_agent(_task())
 
-    assert "--available-tools=apply_patch" in captured["args"]
-    assert "--available-tools=glob" in captured["args"]
-    assert "--available-tools=rg" in captured["args"]
-    assert "--available-tools=view" in captured["args"]
-    assert "--available-tools=task_complete" in captured["args"]
     assert "--autopilot" in captured["args"]
     assert "--max-autopilot-continues" in captured["args"]
-    assert not any("shell(" in argument for argument in captured["args"])
+    assert "--deny-tool=powershell" in captured["args"]
+    assert "--deny-tool=shell" in captured["args"]
+    assert "--no-ask-user" in captured["args"]
+    assert not any(argument.startswith("--available-tools=") for argument in captured["args"])
 
 
 def test_copilot_command_wraps_windows_batch_shim(monkeypatch):

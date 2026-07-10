@@ -163,7 +163,7 @@ def _agent_environment() -> dict[str, str]:
 
 def _provider_token_limits(model_id: str) -> tuple[str, str]:
     if model_id == "gpt-5.4-nano":
-        return "16000", "2000"
+        return "32000", "4000"
     return "5500", "500"
 
 
@@ -239,13 +239,10 @@ def _run_agent(task: dict[str, Any]) -> subprocess.CompletedProcess[str]:
         "--autopilot",
         "--max-autopilot-continues",
         "3",
-        "--available-tools=apply_patch",
-        "--available-tools=glob",
-        "--available-tools=rg",
-        "--available-tools=view",
-        "--available-tools=task_complete",
-        # `--available-tools` controls what is exposed; this only auto-approves that filtered set.
         "--allow-all-tools",
+        "--deny-tool=powershell",
+        "--deny-tool=shell",
+        "--no-ask-user",
         "--disallow-temp-dir",
         "--disable-builtin-mcps",
         "--no-remote",
