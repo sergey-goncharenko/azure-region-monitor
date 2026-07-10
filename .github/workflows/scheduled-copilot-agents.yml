@@ -126,7 +126,8 @@ jobs:
           cat > "$HOME/.codex/config.toml" <<EOF
           model = "$AZURE_OPENAI_DEPLOYMENT"
           model_provider = "azure"
-          model_reasoning_effort = "medium"
+          model_reasoning_effort = "low"
+          model_verbosity = "low"
 
           [model_providers.azure]
           name = "Azure OpenAI"
@@ -145,7 +146,8 @@ jobs:
           cat > "$HOME/.codex/azure.config.toml" <<EOF
           model = "$AZURE_OPENAI_DEPLOYMENT"
           model_provider = "azure"
-          model_reasoning_effort = "medium"
+          model_reasoning_effort = "low"
+          model_verbosity = "low"
 
           [model_providers.azure]
           name = "Azure OpenAI"

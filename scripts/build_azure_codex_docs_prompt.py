@@ -11,19 +11,22 @@ Run date: {run_date.isoformat()}
 
 ## Goal
 
-Check whether this repository's documentation, runbooks, workflows, and Copilot instructions still match the current implementation and recent project history.
+Check one small documentation/instruction surface for confirmed drift against the current implementation and recent local history.
 
 ## Scope
 
-- Compare current code and tests with README.md, docs/poc-deployment.md, docs/spec, docs/roadmap, docs/agentic-sessions.md, and .github/copilot-instructions.md.
+- Start with `git log -8 --oneline`, README.md, `.github/copilot-instructions.md`, and docs/agentic-sessions.md.
+- Choose at most one additional documentation file only when recent local history points to it.
 - Inspect local git history and the checked-out repository only. Do not use web search, external network tools, GitHub APIs, or browser automation.
 - Keep status semantics precise: do not describe unavailable as quota, capacity, deployment failure, or SLA impact unless a dedicated probe produced that evidence.
 - Keep changes small and directly tied to implementation drift.
 
 ## Budget and guardrails
 
-- Target 30 minutes of focused work; stop before 45 minutes if the task is not converging.
-- Prefer targeted reads over broad repository scans.
+- Target 10 minutes of focused work; stop after one bounded review pass.
+- Read at most six files total and use at most six shell commands before deciding whether drift is confirmed.
+- Never use `cat`, unbounded `git show`, recursive file scans, or commands that print whole files. Use `sed -n` in windows of at most 160 lines and pipe search output through `head -50`.
+- Do not copy full file contents into the response; summarize findings in your own words.
 - Do not use web search or external network tools; the task is intentionally offline after checkout.
 - Do not run Azure create/delete probes or change live dashboard data.
 - Do not edit generated public/api or data snapshot files by hand.

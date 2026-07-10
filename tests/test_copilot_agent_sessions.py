@@ -132,3 +132,5 @@ def test_azure_codex_docs_prompt_preserves_status_semantics():
     assert "Run date: 2026-07-08" in prompt
     assert "do not describe unavailable as quota, capacity, deployment failure, or SLA impact" in prompt
     assert "Do not run Azure create/delete probes" in prompt
+    assert "Read at most six files total" in prompt
+    assert "Never use `cat`" in prompt
