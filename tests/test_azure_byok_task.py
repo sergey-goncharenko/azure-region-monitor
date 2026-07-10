@@ -206,6 +206,7 @@ def test_agent_invocation_exposes_only_file_tools(monkeypatch):
     assert "--available-tools=apply_patch" in captured["args"]
     assert "--available-tools=glob" in captured["args"]
     assert "--available-tools=rg" in captured["args"]
+    assert "--available-tools=view" in captured["args"]
     assert not any("shell(" in argument for argument in captured["args"])
 
 

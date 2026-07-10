@@ -233,6 +233,7 @@ def _run_agent(task: dict[str, Any]) -> subprocess.CompletedProcess[str]:
         "--available-tools=apply_patch",
         "--available-tools=glob",
         "--available-tools=rg",
+        "--available-tools=view",
         # `--available-tools` controls what is exposed; this only auto-approves that filtered set.
         "--allow-all-tools",
         "--disallow-temp-dir",
