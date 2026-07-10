@@ -49,7 +49,7 @@ class AzureOpenAiTextClient:
             if not value
         ]
         if missing:
-            raise ValueError(f"Missing Azure social draft configuration: {', '.join(missing)}")
+            raise ValueError(f"Missing Azure text-generation configuration: {', '.join(missing)}")
         return cls(
             api_key=api_key,
             endpoint=endpoint,

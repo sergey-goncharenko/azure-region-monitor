@@ -159,6 +159,8 @@ azure-region-monitor run --probe model-latency-cli --region github-global --outp
 
 Set `MODEL_LATENCY_MODELS=auto` (the scheduled workflow default) to discover the model set from the live GitHub Models catalog. Auto mode keeps OpenAI text chat models (excluding audio/realtime/transcribe/embedding/codex), unions them with the curated non-OpenAI anchors, and falls back to the curated default set if the catalog fetch fails. New OpenAI releases surface automatically without code changes. Reasoning models (gpt-5*, o-series) are measured last so the reliable models and cross-publisher anchors are captured before the probe's time budget is spent.
 
+The dedicated `model-latency-tests.yml` workflow remains available for intentional GitHub Models measurements. The scheduled `daily-scan.yml` skips this global GitHub Models modality by default to conserve GitHub AI allowance; a manual daily run can opt in with `include_github_model_latency=true`.
+
 The daily change digest ("AI summary" banner) and review-only social drafts use the configured Azure OpenAI Responses deployment by default. This keeps recurring writing workloads on the Azure subscription rather than consuming GitHub Copilot or GitHub Models allowance. Set `AI_SUMMARY_ENABLED=0` or `AI_SOCIAL_ENABLED=0` to use deterministic fallbacks. GitHub Models remains an explicit opt-in fallback only: set `AI_SUMMARY_ALLOW_GITHUB_FALLBACK=1` or `AI_SOCIAL_ALLOW_GITHUB_FALLBACK=1`, then configure `AI_SUMMARY_MODEL` or `AI_SOCIAL_MODEL` with a single model or comma-separated preference list.
 
 Run the Azure per-region model latency probe (real Azure regional latency, requires the regional deployments from `infra/regional-latency`):

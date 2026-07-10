@@ -16,6 +16,11 @@ on:
         required: false
         type: boolean
         default: true
+      include_github_model_latency:
+        description: "Run the GitHub Models global latency probe (may consume GitHub Models allowance)"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -91,6 +96,7 @@ jobs:
     secrets: inherit
 
   model-latency:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.include_github_model_latency }}
     uses: ./.github/workflows/regional-probe-run.yml
     with:
       probes: "model-latency-cli"
