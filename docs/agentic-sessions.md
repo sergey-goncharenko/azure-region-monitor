@@ -11,7 +11,7 @@ The scheduled workflow starts one Azure-funded bounded task per day:
 
 The unknowns session is created as a GitHub issue assigned to `copilot-swe-agent[bot]` with an `agent_assignment`. Copilot should open one pull request when it finds a justified repository change. If there is no useful change, the prompt tells Copilot to comment on the issue and close it instead of opening an empty PR.
 
-The docs task does not use a Copilot cloud-agent issue. It builds the prompt with [scripts/build_azure_codex_docs_prompt.py](../scripts/build_azure_codex_docs_prompt.py), runs `codex -p azure exec --sandbox workspace-write` with outbound network disabled, validates the result, and opens a draft PR from the fixed `azure-codex/docs-alignment` branch when the working tree changed.
+The docs task does not use a Copilot cloud-agent issue. It builds the prompt with [scripts/build_azure_codex_docs_prompt.py](../scripts/build_azure_codex_docs_prompt.py), runs `codex -p azure exec --sandbox danger-full-access` inside the disposable GitHub-hosted runner, validates the result, and opens a draft PR from the fixed `azure-codex/docs-alignment` branch when the working tree changed. The prompt forbids network use and the Codex shell environment excludes Azure, GitHub, token, key, and secret variables.
 
 ## Required Secrets And Variables
 

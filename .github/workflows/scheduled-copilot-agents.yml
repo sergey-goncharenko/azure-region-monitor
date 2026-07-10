@@ -68,10 +68,6 @@ jobs:
         if: ${{ github.event_name == 'schedule' || inputs.session == 'both' || inputs.session == 'docs' }}
         run: python -m pip install ".[dev]"
 
-      - name: Install Codex sandbox dependency
-        if: ${{ github.event_name == 'schedule' || inputs.session == 'both' || inputs.session == 'docs' }}
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq bubblewrap
-
       - name: Run Azure Codex documentation alignment
         if: ${{ github.event_name == 'schedule' || inputs.session == 'both' || inputs.session == 'docs' }}
         env:
@@ -138,8 +134,12 @@ jobs:
           env_key = "AZURE_OPENAI_API_KEY"
           wire_api = "responses"
 
-          [sandbox_workspace_write]
-          network_access = false
+          approval_policy = "never"
+          sandbox_mode = "danger-full-access"
+
+          [shell_environment_policy]
+          inherit = "core"
+          exclude = ["AZURE_*", "GITHUB_*", "GH_*", "*TOKEN*", "*KEY*", "*SECRET*"]
           EOF
 
           cat > "$HOME/.codex/azure.config.toml" <<EOF
@@ -154,7 +154,7 @@ jobs:
           wire_api = "responses"
           EOF
 
-          codex -p azure exec --sandbox workspace-write "$(cat "$prompt_path")"
+          codex -p azure exec --sandbox danger-full-access "$(cat "$prompt_path")"
 
           python -m pytest tests/test_static_site.py tests/test_summary.py tests/test_copilot_agent_sessions.py
           python -m ruff check .
