@@ -72,6 +72,30 @@ def test_highest_priority_issue_is_selected_and_auto_scoped(tmp_path):
     assert context["evidence"]["issue_url"].endswith("/11")
 
 
+def test_api_contract_issue_selects_api_source_and_tests(tmp_path):
+    path = tmp_path / "issues.json"
+    issue = _issue(45, priority="High")
+    issue["title"] = "Extend public API contract test coverage"
+    issue["body"] = """### Priority
+
+High
+
+### Objective
+
+Extend public API contract coverage for `/api/diff`, `/api/services/{service}`, `/api/history/{date}`, and `/api/subscribe` without changing API implementation.
+"""
+    path.write_text(json.dumps([issue]), encoding="utf-8")
+
+    context = issue_agent.build_issue_context(path)
+
+    assert "src/azure_region_monitor/api.py" in context["allowed_paths"]
+    assert "tests/test_api.py" in context["tests"]
+    assert not any(path.startswith("docs/") for path in context["allowed_paths"])
+    assert not any(path.startswith(".github/workflows/") for path in context["allowed_paths"])
+    assert "src/azure_region_monitor/static_site.py" not in context["allowed_paths"]
+    assert "src/azure_region_monitor/cli.py" not in context["allowed_paths"]
+
+
 def test_missing_priority_defaults_to_normal(tmp_path):
     path = tmp_path / "issues.json"
     issue = _issue(11)

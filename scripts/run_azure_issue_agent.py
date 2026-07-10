@@ -21,6 +21,7 @@ PAUSED_LABEL = "azure-paused"
 MAX_ISSUE_CONTEXT_CHARS = 60_000
 MAX_TEXT_FIELD_CHARS = 8_000
 MAX_GITHUB_REQUEST_ATTEMPTS = 3
+MAX_TEXT_TOKEN_MATCHES = 5
 _STOP_WORDS = {
     "about",
     "agent",
@@ -390,37 +391,49 @@ def _issue_tokens(issue: dict[str, Any]) -> set[str]:
     }
 
 
-def _candidate_source_paths() -> list[str]:
+def _candidate_source_paths(tokens: set[str]) -> list[str]:
     paths = [
         path.relative_to(REPO_ROOT).as_posix()
         for path in (REPO_ROOT / "src").rglob("*.py")
         if "__pycache__" not in path.parts
     ]
-    paths.extend(
-        path.relative_to(REPO_ROOT).as_posix()
-        for path in (REPO_ROOT / "docs").rglob("*.md")
-    )
-    paths.extend(
-        path.relative_to(REPO_ROOT).as_posix()
-        for path in (REPO_ROOT / ".github" / "workflows").glob("*.yml")
-    )
-    paths.extend(["README.md", ".github/copilot-instructions.md"])
+    if tokens & {"documentation", "docs", "guide", "instruction", "instructions", "readme"}:
+        paths.extend(
+            path.relative_to(REPO_ROOT).as_posix()
+            for path in (REPO_ROOT / "docs").rglob("*.md")
+        )
+        paths.extend(["README.md", ".github/copilot-instructions.md"])
+    if tokens & {"action", "actions", "ci", "schedule", "scheduled", "workflow", "workflows"}:
+        paths.extend(
+            path.relative_to(REPO_ROOT).as_posix()
+            for path in (REPO_ROOT / ".github" / "workflows").glob("*.yml")
+        )
     return sorted({path for path in paths if (REPO_ROOT / path).is_file()})
 
 
 def _score_path(path: str, tokens: set[str]) -> int:
     text = (REPO_ROOT / path).read_text(encoding="utf-8", errors="replace").lower()
     path_text = path.lower()
-    return sum((10 if token in path_text else 0) + text.count(token) for token in tokens)
+    stem = Path(path).stem.lower()
+    path_score = sum(100 if token in path_text else 0 for token in tokens)
+    exact_stem_score = sum(1_000 if token == stem else 0 for token in tokens)
+    text_score = sum(min(text.count(token), MAX_TEXT_TOKEN_MATCHES) for token in tokens)
+    return path_score + exact_stem_score + text_score
 
 
 def _derive_scope(issue: dict[str, Any]) -> tuple[list[str], list[str]]:
     tokens = _issue_tokens(issue)
     ranked_sources = sorted(
-        ((_score_path(path, tokens), path) for path in _candidate_source_paths()),
+        ((_score_path(path, tokens), path) for path in _candidate_source_paths(tokens)),
         key=lambda item: (-item[0], item[1]),
     )
-    sources = [path for score, path in ranked_sources if score > 0][:MAX_EVIDENCE_FILES]
+    exact_sources = [
+        (score, path)
+        for score, path in ranked_sources
+        if Path(path).stem.lower() in tokens
+    ]
+    selected_sources = exact_sources or ranked_sources
+    sources = [path for score, path in selected_sources if score > 0][:MAX_EVIDENCE_FILES]
     if not sources:
         return [], []
 
