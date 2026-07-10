@@ -167,6 +167,7 @@ def test_model_task_manifest_excludes_raw_file_excerpts_and_bounds_rich_context(
     manifest = byok_task._model_task_manifest(task)
     prompt = byok_task._agent_prompt(task)
 
+    assert manifest["objective"] == "Add API tests."
     assert "file_excerpts" not in manifest["evidence"]
     assert isinstance(manifest["evidence"]["github_issue_context"], str)
     assert "context truncated for model rate budget" in manifest["evidence"]["github_issue_context"]

@@ -110,7 +110,7 @@ jobs:
 
           shopt -s nullglob
           failures=0
-          task_paths=("$RUNNER_TEMP"/azure-byok-task-*.json)
+          task_paths=("$RUNNER_TEMP"/azure-byok-task-[0-9]*.json)
           for index in "${!task_paths[@]}"; do
             task_path="${task_paths[$index]}"
             args=(
