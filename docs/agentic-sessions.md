@@ -50,7 +50,7 @@ The workflow installs a pinned GitHub Copilot CLI and uses its custom-model-prov
 Every task is bounded before a branch or PR is created:
 
 - Azure receives only the compact selected task manifest; the agent uses its file-only tools to inspect allowed source files when more implementation detail is needed.
-- The CLI runs in offline mode with built-in MCP servers and remote control disabled. It exposes only `apply_patch`, `glob`, `rg`, and read-only `view`, with no shell, GitHub, web, Azure CLI, package-install, or push permission.
+- The CLI runs in offline mode with built-in MCP servers and remote control disabled. It uses bounded autopilot mode (at most three continuations) and exposes only `apply_patch`, `glob`, `rg`, and read-only `view`, with no shell, GitHub, web, Azure CLI, package-install, or push permission.
 - `AZURE_OPENAI_API_KEY`, `COPILOT_PROVIDER_API_KEY`, `GH_TOKEN`, and `GITHUB_TOKEN` are stripped from the agent's shell and MCP environments.
 - Each task starts from a clean default-branch checkout. The runner rejects every changed path outside the automatically derived scope.
 - The workflow requires derived focused tests where available (otherwise the full suite), Ruff, and `git diff --check`.
