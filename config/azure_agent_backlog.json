@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "max_items_per_run": 2,
+  "items": [
+    {
+      "id": "improve-social-draft-quality",
+      "status": "paused",
+      "priority": 100,
+      "title": "Improve social draft quality",
+      "objective": "Improve the evidence-bound LinkedIn and short-post drafting experience without weakening status semantics or publishing automatically."
+    },
+    {
+      "id": "improve-availability-history-insights",
+      "status": "paused",
+      "priority": 90,
+      "title": "Improve availability history insights",
+      "objective": "Improve how the dashboard and blog explain availability history, instability, rollouts, and safe regional fallback evidence for engineers."
+    }
+  ]
+}

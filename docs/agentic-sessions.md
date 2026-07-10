@@ -1,66 +1,80 @@
-# Scheduled Agent Sessions
+# Scheduled Azure Backlog
 
-This repository has a lightweight scheduled workflow for bounded agentic maintenance. The workflow lives in [.github/workflows/scheduled-copilot-agents.yml](../.github/workflows/scheduled-copilot-agents.yml) and runs daily at 07:00 UTC, which is fixed 09:00 EET.
+This repository runs a bounded Azure-funded maintenance cycle daily at 07:00 UTC (09:00 EET). The schedule is implemented by [.github/workflows/scheduled-azure-backlog.yml](../.github/workflows/scheduled-azure-backlog.yml). It is designed to turn a small prioritized backlog into safe draft pull requests without requiring a maintainer to specify tests or file allowlists.
 
-## Sessions
+## Daily Order
 
-The scheduled workflow starts a bounded Azure-funded review-and-propose cycle each day:
+The cycle always processes work in this order:
 
-- Documentation and instructions maintenance: runs a bounded Azure OpenAI reviewer from GitHub Actions over curated local excerpts of docs, instructions, workflow files, and recent git history. The review is advisory and writes confirmed drift findings to the Actions summary without editing files or opening a PR.
-- Parked unknowns improvement: when the docs review finds no confirmed drift, a bounded Azure OpenAI proposer reads the top `unknown` category, its curated source/test/workflow excerpts, and produces a tightly scoped unified diff. The workflow applies the diff only when it changes allowed category files, passes focused tests, Ruff, and whitespace checks, then opens a draft PR.
-- Copilot unknowns comparison: the older GitHub Copilot cloud-agent issue flow remains manual-only for occasional comparison and is never started by the schedule.
+1. **Current unknown-status evidence** — if the published snapshot has a meaningful `unknown` candidate, Azure proposes one evidence-backed maintenance patch.
+2. **Ready backlog work** — Azure proposes the highest-priority ready items that fit the remaining coding slots.
+3. **Documentation alignment** — Azure reviews bounded local documentation and instruction evidence after the coding lanes. If it confirms drift, Azure may propose one narrow documentation PR.
 
-The unknowns session is created as a GitHub issue assigned to `copilot-swe-agent[bot]` with an `agent_assignment`. Copilot should open one pull request when it finds a justified repository change. If there is no useful change, the prompt tells Copilot to comment on the issue and close it instead of opening an empty PR.
+The default configuration permits at most two coding proposals before documentation alignment, so a run can open at most three draft PRs. A lane that lacks evidence produces a no-change result and does not consume a PR.
 
-The docs task does not use a Copilot cloud-agent issue. It runs [scripts/run_azure_docs_review.py](../scripts/run_azure_docs_review.py), which sends a bounded local evidence package to the configured Azure OpenAI deployment and writes the advisory review to the Actions summary. It does not edit files, create PRs, access network tools, or expose secrets to a model-run shell.
+## Manage The Backlog
 
-When the docs review is clean, [scripts/run_azure_unknowns_agent.py](../scripts/run_azure_unknowns_agent.py) creates a patch proposal for the top current unknowns category. It is constrained to the category's source/test/workflow files. The workflow rejects patches outside those paths, patches that fail `git apply --check`, focused tests, Ruff, or whitespace validation. Only a validated patch becomes a draft PR on an `azure-unknowns/<category>` branch.
+Manage [config/azure_agent_backlog.json](../config/azure_agent_backlog.json). Each item needs only:
 
-When both docs and unknowns yield no patch, [scripts/run_azure_goal_agent.py](../scripts/run_azure_goal_agent.py) considers the highest-priority enabled goal from [config/azure_agent_goals.json](../config/azure_agent_goals.json). Goals are disabled by default. To activate one, set `enabled` to `true` and provide a concise goal, an explicit `allowed_paths` list, and focused `tests`. A validated proposal becomes a draft PR on an `azure-goals/<goal-id>` branch.
+- `status`: `ready`, `paused`, or `deprioritized`.
+- `priority`: higher values are selected first.
+- `title`: a short outcome-oriented name.
+- `objective`: a concise description of the desired improvement.
 
-## Required Secrets And Variables
+Example:
 
-For the Azure documentation reviewer and unknowns patch proposer, configure:
+```json
+{
+  "id": "improve-social-drafts",
+  "status": "ready",
+  "priority": 100,
+  "title": "Improve social draft usefulness",
+  "objective": "Make generated social drafts more factual and actionable for regional availability changes."
+}
+```
 
-- Repository secret `AZURE_OPENAI_KEY`: API key for the Azure OpenAI / Foundry model deployment.
-- Repository variable `AZURE_OPENAI_ENDPOINT`: Azure OpenAI endpoint URL.
-- Repository variable `AZURE_OPENAI_DEPLOYMENT`: deployment name for the Azure model used by reviewers and patch proposals.
-- Optional repository variable `AZURE_OPENAI_API_VERSION`: API version. If omitted, the workflow uses `2025-04-01-preview`.
+Set an item to `ready` to opt it into the next eligible run. Set it to `paused` to preserve it without scheduling work, or `deprioritized` to retain it below active priorities. The scheduler automatically derives a narrow candidate source/test scope from objective terms and rejects a task when it cannot derive a safe scope. Do not add paths, tests, model prompts, or implementation instructions to backlog entries.
 
-Use the manual [Provision Azure Codex OpenAI](../.github/workflows/provision-azure-codex-openai.yml) workflow to create or verify the Azure AI Services resource and model deployment. If you set `configure_repo_settings` to true, the workflow can also write `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_DEPLOYMENT`, `AZURE_OPENAI_API_VERSION`, and `AZURE_OPENAI_KEY` into repository settings. That mode requires a repository secret named `GH_REPO_SETTINGS_TOKEN` whose token can write Actions variables and secrets. The default `GITHUB_TOKEN` should not be treated as sufficient for repository secret administration.
+`max_items_per_run` controls the maximum number of coding lanes (one unknowns lane plus ready backlog items), and is capped at two so documentation alignment remains the third activity.
 
-The provisioning workflow uses the existing Azure OIDC secrets `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, and `AZURE_SUBSCRIPTION_ID`, and the Azure identity needs permission to register `Microsoft.CognitiveServices`, create the target resource group/resource, create model deployments, and read account keys. If you use `GH_REPO_SETTINGS_TOKEN`, grant the token only the minimum repository administration or Actions settings permissions needed to write repository variables and secrets, then rotate or remove it after bootstrapping.
+## Safety Gates
 
-The scheduled agent workflow uses the built-in `GITHUB_TOKEN` with `contents: write` and `pull-requests: write` only when a validated Azure unknowns patch needs a draft PR.
+Every proposed patch is bounded before a branch or PR is created:
 
-For the Copilot unknowns task, configure a repository secret named `COPILOT_AGENT_TOKEN` that belongs to the account whose Copilot entitlement should be used. The GitHub Copilot agent APIs require a user token; the workflow `GITHUB_TOKEN` is not accepted for Copilot assignment.
+- Azure receives only curated repository excerpts and the relevant live evidence.
+- The proposal parser rejects malformed output, oversized diffs, and changes outside the derived scope.
+- Each proposal starts from a clean default-branch checkout on a stable `azure-unknowns/`, `azure-goals/`, or `azure-docs/` branch.
+- The workflow requires `git apply --check`, derived focused tests where available, Ruff, and `git diff --check`.
+- A failed or ambiguous proposal creates no pull request. An existing open PR for the same stable branch is left alone unless a manual run explicitly sets `force`.
+- Generated live snapshots are never part of an allowed patch scope.
 
-For a fine-grained personal access token for the unknowns task, grant access to this repository and include:
+The workflow opens **draft** PRs only. It never merges a generated change.
 
-- Metadata: read
-- Actions: read and write
-- Contents: read and write
-- Issues: read and write
-- Pull requests: read and write
+## Azure Configuration
 
-The token holder must have a paid Copilot plan with Copilot cloud agent enabled for the repository.
+Configure these repository settings:
+
+- Secret `AZURE_OPENAI_KEY`: API key for the Azure OpenAI or Foundry deployment.
+- Variable `AZURE_OPENAI_ENDPOINT`: endpoint URL.
+- Variable `AZURE_OPENAI_DEPLOYMENT`: deployment name.
+- Optional variable `AZURE_OPENAI_API_VERSION`: API version; the client defaults to `2025-04-01-preview`.
+
+Use [.github/workflows/provision-azure-codex-openai.yml](../.github/workflows/provision-azure-codex-openai.yml) to create or verify the Azure AI Services resource and deployment. Its optional repository-settings mode needs the separate `GH_REPO_SETTINGS_TOKEN`; grant that token only the minimum settings permissions and rotate it after bootstrap.
+
+The scheduled workflow uses the built-in `GITHUB_TOKEN` only for branches and draft PRs (`contents: write`, `pull-requests: write`). It has no Copilot entitlement requirement.
 
 ## Cost Controls
 
-- The docs task is bounded to curated local excerpts and an advisory summary, so it has no automatic branch, commit, or PR side effect.
-- The Azure unknowns proposer is allowed to create a PR only after its patch stays in the predeclared category scope and passes patch, test, lint, and whitespace checks.
-- The Azure goal proposer uses the same patch, scope, test, lint, and whitespace gates. Do not enable broad goals or goals without narrow allowlists and focused tests.
-- A manual unknowns task creates no more than one open issue per session label. If an earlier unknowns issue is still open, the next manual run skips that session.
-- The unknowns session is skipped when the loaded snapshot has no `unknown` statuses, unless the workflow is manually run with `force_unknowns_without_candidates`.
-- Prompts target 30 minutes of focused work and tell the agent to stop before 45 minutes if the task is not converging. Copilot cloud agent also has GitHub's hard session limit for the unknowns lane.
-- The unknowns prompt includes a precomputed top modality so the agent does not need to spend tokens reading the full snapshot just to choose a target.
-- Manual runs can set `dry_run` to inspect the generated issues without starting Copilot sessions.
+- Azure OpenAI is the scheduled default for unknowns, backlog, and documentation work.
+- Each run makes only the calls needed for its bounded lanes: one unknowns proposal, zero to two ready backlog proposals, and a documentation review plus a patch call only when drift is confirmed.
+- The workflow has a 25-minute hard timeout, a concurrency lock, and a maximum of three draft PRs per run.
+- The old Copilot path is intentionally manual-only in [.github/workflows/scheduled-copilot-agents.yml](../.github/workflows/scheduled-copilot-agents.yml), for an occasional unknowns comparison rather than recurring consumption.
 
 ## Manual Run
 
-1. Open Actions in GitHub.
-2. Select `Scheduled agent sessions`.
-3. Use `Run workflow`. The daily schedule runs Azure docs review, Azure unknowns proposal when docs are clean, then the highest-priority enabled Azure goal when neither earlier lane needs a patch. The default `session=docs` is an Azure review-only run; choose `both` to run the Azure coding and goal lanes manually, `goals` to run the Azure review/unknowns/goal sequence manually, or `unknowns` only when you intentionally want a Copilot cloud-agent comparison.
-4. Keep `dry_run` enabled for the first check, then run again with `dry_run` disabled after verifying the generated summaries.
+1. Open **Actions** and select **Scheduled Azure backlog**.
+2. Run once with `dry_run` enabled to inspect the Azure summaries without creating branches or draft PRs.
+3. Run again with `dry_run` disabled when the configuration is ready.
+4. Review any draft PRs normally; update the backlog item status or priority when priorities change.
 
-Use `force` only when you intentionally want another session while an earlier one is still open.
+Use `force` only to deliberately replace an existing proposal branch. It does not bypass patch, test, lint, or whitespace validation.

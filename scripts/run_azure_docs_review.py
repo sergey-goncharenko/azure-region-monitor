@@ -55,6 +55,7 @@ def build_review_facts() -> str:
         ".github/copilot-instructions.md",
         "docs/agentic-sessions.md",
         ".github/workflows/daily-scan.yml",
+        ".github/workflows/scheduled-azure-backlog.yml",
         ".github/workflows/scheduled-copilot-agents.yml",
     )
     payload = {

@@ -32,3 +32,7 @@ def test_parse_review_fails_closed_for_non_json_output():
     assert review["confirmed_drift"] == []
     assert review["follow_up_needed"] is False
     assert "non-JSON" in review["summary"]
+
+
+def test_review_facts_include_the_scheduled_azure_backlog_workflow():
+    assert "scheduled-azure-backlog.yml" in docs_review.build_review_facts()
