@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -46,13 +47,18 @@ def _max_issue_items(value: object) -> int:
 
 
 def _propose_issues(
-    client: AzureOpenAiTextClient, issues_path: Path, limit: int
+    client: AzureOpenAiTextClient, issues_path: Path, limit: int, repository: str
 ) -> list[dict[str, Any]]:
     issues = _load_module("azure_backlog_issues", "run_azure_issue_agent.py")
     unknowns = _load_module("azure_backlog_issue_unknowns", "run_azure_unknowns_agent.py")
+    if repository and not os.environ.get("GH_TOKEN"):
+        raise RuntimeError("GH_TOKEN is required to fetch GitHub issue comments and sub-issues.")
+    github_context_client = (
+        issues.GitHubIssueContextClient.from_env(repository) if repository else None
+    )
     proposals = []
     for index in range(limit):
-        context = issues.build_issue_context(issues_path, index)
+        context = issues.build_issue_context(issues_path, index, github_context_client)
         if not context["category"]:
             proposal = unknowns._no_change(context, context["summary"])
         else:
@@ -124,9 +130,12 @@ def render_cycle_markdown(cycle: dict[str, Any]) -> str:
 
 
 def build_cycle(
-    client: AzureOpenAiTextClient, issues_path: Path, max_issues: object
+    client: AzureOpenAiTextClient,
+    issues_path: Path,
+    max_issues: object,
+    repository: str = "",
 ) -> dict[str, list[dict[str, Any]]]:
-    proposals = _propose_issues(client, issues_path, _max_issue_items(max_issues))
+    proposals = _propose_issues(client, issues_path, _max_issue_items(max_issues), repository)
     proposals.append(_propose_docs(client))
     return {"proposals": proposals}
 
@@ -135,11 +144,12 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Generate bounded Azure GitHub issue patch proposals.")
     parser.add_argument("--issues", type=Path, required=True)
     parser.add_argument("--max-issues", type=int, default=2)
+    parser.add_argument("--repository", default=os.environ.get("GITHUB_REPOSITORY", ""))
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
 
     client = AzureOpenAiTextClient.from_env(max_output_tokens=1_600)
-    cycle = build_cycle(client, args.issues, args.max_issues)
+    cycle = build_cycle(client, args.issues, args.max_issues, args.repository)
     args.output.write_text(json.dumps(cycle, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(render_cycle_markdown(cycle))
 

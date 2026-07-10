@@ -60,6 +60,8 @@ jobs:
 
       - name: Generate bounded Azure issue proposals
         env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
           AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_KEY }}
           AZURE_OPENAI_ENDPOINT: ${{ vars.AZURE_OPENAI_ENDPOINT }}
           AZURE_OPENAI_DEPLOYMENT: ${{ vars.AZURE_OPENAI_DEPLOYMENT }}
@@ -73,6 +75,7 @@ jobs:
 
           python scripts/run_azure_backlog_cycle.py \
             --issues "$RUNNER_TEMP/azure-backlog-issues.json" \
+            --repository "$GITHUB_REPOSITORY" \
             --output "$RUNNER_TEMP/azure-backlog-cycle.json" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Validate, branch, and open bounded draft PRs

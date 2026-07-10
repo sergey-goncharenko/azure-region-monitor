@@ -7,7 +7,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Create one outcome-oriented task. Do not prescribe files, tests, branches, or implementation details: the workflow derives a narrow safe scope and refuses ambiguous work.
+        Create one outcome-oriented task. Do not prescribe files, tests, branches, or implementation details: the workflow derives a narrow safe scope and refuses ambiguous work. Issue bodies and comments are forwarded as bounded Azure model context, so never include secrets, tokens, subscription IDs, or customer data.
 
   - type: dropdown
     id: priority

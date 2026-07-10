@@ -67,7 +67,7 @@ def test_documentation_alignment_is_always_last(monkeypatch, tmp_path):
     monkeypatch.setattr(
         backlog_cycle,
         "_propose_issues",
-        lambda client, issues_path, limit: [
+        lambda client, issues_path, limit, repository: [
             {"kind": "issue", "proposal": {"category": "issue-1"}},
             {"kind": "issue", "proposal": {"category": "issue-2"}},
         ][:limit],

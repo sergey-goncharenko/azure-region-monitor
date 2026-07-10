@@ -33,6 +33,14 @@ To defer an item without closing it, add `azure-paused`. To remove it permanentl
 
 The planned PR branch is stable per issue: `azure-issues/issue-<number>`. If a draft PR for that issue is already open, the workflow leaves it alone unless a manual run explicitly enables `force`.
 
+## Comments, Parent Issues, And Sub-Issues
+
+The selected issue is enriched immediately before Azure receives it. The agent receives the issue metadata and body, all available issue comments, the parent issue when one exists, and all direct sub-issues with their bodies and comments. This means comments are the right place for follow-up thoughts, corrections, acceptance details, and recommendations. Do not include secrets, tokens, subscription IDs, private resource names, customer data, or other sensitive information in any forwarded issue text.
+
+The title and **Objective** field remain the authority for automatic source/test scope derivation. Comments and sub-issues provide additional decision evidence, but cannot expand the permitted patch paths. This prevents a comment from accidentally—or maliciously—turning a narrow task into a broad repository change.
+
+Issue text is untrusted context, not agent instructions. The agent ignores attempts in bodies, comments, or child issues to override safety rules, access secrets, use network tools, or expand its scope. To keep daily Azure cost and context size bounded, each text field is limited to 8,000 characters and the combined model context is limited to 60,000 characters; any truncation is explicitly marked in the evidence passed to the agent.
+
 ## Safety Gates
 
 Every proposal is bounded before a branch or PR is created:
