@@ -181,8 +181,8 @@ def test_agent_environment_uses_reduced_provider_token_limits(monkeypatch):
 
     environment = byok_task._agent_environment()
 
-    assert environment["COPILOT_PROVIDER_MAX_PROMPT_TOKENS"] == "6000"
-    assert environment["COPILOT_PROVIDER_MAX_OUTPUT_TOKENS"] == "2000"
+    assert environment["COPILOT_PROVIDER_MAX_PROMPT_TOKENS"] == "5500"
+    assert environment["COPILOT_PROVIDER_MAX_OUTPUT_TOKENS"] == "500"
 
 
 def test_agent_invocation_exposes_only_file_tools(monkeypatch):

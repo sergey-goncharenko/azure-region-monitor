@@ -153,8 +153,8 @@ def _agent_environment() -> dict[str, str]:
                 "COPILOT_BYOK_MODEL_ID", CLI_MODEL_ID
             ),
             "COPILOT_PROVIDER_WIRE_MODEL": deployment,
-            "COPILOT_PROVIDER_MAX_PROMPT_TOKENS": "6000",
-            "COPILOT_PROVIDER_MAX_OUTPUT_TOKENS": "2000",
+            "COPILOT_PROVIDER_MAX_PROMPT_TOKENS": "5500",
+            "COPILOT_PROVIDER_MAX_OUTPUT_TOKENS": "500",
             "COPILOT_HOME": str(Path(tempfile.mkdtemp(prefix="copilot-byok-"))),
         }
     )
