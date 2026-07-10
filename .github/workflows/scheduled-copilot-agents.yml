@@ -128,7 +128,14 @@ jobs:
           model_provider = "azure"
           model_reasoning_effort = "medium"
 
-          [profiles.azure]
+          [model_providers.azure]
+          name = "Azure OpenAI"
+          base_url = "$azure_base_url"
+          env_key = "AZURE_OPENAI_API_KEY"
+          wire_api = "responses"
+          EOF
+
+          cat > "$HOME/.codex/azure.config.toml" <<EOF
           model = "$AZURE_OPENAI_DEPLOYMENT"
           model_provider = "azure"
           model_reasoning_effort = "medium"
