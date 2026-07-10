@@ -68,6 +68,10 @@ jobs:
         if: ${{ github.event_name == 'schedule' || inputs.session == 'both' || inputs.session == 'docs' }}
         run: python -m pip install ".[dev]"
 
+      - name: Install Codex sandbox dependency
+        if: ${{ github.event_name == 'schedule' || inputs.session == 'both' || inputs.session == 'docs' }}
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq bubblewrap
+
       - name: Run Azure Codex documentation alignment
         if: ${{ github.event_name == 'schedule' || inputs.session == 'both' || inputs.session == 'docs' }}
         env:

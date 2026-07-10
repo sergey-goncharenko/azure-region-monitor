@@ -18,7 +18,7 @@ on:
       deployment_name:
         description: "Azure OpenAI deployment name used by Codex"
         required: false
-        default: "codex-gpt-5-4-mini"
+        default: "gpt-5.4-mini"
       model_name:
         description: "Azure OpenAI model name to deploy"
         required: false
