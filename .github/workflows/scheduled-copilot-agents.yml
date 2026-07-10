@@ -36,7 +36,8 @@ on:
         default: ""
 
 permissions:
-  contents: read
+  contents: write
+  pull-requests: write
   issues: read
 
 concurrency:
@@ -62,6 +63,7 @@ jobs:
         run: python -m pip install ".[dev]"
 
       - name: Run Azure documentation review
+        id: docs_review
         if: ${{ github.event_name == 'schedule' || inputs.session == 'both' || inputs.session == 'docs' }}
         env:
           AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_KEY }}
@@ -75,13 +77,145 @@ jobs:
             exit 2
           fi
 
-          python scripts/run_azure_docs_review.py >> "$GITHUB_STEP_SUMMARY"
+          review_path="$RUNNER_TEMP/azure-docs-review.json"
+          python scripts/run_azure_docs_review.py --output "$review_path" >> "$GITHUB_STEP_SUMMARY"
+          follow_up_needed="$(python - "$review_path" <<'PY'
+          import json
+          import sys
+
+          print(str(bool(json.load(open(sys.argv[1], encoding="utf-8")).get("follow_up_needed"))).lower())
+          PY
+          )"
+          echo "follow_up_needed=$follow_up_needed" >> "$GITHUB_OUTPUT"
+
+      - name: Propose Azure unknowns improvement
+        if: ${{ (github.event_name == 'schedule' || inputs.session == 'both') && steps.docs_review.outputs.follow_up_needed != 'true' }}
+        env:
+          DRY_RUN: ${{ inputs.dry_run || false }}
+          FORCE: ${{ inputs.force || false }}
+          BASE_BRANCH: ${{ github.event.repository.default_branch || 'main' }}
+          GH_TOKEN: ${{ github.token }}
+          AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_KEY }}
+          AZURE_OPENAI_ENDPOINT: ${{ vars.AZURE_OPENAI_ENDPOINT }}
+          AZURE_OPENAI_DEPLOYMENT: ${{ vars.AZURE_OPENAI_DEPLOYMENT }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${AZURE_OPENAI_API_KEY:-}" ] || [ -z "${AZURE_OPENAI_ENDPOINT:-}" ] || [ -z "${AZURE_OPENAI_DEPLOYMENT:-}" ]; then
+            echo "Missing Azure unknowns agent configuration." >&2
+            exit 2
+          fi
+
+          proposal_path="$RUNNER_TEMP/azure-unknowns-proposal.json"
+          patch_path="$RUNNER_TEMP/azure-unknowns.patch"
+          pr_body_path="$RUNNER_TEMP/azure-unknowns-pr.md"
+          python scripts/run_azure_unknowns_agent.py \
+            --snapshot-url "https://azwatch.operator.lat/api/latest.json" \
+            --output "$proposal_path" >> "$GITHUB_STEP_SUMMARY"
+
+          decision="$(python - "$proposal_path" <<'PY'
+          import json
+          import sys
+
+          print(json.load(open(sys.argv[1], encoding="utf-8"))["decision"])
+          PY
+          )"
+          if [ "$decision" != "patch" ]; then
+            exit 0
+          fi
+
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "Dry run requested; patch proposal was not applied." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          category="$(python - "$proposal_path" <<'PY'
+          import json
+          import sys
+
+          print(json.load(open(sys.argv[1], encoding="utf-8"))["category"])
+          PY
+          )"
+          branch="azure-unknowns/$category"
+          existing_pr="$(gh pr list --head "$branch" --state open --json number --jq '.[0].number // empty')"
+          if [ -n "$existing_pr" ] && [ "$FORCE" != "true" ]; then
+            echo "Skipped Azure unknowns patch: PR #$existing_pr is already open for $branch." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          python - "$proposal_path" "$patch_path" "$pr_body_path" <<'PY'
+          import json
+          import sys
+
+          proposal = json.load(open(sys.argv[1], encoding="utf-8"))
+          open(sys.argv[2], "w", encoding="utf-8").write(proposal["patch"])
+          open(sys.argv[3], "w", encoding="utf-8").write(
+              "Azure-funded unknowns patch proposal.\n\n"
+              + proposal["summary"]
+              + "\n\n"
+              + proposal["pr_body"]
+              + "\n\nValidation:\n"
+              + "\n".join(f"- python -m pytest {path}" for path in proposal["tests"])
+              + "\n- python -m ruff check .\n"
+          )
+          PY
+
+          git checkout -B "$branch"
+          if ! git apply --check "$patch_path"; then
+            echo "Proposed patch did not apply cleanly; no PR was created." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          git apply "$patch_path"
+
+          if ! python - "$proposal_path" <<'PY'
+          import json
+          import subprocess
+          import sys
+
+          proposal = json.load(open(sys.argv[1], encoding="utf-8"))
+          changed = set(subprocess.check_output(["git", "diff", "--name-only"], text=True).splitlines())
+          allowed = set(proposal["allowed_paths"])
+          if not changed or not changed.issubset(allowed):
+              raise SystemExit("Patch changed paths outside the allowed scope.")
+          if proposal["tests"]:
+              raise SystemExit(subprocess.run(["python", "-m", "pytest", *proposal["tests"]).returncode)
+          PY
+          then
+            git reset --hard
+            echo "Patch validation failed; no PR was created." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if ! python -m ruff check . || ! git diff --check; then
+            git reset --hard
+            echo "Patch lint or whitespace validation failed; no PR was created." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: improve $category unknown classification"
+          git push --force-with-lease origin "$branch"
+
+          title="$(python - "$proposal_path" <<'PY'
+          import json
+          import sys
+
+          print(json.load(open(sys.argv[1], encoding="utf-8"))["pr_title"])
+          PY
+          )"
+          gh pr create \
+            --draft \
+            --base "$BASE_BRANCH" \
+            --head "$branch" \
+            --title "$title" \
+            --body-file "$pr_body_path"
 
       - name: Start scheduled sessions
-        if: ${{ github.event_name == 'workflow_dispatch' && (inputs.session == 'both' || inputs.session == 'unknowns') }}
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.session == 'unknowns' }}
         env:
           COPILOT_AGENT_TOKEN: ${{ secrets.COPILOT_AGENT_TOKEN }}
-          SESSION: ${{ inputs.session == 'both' && 'unknowns' || inputs.session }}
+          SESSION: ${{ inputs.session }}
           DRY_RUN: ${{ inputs.dry_run || false }}
           FORCE: ${{ inputs.force || false }}
           FORCE_UNKNOWNS_WITHOUT_CANDIDATES: ${{ inputs.force_unknowns_without_candidates || false }}

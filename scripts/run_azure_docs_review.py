@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+import argparse
 from pathlib import Path
 from typing import Any
 
@@ -127,8 +128,13 @@ def render_review_markdown(review: dict[str, Any]) -> str:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Run a bounded Azure documentation review.")
+    parser.add_argument("--output", type=Path)
+    args = parser.parse_args()
     client = AzureOpenAiTextClient.from_env(max_output_tokens=900)
     review = _parse_review(client.generate(system=_SYSTEM_PROMPT, user=build_review_facts()))
+    if args.output is not None:
+        args.output.write_text(json.dumps(review, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(render_review_markdown(review))
 
 

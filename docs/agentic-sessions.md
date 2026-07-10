@@ -4,29 +4,32 @@ This repository has a lightweight scheduled workflow for bounded agentic mainten
 
 ## Sessions
 
-The scheduled workflow starts one Azure-funded bounded task per day:
+The scheduled workflow starts a bounded Azure-funded review-and-propose cycle each day:
 
 - Documentation and instructions maintenance: runs a bounded Azure OpenAI reviewer from GitHub Actions over curated local excerpts of docs, instructions, workflow files, and recent git history. The review is advisory and writes confirmed drift findings to the Actions summary without editing files or opening a PR.
-- Parked unknowns investigation: reads the latest public snapshot, ranks `unknown` results by modality/check count, and asks GitHub Copilot cloud agent to investigate only the top modality. This is now manual-only so it can remain an occasional Copilot test without consuming scheduled Copilot usage.
+- Parked unknowns improvement: when the docs review finds no confirmed drift, a bounded Azure OpenAI proposer reads the top `unknown` category, its curated source/test/workflow excerpts, and produces a tightly scoped unified diff. The workflow applies the diff only when it changes allowed category files, passes focused tests, Ruff, and whitespace checks, then opens a draft PR.
+- Copilot unknowns comparison: the older GitHub Copilot cloud-agent issue flow remains manual-only for occasional comparison and is never started by the schedule.
 
 The unknowns session is created as a GitHub issue assigned to `copilot-swe-agent[bot]` with an `agent_assignment`. Copilot should open one pull request when it finds a justified repository change. If there is no useful change, the prompt tells Copilot to comment on the issue and close it instead of opening an empty PR.
 
 The docs task does not use a Copilot cloud-agent issue. It runs [scripts/run_azure_docs_review.py](../scripts/run_azure_docs_review.py), which sends a bounded local evidence package to the configured Azure OpenAI deployment and writes the advisory review to the Actions summary. It does not edit files, create PRs, access network tools, or expose secrets to a model-run shell.
 
+When the docs review is clean, [scripts/run_azure_unknowns_agent.py](../scripts/run_azure_unknowns_agent.py) creates a patch proposal for the top current unknowns category. It is constrained to the category's source/test/workflow files. The workflow rejects patches outside those paths, patches that fail `git apply --check`, focused tests, Ruff, or whitespace validation. Only a validated patch becomes a draft PR on an `azure-unknowns/<category>` branch.
+
 ## Required Secrets And Variables
 
-For the Azure Codex docs task, configure:
+For the Azure documentation reviewer and unknowns patch proposer, configure:
 
-- Repository secret `AZURE_OPENAI_KEY`: API key for the Azure OpenAI / Foundry model deployment used by Codex.
+- Repository secret `AZURE_OPENAI_KEY`: API key for the Azure OpenAI / Foundry model deployment.
 - Repository variable `AZURE_OPENAI_ENDPOINT`: Azure OpenAI endpoint URL.
-- Repository variable `AZURE_OPENAI_DEPLOYMENT`: deployment name for the model Codex should use.
+- Repository variable `AZURE_OPENAI_DEPLOYMENT`: deployment name for the Azure model used by reviewers and patch proposals.
 - Optional repository variable `AZURE_OPENAI_API_VERSION`: API version. If omitted, the workflow uses `2025-04-01-preview`.
 
 Use the manual [Provision Azure Codex OpenAI](../.github/workflows/provision-azure-codex-openai.yml) workflow to create or verify the Azure AI Services resource and model deployment. If you set `configure_repo_settings` to true, the workflow can also write `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_DEPLOYMENT`, `AZURE_OPENAI_API_VERSION`, and `AZURE_OPENAI_KEY` into repository settings. That mode requires a repository secret named `GH_REPO_SETTINGS_TOKEN` whose token can write Actions variables and secrets. The default `GITHUB_TOKEN` should not be treated as sufficient for repository secret administration.
 
 The provisioning workflow uses the existing Azure OIDC secrets `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, and `AZURE_SUBSCRIPTION_ID`, and the Azure identity needs permission to register `Microsoft.CognitiveServices`, create the target resource group/resource, create model deployments, and read account keys. If you use `GH_REPO_SETTINGS_TOKEN`, grant the token only the minimum repository administration or Actions settings permissions needed to write repository variables and secrets, then rotate or remove it after bootstrapping.
 
-The scheduled agent workflow uses the built-in `GITHUB_TOKEN` with `contents: write` and `pull-requests: write` to push the docs branch and open the draft PR.
+The scheduled agent workflow uses the built-in `GITHUB_TOKEN` with `contents: write` and `pull-requests: write` only when a validated Azure unknowns patch needs a draft PR.
 
 For the Copilot unknowns task, configure a repository secret named `COPILOT_AGENT_TOKEN` that belongs to the account whose Copilot entitlement should be used. The GitHub Copilot agent APIs require a user token; the workflow `GITHUB_TOKEN` is not accepted for Copilot assignment.
 
@@ -43,6 +46,7 @@ The token holder must have a paid Copilot plan with Copilot cloud agent enabled 
 ## Cost Controls
 
 - The docs task is bounded to curated local excerpts and an advisory summary, so it has no automatic branch, commit, or PR side effect.
+- The Azure unknowns proposer is allowed to create a PR only after its patch stays in the predeclared category scope and passes patch, test, lint, and whitespace checks.
 - A manual unknowns task creates no more than one open issue per session label. If an earlier unknowns issue is still open, the next manual run skips that session.
 - The unknowns session is skipped when the loaded snapshot has no `unknown` statuses, unless the workflow is manually run with `force_unknowns_without_candidates`.
 - Prompts target 30 minutes of focused work and tell the agent to stop before 45 minutes if the task is not converging. Copilot cloud agent also has GitHub's hard session limit for the unknowns lane.
@@ -53,7 +57,7 @@ The token holder must have a paid Copilot plan with Copilot cloud agent enabled 
 
 1. Open Actions in GitHub.
 2. Select `Scheduled agent sessions`.
-3. Use `Run workflow`. The default `session=docs` remains Azure-funded; choose `unknowns` only when you intentionally want to spend a Copilot cloud-agent test.
-4. Keep `dry_run` enabled for the first check, then run again with `dry_run` disabled after verifying the generated prompts.
+3. Use `Run workflow`. The daily schedule runs Azure docs review followed by Azure unknowns proposal when the docs review is clean. The default `session=docs` is an Azure review-only run; choose `both` to run the Azure coding proposal manually, or `unknowns` only when you intentionally want a Copilot cloud-agent comparison.
+4. Keep `dry_run` enabled for the first check, then run again with `dry_run` disabled after verifying the generated summaries.
 
 Use `force` only when you intentionally want another session while an earlier one is still open.
