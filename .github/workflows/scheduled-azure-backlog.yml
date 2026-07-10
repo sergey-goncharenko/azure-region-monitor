@@ -7,12 +7,12 @@ on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: "Generate and validate Azure proposals without creating branches or draft PRs"
+        description: "Build and validate Azure BYOK tasks without starting agents, branches, or draft PRs"
         required: false
         type: boolean
         default: false
       force:
-        description: "Replace an existing proposal branch when safe"
+        description: "Replace an existing task branch when safe"
         required: false
         type: boolean
         default: false
@@ -45,6 +45,11 @@ jobs:
       - name: Install project dependencies
         run: python -m pip install ".[dev]"
 
+      - name: Install pinned GitHub Copilot CLI
+        run: |
+          npm install --global @github/copilot@1.0.70
+          copilot --version
+
       - name: Fetch eligible GitHub backlog issues
         env:
           GH_TOKEN: ${{ github.token }}
@@ -58,73 +63,55 @@ jobs:
             --limit 100 \
             --json number,title,body,labels,url > "$RUNNER_TEMP/azure-backlog-issues.json"
 
-      - name: Generate bounded Azure issue proposals
+      - name: Build bounded Azure BYOK task manifest
         env:
           GH_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
-          AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_KEY }}
-          AZURE_OPENAI_ENDPOINT: ${{ vars.AZURE_OPENAI_ENDPOINT }}
-          AZURE_OPENAI_DEPLOYMENT: ${{ vars.AZURE_OPENAI_DEPLOYMENT }}
         run: |
           set -euo pipefail
-
-          if [ -z "${AZURE_OPENAI_API_KEY:-}" ] || [ -z "${AZURE_OPENAI_ENDPOINT:-}" ] || [ -z "${AZURE_OPENAI_DEPLOYMENT:-}" ]; then
-            echo "Missing Azure OpenAI configuration. Set AZURE_OPENAI_KEY plus AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_DEPLOYMENT." >&2
-            exit 2
-          fi
 
           python scripts/run_azure_backlog_cycle.py \
             --issues "$RUNNER_TEMP/azure-backlog-issues.json" \
             --repository "$GITHUB_REPOSITORY" \
-            --output "$RUNNER_TEMP/azure-backlog-cycle.json" >> "$GITHUB_STEP_SUMMARY"
+            --output "$RUNNER_TEMP/azure-byok-task-manifest.json" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Validate, branch, and open bounded draft PRs
+      - name: Run Azure BYOK Copilot tasks and open bounded draft PRs
         env:
           DRY_RUN: ${{ inputs.dry_run }}
           FORCE: ${{ inputs.force }}
           BASE_BRANCH: ${{ github.event.repository.default_branch || 'main' }}
           GH_TOKEN: ${{ github.token }}
+          AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_KEY }}
+          AZURE_OPENAI_ENDPOINT: ${{ vars.AZURE_OPENAI_ENDPOINT }}
+          AZURE_OPENAI_DEPLOYMENT: ${{ vars.AZURE_OPENAI_DEPLOYMENT }}
+          COPILOT_BYOK_MODEL_ID: ${{ vars.COPILOT_BYOK_MODEL_ID || 'gpt-5.4-mini' }}
         run: |
           set -euo pipefail
 
-          cycle_path="$RUNNER_TEMP/azure-backlog-cycle.json"
-          python - "$cycle_path" "$RUNNER_TEMP" <<'PY'
+          if [ "$DRY_RUN" != "true" ] && { [ -z "${AZURE_OPENAI_API_KEY:-}" ] || [ -z "${AZURE_OPENAI_ENDPOINT:-}" ] || [ -z "${AZURE_OPENAI_DEPLOYMENT:-}" ]; }; then
+            echo "Missing Azure OpenAI BYOK configuration. Set AZURE_OPENAI_KEY plus AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_DEPLOYMENT." >&2
+            exit 2
+          fi
+
+          manifest_path="$RUNNER_TEMP/azure-byok-task-manifest.json"
+          python - "$manifest_path" "$RUNNER_TEMP" <<'PY'
           import json
           import sys
           from pathlib import Path
 
-          cycle = json.load(open(sys.argv[1], encoding="utf-8"))
+          manifest = json.load(open(sys.argv[1], encoding="utf-8"))
           output = Path(sys.argv[2])
-          for index, item in enumerate(cycle["proposals"]):
-              proposal = dict(item["proposal"])
-              proposal["_kind"] = item["kind"]
-              (output / f"azure-backlog-proposal-{index}.json").write_text(
-                  json.dumps(proposal), encoding="utf-8"
+          for index, task in enumerate(manifest["tasks"]):
+              (output / f"azure-byok-task-{index}.json").write_text(
+                  json.dumps(task), encoding="utf-8"
               )
           PY
 
           shopt -s nullglob
           failures=0
-          for proposal_path in "$RUNNER_TEMP"/azure-backlog-proposal-*.json; do
-            kind="$(python - "$proposal_path" <<'PY'
-          import json
-          import sys
-          print(json.load(open(sys.argv[1], encoding="utf-8"))["_kind"])
-          PY
-            )"
-            case "$kind" in
-              issue) branch_prefix="azure-issues" ;;
-              docs) branch_prefix="azure-docs" ;;
-              *)
-                echo "Unknown backlog proposal kind: $kind" >&2
-                failures=1
-                continue
-                ;;
-            esac
-
+          for task_path in "$RUNNER_TEMP"/azure-byok-task-*.json; do
             args=(
-              --proposal "$proposal_path"
-              --branch-prefix "$branch_prefix"
+              --task "$task_path"
               --base-branch "$BASE_BRANCH"
             )
             if [ "$DRY_RUN" = "true" ]; then
@@ -133,7 +120,7 @@ jobs:
             if [ "$FORCE" = "true" ]; then
               args+=(--force)
             fi
-            if ! python scripts/apply_azure_proposal.py "${args[@]}" >> "$GITHUB_STEP_SUMMARY"; then
+            if ! python scripts/run_azure_byok_task.py "${args[@]}" >> "$GITHUB_STEP_SUMMARY"; then
               failures=1
             fi
           done

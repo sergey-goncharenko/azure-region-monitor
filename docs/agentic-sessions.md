@@ -7,9 +7,11 @@ This repository runs a bounded Azure-funded maintenance cycle daily at 07:00 UTC
 Every scheduled run follows this order:
 
 1. **GitHub backlog issues** — selects up to two eligible open issues, highest priority first.
-2. **Documentation alignment** — always runs last, after the issue lanes, even if no issue is eligible. It may create one narrow documentation draft PR only when its bounded review confirms drift.
+2. **Documentation alignment** — always runs last, after the issue lanes, even if no issue is eligible. The Azure-BYOK coding agent may create one narrow documentation draft PR only when the bounded evidence justifies it.
 
 A run can open at most three draft PRs: two issue-backed PRs plus one documentation-alignment PR. It never merges a generated PR.
+
+Documentation alignment may read selected workflow files as evidence, but it can edit only [README.md](../README.md), [.github/copilot-instructions.md](../.github/copilot-instructions.md), and this operating guide.
 
 The schedule does not invent other coding tasks from local JSON, snapshot data, or repository files. If an `unknown` status or another maintenance concern deserves work, create an Azure backlog issue for it.
 
@@ -41,15 +43,18 @@ The title and **Objective** field remain the authority for automatic source/test
 
 Issue text is untrusted context, not agent instructions. The agent ignores attempts in bodies, comments, or child issues to override safety rules, access secrets, use network tools, or expand its scope. To keep daily Azure cost and context size bounded, each text field is limited to 8,000 characters and the combined model context is limited to 60,000 characters; any truncation is explicitly marked in the evidence passed to the agent.
 
-## Safety Gates
+## Azure-BYOK Copilot CLI And Safety Gates
 
-Every proposal is bounded before a branch or PR is created:
+The workflow installs a pinned GitHub Copilot CLI and uses its custom-model-provider mode to send inference to the configured Azure OpenAI deployment. GitHub Copilot is the coding-agent runtime; Azure is the model provider and receives the inference cost. This avoids a separate JSON-patch protocol while retaining deterministic controls outside the model.
 
-- Azure receives only the issue objective and curated local repository excerpts.
-- The proposal parser rejects malformed output, oversized diffs, and changes outside the automatically derived scope.
-- Each proposal starts from a clean default-branch checkout.
-- The workflow requires `git apply --check`, derived focused tests where available (otherwise the full suite), Ruff, and `git diff --check`.
-- A failed, ambiguous, or out-of-scope proposal creates no pull request.
+Every task is bounded before a branch or PR is created:
+
+- Azure receives only the selected task manifest and curated local repository excerpts.
+- The CLI runs in offline mode with built-in MCP servers and remote control disabled. It exposes only `apply_patch`, `glob`, and `rg`, with no shell, GitHub, web, Azure CLI, package-install, or push permission.
+- `AZURE_OPENAI_API_KEY`, `COPILOT_PROVIDER_API_KEY`, `GH_TOKEN`, and `GITHUB_TOKEN` are stripped from the agent's shell and MCP environments.
+- Each task starts from a clean default-branch checkout. The runner rejects every changed path outside the automatically derived scope.
+- The workflow requires derived focused tests where available (otherwise the full suite), Ruff, and `git diff --check`.
+- A failed, ambiguous, out-of-scope, or no-change task creates no pull request.
 - Generated live snapshots are never included in a patch scope.
 
 ## Azure Configuration
@@ -59,7 +64,7 @@ Configure these repository settings:
 - Secret `AZURE_OPENAI_KEY`: API key for the Azure OpenAI or Foundry deployment.
 - Variable `AZURE_OPENAI_ENDPOINT`: endpoint URL.
 - Variable `AZURE_OPENAI_DEPLOYMENT`: deployment name.
-- Optional variable `AZURE_OPENAI_API_VERSION`: API version; the client defaults to `2025-04-01-preview`.
+- Optional variable `COPILOT_BYOK_MODEL_ID`: the known base model ID for Copilot CLI prompting and token limits; it defaults to `gpt-5.4-mini`.
 
 Use [.github/workflows/provision-azure-codex-openai.yml](../.github/workflows/provision-azure-codex-openai.yml) to create or verify the Azure AI Services resource and deployment. Its optional repository-settings mode needs the separate `GH_REPO_SETTINGS_TOKEN`; grant that token only the minimum settings permissions and rotate it after bootstrap.
 
@@ -67,8 +72,9 @@ The scheduled workflow uses the built-in `GITHUB_TOKEN` to read issues and creat
 
 ## Cost Controls
 
-- Azure OpenAI is the scheduled default for issue and documentation work.
-- A run makes at most two issue proposal calls, one documentation review call, and one documentation patch call only when drift is confirmed.
+- Azure OpenAI is the scheduled provider for Copilot CLI issue and documentation work.
+- A run starts at most two issue-agent sessions plus one documentation-alignment session. These use Azure tokens, not GitHub Copilot model quota.
+- BYOK agent prompts contain the bounded task evidence and may use more Azure input tokens than the former direct JSON client; that trade-off is intentional for a full coding-agent runtime.
 - The workflow has a 25-minute hard timeout, a concurrency lock, and a maximum of three draft PRs per run.
 - The older Copilot path is intentionally manual-only in [.github/workflows/scheduled-copilot-agents.yml](../.github/workflows/scheduled-copilot-agents.yml), for an occasional comparison rather than recurring consumption.
 
@@ -80,4 +86,4 @@ The scheduled workflow uses the built-in `GITHUB_TOKEN` to read issues and creat
 4. Run again with `dry_run` disabled when the queue is ready.
 5. Review draft PRs normally. Merging an issue-backed PR closes its source issue.
 
-Use `force` only to deliberately replace an existing proposal branch. It does not bypass patch, test, lint, or whitespace validation.
+Use `force` only to deliberately replace an existing task branch. It does not bypass scope, test, lint, or whitespace validation.

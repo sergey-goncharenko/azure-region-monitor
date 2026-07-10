@@ -22,62 +22,45 @@ def test_max_issue_items_uses_safe_default_for_invalid_input():
     assert backlog_cycle._max_issue_items("not-a-number") == 2
 
 
-def test_cycle_markdown_identifies_docs_as_the_alignment_lane():
+def test_cycle_markdown_identifies_docs_as_the_final_alignment_lane():
     rendered = backlog_cycle.render_cycle_markdown(
         {
-            "proposals": [
+            "tasks": [
                 {
                     "kind": "docs",
-                    "proposal": {
-                        "category": "documentation-alignment",
-                        "decision": "no_change",
-                        "summary": "No drift.",
-                        "pr_title": "",
-                    },
+                    "category": "documentation-alignment",
+                    "summary": "Review current documentation.",
                 }
             ]
         }
     )
 
     assert "### Documentation alignment: `documentation-alignment`" in rendered
-    assert "No safe patch proposal was produced." in rendered
-
-
-def test_cycle_markdown_identifies_github_issue_lane():
-    rendered = backlog_cycle.render_cycle_markdown(
-        {
-            "proposals": [
-                {
-                    "kind": "issue",
-                    "proposal": {
-                        "category": "issue-42",
-                        "decision": "no_change",
-                        "summary": "No patch.",
-                        "pr_title": "",
-                    },
-                }
-            ]
-        }
-    )
-
-    assert "### GitHub backlog issue: `issue-42`" in rendered
+    assert "Copilot CLI edits are validated locally" in rendered
 
 
 def test_documentation_alignment_is_always_last(monkeypatch, tmp_path):
     monkeypatch.setattr(
         backlog_cycle,
-        "_propose_issues",
-        lambda client, issues_path, limit, repository: [
-            {"kind": "issue", "proposal": {"category": "issue-1"}},
-            {"kind": "issue", "proposal": {"category": "issue-2"}},
+        "_build_issue_tasks",
+        lambda issues_path, limit, repository: [
+            {"kind": "issue", "category": "issue-1", "summary": "First task"},
+            {"kind": "issue", "category": "issue-2", "summary": "Second task"},
         ][:limit],
     )
     monkeypatch.setattr(
         backlog_cycle,
-        "_propose_docs",
-        lambda client: {"kind": "docs", "proposal": {"category": "documentation-alignment"}},
+        "_build_docs_task",
+        lambda: {"kind": "docs", "category": "documentation-alignment", "summary": "Docs"},
     )
 
-    cycle = backlog_cycle.build_cycle(object(), tmp_path / "issues.json", 2)
+    cycle = backlog_cycle.build_cycle(tmp_path / "issues.json", 2, "example/repo")
 
-    assert [item["kind"] for item in cycle["proposals"]] == ["issue", "issue", "docs"]
+    assert [task["kind"] for task in cycle["tasks"]] == ["issue", "issue", "docs"]
+
+
+def test_docs_task_keeps_workflows_as_evidence_not_edit_scope():
+    task = backlog_cycle._build_docs_task()
+
+    assert ".github/workflows/scheduled-azure-backlog.yml" not in task["allowed_paths"]
+    assert ".github/workflows/scheduled-azure-backlog.yml" in task["evidence"]["files"]

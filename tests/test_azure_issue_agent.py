@@ -68,6 +68,7 @@ def test_highest_priority_issue_is_selected_and_auto_scoped(tmp_path):
     assert context["issue_number"] == 11
     assert "src/azure_region_monitor/blog.py" in context["allowed_paths"]
     assert "tests/test_blog.py" in context["tests"]
+    assert "tests/test_blog.py" in context["allowed_paths"]
     assert context["evidence"]["issue_url"].endswith("/11")
 
 
@@ -80,10 +81,9 @@ def test_missing_priority_defaults_to_normal(tmp_path):
     assert issue_agent._load_issues(path)[0]["priority"] == 200
 
 
-def test_issue_renderer_labels_no_change_output():
-    rendered = issue_agent.render_issue_markdown(
+def test_issue_task_renderer_labels_unselected_output():
+    rendered = issue_agent.render_issue_task_markdown(
         {
-            "decision": "no_change",
             "summary": "No eligible issues.",
             "category": "",
             "allowed_paths": [],
@@ -91,8 +91,8 @@ def test_issue_renderer_labels_no_change_output():
         }
     )
 
-    assert "## Azure GitHub issue backlog review" in rendered
-    assert "No safe issue patch proposal" in rendered
+    assert "## Azure GitHub issue backlog task" in rendered
+    assert "No eligible issue task" in rendered
 
 
 def test_selected_issue_includes_comments_and_subissue_context(tmp_path):
