@@ -1,0 +1,18 @@
+{
+  "goals": [
+    {
+      "id": "example-disabled",
+      "enabled": false,
+      "priority": 100,
+      "title": "Example: improve a bounded reliability concern",
+      "goal": "Describe one small, evidence-backed improvement in terms of observable behavior and a bounded implementation target.",
+      "allowed_paths": [
+        "src/azure_region_monitor/runner.py",
+        "tests/test_runner.py"
+      ],
+      "tests": [
+        "tests/test_runner.py"
+      ]
+    }
+  ]
+}

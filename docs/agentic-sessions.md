@@ -16,6 +16,8 @@ The docs task does not use a Copilot cloud-agent issue. It runs [scripts/run_azu
 
 When the docs review is clean, [scripts/run_azure_unknowns_agent.py](../scripts/run_azure_unknowns_agent.py) creates a patch proposal for the top current unknowns category. It is constrained to the category's source/test/workflow files. The workflow rejects patches outside those paths, patches that fail `git apply --check`, focused tests, Ruff, or whitespace validation. Only a validated patch becomes a draft PR on an `azure-unknowns/<category>` branch.
 
+When both docs and unknowns yield no patch, [scripts/run_azure_goal_agent.py](../scripts/run_azure_goal_agent.py) considers the highest-priority enabled goal from [config/azure_agent_goals.json](../config/azure_agent_goals.json). Goals are disabled by default. To activate one, set `enabled` to `true` and provide a concise goal, an explicit `allowed_paths` list, and focused `tests`. A validated proposal becomes a draft PR on an `azure-goals/<goal-id>` branch.
+
 ## Required Secrets And Variables
 
 For the Azure documentation reviewer and unknowns patch proposer, configure:
@@ -47,6 +49,7 @@ The token holder must have a paid Copilot plan with Copilot cloud agent enabled 
 
 - The docs task is bounded to curated local excerpts and an advisory summary, so it has no automatic branch, commit, or PR side effect.
 - The Azure unknowns proposer is allowed to create a PR only after its patch stays in the predeclared category scope and passes patch, test, lint, and whitespace checks.
+- The Azure goal proposer uses the same patch, scope, test, lint, and whitespace gates. Do not enable broad goals or goals without narrow allowlists and focused tests.
 - A manual unknowns task creates no more than one open issue per session label. If an earlier unknowns issue is still open, the next manual run skips that session.
 - The unknowns session is skipped when the loaded snapshot has no `unknown` statuses, unless the workflow is manually run with `force_unknowns_without_candidates`.
 - Prompts target 30 minutes of focused work and tell the agent to stop before 45 minutes if the task is not converging. Copilot cloud agent also has GitHub's hard session limit for the unknowns lane.
@@ -57,7 +60,7 @@ The token holder must have a paid Copilot plan with Copilot cloud agent enabled 
 
 1. Open Actions in GitHub.
 2. Select `Scheduled agent sessions`.
-3. Use `Run workflow`. The daily schedule runs Azure docs review followed by Azure unknowns proposal when the docs review is clean. The default `session=docs` is an Azure review-only run; choose `both` to run the Azure coding proposal manually, or `unknowns` only when you intentionally want a Copilot cloud-agent comparison.
+3. Use `Run workflow`. The daily schedule runs Azure docs review, Azure unknowns proposal when docs are clean, then the highest-priority enabled Azure goal when neither earlier lane needs a patch. The default `session=docs` is an Azure review-only run; choose `both` to run the Azure coding and goal lanes manually, `goals` to run the Azure review/unknowns/goal sequence manually, or `unknowns` only when you intentionally want a Copilot cloud-agent comparison.
 4. Keep `dry_run` enabled for the first check, then run again with `dry_run` disabled after verifying the generated summaries.
 
 Use `force` only when you intentionally want another session while an earlier one is still open.
