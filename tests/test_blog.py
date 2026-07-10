@@ -1,3 +1,5 @@
+import json
+
 from azure_region_monitor.blog import (
     blog_sitemap_entries,
     render_blog_feed,
@@ -235,3 +237,47 @@ def test_social_drafts_include_review_note_and_platform_drafts():
     assert "#### Short-post draft" in drafts
     assert "Coverage: 2/10 monitored regions (20.0%, +2 regions)." in drafts
     assert f"Full digest: {SITE}/blog/2026-07-03.html" in drafts
+
+
+def test_social_drafts_use_valid_ai_copy_and_append_evidence_constraints():
+    class _Client:
+        def __init__(self):
+            self.calls = []
+
+        def generate(self, *, system, user):
+            self.calls.append((system, user))
+            return json.dumps(
+                {
+                    "linkedin": "A focused rollout story for platform teams.\n\n"
+                    "https://azwatch.operator.lat/blog/2026-07-03.html",
+                    "short_post": "A concise rollout signal.\n"
+                    "https://azwatch.operator.lat/blog/2026-07-03.html",
+                }
+            )
+
+    client = _Client()
+    posts = select_blog_posts(_history([_day("2026-07-03", "Headline\n\nBody.", new=1)]))
+
+    drafts = render_social_drafts(posts, SITE, client=client)
+
+    assert "Source: AI social copy" in drafts
+    assert "A focused rollout story for platform teams." in drafts
+    assert "Signal counts:" not in drafts
+    assert "Evidence note: these are read-only Azure catalog/list signals" in drafts
+    assert len(client.calls) == 1
+    system, user = client.calls[0]
+    assert "Return only a JSON object" in system
+    assert "Structured facts" in user
+
+
+def test_social_drafts_fall_back_when_ai_response_is_invalid():
+    class _InvalidClient:
+        def generate(self, *, system, user):
+            return '{"linkedin": "missing short post"}'
+
+    posts = select_blog_posts(_history([_day("2026-07-03", "Headline\n\nBody.", new=1)]))
+
+    drafts = render_social_drafts(posts, SITE, client=_InvalidClient())
+
+    assert "Source: Structured fallback" in drafts
+    assert "Signal counts:" in drafts

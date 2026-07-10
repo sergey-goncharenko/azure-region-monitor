@@ -133,6 +133,9 @@ jobs:
           base_url = "$azure_base_url"
           env_key = "AZURE_OPENAI_API_KEY"
           wire_api = "responses"
+
+          [sandbox_workspace_write]
+          network_access = false
           EOF
 
           cat > "$HOME/.codex/azure.config.toml" <<EOF

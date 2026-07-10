@@ -8,17 +8,40 @@ back HTML pages, an RSS feed, and sitemap entries. No I/O happens here.
 from __future__ import annotations
 
 import html
+from importlib import resources
 import json
 import re
 from datetime import datetime, timezone
 from email.utils import format_datetime
-from typing import Any
+from typing import Any, Protocol
 
 BLOG_DIR = "blog"
 FEED_PATH = "blog/feed.xml"
 INDEX_PATH = "blog/index.html"
 _EXCERPT_CHARS = 220
 _SOCIAL_POST_LIMIT = 1
+_SOCIAL_LINKEDIN_MAX_CHARS = 2_800
+_SOCIAL_SHORT_POST_MAX_CHARS = 600
+_SOCIAL_EVIDENCE_NOTE = (
+    "Evidence note: these are read-only Azure catalog/list signals; unavailable does not mean "
+    "quota, capacity, deployment failure, or SLA impact."
+)
+_FALLBACK_SOCIAL_PROMPT = """You are an expert technical communications editor writing review-only social copy for Azure SREs, platform engineers, and cloud architects.
+
+Write a useful, evidence-bound LinkedIn post and a concise short post from the structured daily Azure regional availability facts. Lead with the most operationally meaningful story, not a dump of raw counts. Explain the decision impact: placement, fallback, rollout timing, IaC assumptions, latency, scale, cost, or upgrade planning.
+
+Strict truth rules:
+- Treat available/unavailable as read-only catalog, listing, provider-metadata, or measurement evidence only.
+- Never claim quota, live capacity, successful deployment, customer eligibility, root cause, or SLA impact.
+- Call disappearance a deprecation candidate or recurring catalog instability only when the facts use that classification.
+- Do not invent regions, numbers, model capabilities, causes, or customer impact.
+
+Return only a JSON object with exactly these string fields:
+{"linkedin": "...", "short_post": "..."}
+
+LinkedIn: 700-1,500 characters, 3-5 short paragraphs or bullets, no hashtags, must include the supplied full digest URL and the supplied evidence note verbatim.
+Short post: 180-500 characters, concise, must include the full digest URL and a compact evidence note.
+"""
 # A real blog-post headline is short. Anything longer is almost certainly a
 # single-paragraph rule/older summary, so it is demoted to body text and the post
 # gets a clean date-based title instead of a runaway one-line headline.
@@ -97,10 +120,16 @@ def _excerpt(post: dict[str, Any]) -> str:
     return body[:_EXCERPT_CHARS].rsplit(" ", 1)[0].rstrip(",.;:") + "…"
 
 
+class SocialDraftClient(Protocol):
+    def generate(self, *, system: str, user: str) -> str:
+        """Return a social-copy JSON object or raise on failure."""
+
+
 def render_social_drafts(
     posts: list[dict[str, Any]],
     site_url: str,
     limit: int = _SOCIAL_POST_LIMIT,
+    client: SocialDraftClient | None = None,
 ) -> str:
     """Return review-only social post drafts for the latest narrated days."""
 
@@ -110,7 +139,8 @@ def render_social_drafts(
             "Review-only drafts generated from the daily blog narrative and structured change "
             "evidence. Availability claims are read-only catalog/list signals from this monitor; "
             "`unavailable` means absent from the monitored evidence, not proof of quota, capacity, "
-            "deployment failure, or SLA impact."
+            "deployment failure, or SLA impact. AI social copy falls back to a structured template "
+            "if the configured model is unavailable."
         ),
     ]
     selected = posts[: max(limit, 0)]
@@ -120,16 +150,100 @@ def render_social_drafts(
 
     for post in selected:
         url = f"{site_url.rstrip('/')}/{post['slug']}"
+        ai_drafts = _generate_ai_social_drafts(post, url, client)
+        linkedin = ai_drafts["linkedin"] if ai_drafts else _linkedin_draft(post, url)
+        short_post = ai_drafts["short_post"] if ai_drafts else _short_post_draft(post, url)
+        source = "AI social copy" if ai_drafts else "Structured fallback"
         sections.extend(
             [
                 f"### {post['date']} - {post['title']}",
+                f"Source: {source}",
                 "#### LinkedIn draft",
-                f"```text\n{_linkedin_draft(post, url)}\n```",
+                f"```text\n{linkedin}\n```",
                 "#### Short-post draft",
-                f"```text\n{_short_post_draft(post, url)}\n```",
+                f"```text\n{short_post}\n```",
             ]
         )
     return "\n\n".join(sections) + "\n"
+
+
+def _generate_ai_social_drafts(
+    post: dict[str, Any],
+    url: str,
+    client: SocialDraftClient | None,
+) -> dict[str, str] | None:
+    if client is None:
+        return None
+    try:
+        response = client.generate(system=_load_social_prompt(), user=_social_facts(post, url)).strip()
+    except Exception:
+        return None
+    return _parse_social_drafts(response, url)
+
+
+def _load_social_prompt() -> str:
+    try:
+        prompt = (
+            resources.files("azure_region_monitor.prompts")
+            .joinpath("social_drafts.md")
+            .read_text(encoding="utf-8")
+            .strip()
+        )
+    except (FileNotFoundError, ModuleNotFoundError, OSError):
+        return _FALLBACK_SOCIAL_PROMPT
+    return prompt or _FALLBACK_SOCIAL_PROMPT
+
+
+def _social_facts(post: dict[str, Any], url: str) -> str:
+    facts = {
+        "date": post["date"],
+        "title": post["title"],
+        "narrative": "\n\n".join(post.get("paragraphs", [])),
+        "counts": {
+            "new_availability": post["new_availability"],
+            "regressions": post["regressions"],
+            "parked_unknown": post["parked_unknown"],
+        },
+        "highlights": post.get("highlights", [])[:8],
+        "full_digest_url": url,
+        "evidence_note": _SOCIAL_EVIDENCE_NOTE,
+    }
+    return "Structured facts (use only these facts):\n" + json.dumps(
+        facts, ensure_ascii=False, sort_keys=True
+    )
+
+
+def _parse_social_drafts(response: str, url: str) -> dict[str, str] | None:
+    text = response.strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE)
+        text = re.sub(r"\s*```$", "", text).strip()
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    linkedin = _validated_social_copy(payload.get("linkedin"), url, _SOCIAL_LINKEDIN_MAX_CHARS)
+    short_post = _validated_social_copy(payload.get("short_post"), url, _SOCIAL_SHORT_POST_MAX_CHARS)
+    if not linkedin or not short_post:
+        return None
+    return {"linkedin": linkedin, "short_post": short_post}
+
+
+def _validated_social_copy(value: object, url: str, maximum_length: int) -> str | None:
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if not text or len(text) > maximum_length:
+        return None
+    if url not in text:
+        text = f"{text}\n\n{url}"
+    if _SOCIAL_EVIDENCE_NOTE not in text:
+        text = f"{text}\n\n{_SOCIAL_EVIDENCE_NOTE}"
+    if len(text) > maximum_length:
+        return None
+    return text
 
 
 def _linkedin_draft(post: dict[str, Any], url: str) -> str:
@@ -156,10 +270,7 @@ def _linkedin_draft(post: dict[str, Any], url: str) -> str:
     lines.extend(
         [
             "",
-            (
-                "Evidence note: these are read-only Azure catalog/list signals; "
-                "unavailable does not mean quota, capacity, deployment failure, or SLA impact."
-            ),
+            _SOCIAL_EVIDENCE_NOTE,
             "",
             f"Full digest: {url}",
         ]
