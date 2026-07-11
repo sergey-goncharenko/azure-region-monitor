@@ -597,7 +597,14 @@ def _safe_failure_detail(stderr: str) -> str:
     return detail
 
 
-def run_task(task: dict[str, Any], *, base_branch: str, dry_run: bool, force: bool) -> int:
+def run_task(
+    task: dict[str, Any],
+    *,
+    base_branch: str,
+    dry_run: bool,
+    force: bool,
+    required_pr: str | None = None,
+) -> int:
     validation_error = _validate_task(task)
     if validation_error:
         _summary(validation_error)
@@ -608,6 +615,13 @@ def run_task(task: dict[str, Any], *, base_branch: str, dry_run: bool, force: bo
 
     branch = f"{_branch_prefix(task)}/{task['category']}"
     existing = _existing_pr(branch)
+    if required_pr is not None:
+        if not re.fullmatch(r"[1-9][0-9]*", required_pr) or existing != required_pr:
+            _summary(
+                "The reviewed pull request is no longer open on the expected Azure issue "
+                "branch; automated rework was not applied."
+            )
+            return 1
     if existing and not force:
         _summary(f"Skipped task: PR #{existing} is already open for {branch}.")
         return 0
@@ -751,8 +765,17 @@ def main() -> None:
     parser.add_argument("--base-branch", default=os.environ.get("BASE_BRANCH", "main"))
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--force", action="store_true")
+    parser.add_argument("--require-pr")
     args = parser.parse_args()
-    raise SystemExit(run_task(_task(args.task), base_branch=args.base_branch, dry_run=args.dry_run, force=args.force))
+    raise SystemExit(
+        run_task(
+            _task(args.task),
+            base_branch=args.base_branch,
+            dry_run=args.dry_run,
+            force=args.force,
+            required_pr=args.require_pr,
+        )
+    )
 
 
 if __name__ == "__main__":

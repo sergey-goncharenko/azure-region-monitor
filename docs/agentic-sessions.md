@@ -74,14 +74,26 @@ Generated PRs also report the Azure model ID/deployment, exact OpenTelemetry inp
 
 ## Requesting Changes On A Bot PR
 
-1. Leave normal PR conversation comments, inline review comments, or submit **Request changes**.
-2. Open **Actions** → **Scheduled Azure backlog** → **Run workflow**.
-3. Set `target_issue` to the source issue number shown in the PR description.
-4. Set `force` to `true` and leave `dry_run` disabled.
+Repository collaborators can request another Azure-funded coding pass without opening the Actions page:
 
-The targeted run selects only that issue and skips documentation alignment. It fetches the open PR's conversation comments, submitted reviews, and inline comments; checks out the existing PR branch; applies bounded amendments; reruns tests/Ruff/whitespace validation; pushes another bot commit; refreshes the same PR description with new rationale/model/token/chat metadata; and posts a bot comment. It does not create a second PR.
+1. Leave normal PR conversation comments and/or inline review comments describing the required changes.
+2. Either submit a **Request changes** review or add a new PR conversation comment whose first token is `/agent-rework`.
+3. The dispatcher reacts to the slash command when applicable, posts a visible queued-status comment, and starts a targeted run of **Scheduled Azure backlog**.
+4. The status comment is updated with the final workflow result and link. A successful code update also refreshes the same PR description and adds the normal completion comment.
 
-Only trusted repository collaborators should dispatch forced rework. The agent still cannot change files outside the issue-derived scope, even if a review comment requests broader work; broader work should become a separate backlog issue.
+The dispatcher accepts only an open, same-repository PR authored by `github-actions[bot]`, targeting the default branch from `azure-issues/issue-<number>`. It verifies the triggering user's current GitHub permission through the repository API and accepts only `write`, `maintain`, or `admin`. The source issue must still be open, labelled `azure-backlog`, and not labelled `azure-paused`. Bot events, fork PRs, arbitrary branches, nonblocking reviews, and comments that merely mention the command later in their text are ignored.
+
+An active status marker deduplicates repeated review events and commands for the same PR. A marker is considered stale after two hours so a cancelled run cannot block recovery indefinitely. The dispatcher has no Azure secret: it sends a bounded `repository_dispatch` payload to the existing workflow, where Azure credentials remain isolated.
+
+The targeted run selects only the source issue and skips documentation alignment. It fetches all current PR conversation comments, submitted reviews, and inline comments; checks out the existing PR branch; applies bounded amendments; reruns tests/Ruff/whitespace validation; pushes another bot commit; and refreshes the same PR rationale, model, token, and chat-artifact metadata. It does not create a second PR.
+
+If the event dispatcher is unavailable, use the manual fallback:
+
+1. Open **Actions** → **Scheduled Azure backlog** → **Run workflow**.
+2. Set `target_issue` to the source issue number shown in the PR description.
+3. Set `force` to `true` and leave `dry_run` disabled.
+
+Only trusted repository collaborators can dispatch forced rework. The agent still cannot change files outside the issue-derived scope, even if review feedback requests broader work; broader work should become a separate backlog issue.
 
 ## Azure Configuration
 
@@ -95,7 +107,7 @@ Configure these repository settings:
 
 Use [.github/workflows/provision-azure-codex-openai.yml](../.github/workflows/provision-azure-codex-openai.yml) to create or verify the Azure AI Services resource and deployment. Its optional repository-settings mode needs the separate `GH_REPO_SETTINGS_TOKEN`; grant that token only the minimum settings permissions and rotate it after bootstrap.
 
-The scheduled workflow uses the built-in `GITHUB_TOKEN` to read issues and create branches/draft PRs (`issues: read`, `contents: write`, `pull-requests: write`). It has no Copilot entitlement requirement.
+The scheduled workflow uses the built-in `GITHUB_TOKEN` to read issues, update automated rework status comments, and create branches/draft PRs (`issues: write`, `contents: write`, `pull-requests: write`). The separate event dispatcher has no Azure credential access. The workflow has no Copilot entitlement requirement.
 
 ## Cost Controls
 

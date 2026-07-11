@@ -540,3 +540,17 @@ def test_force_rework_updates_existing_pr_branch_and_body(monkeypatch, tmp_path)
     assert any(args[:4] == ("gh", "pr", "edit", "50") for args in calls)
     assert any(args[:4] == ("gh", "pr", "comment", "50") for args in calls)
     assert not any(args[:3] == ("gh", "pr", "create") for args in calls)
+
+
+def test_automated_rework_requires_the_reviewed_pr_to_remain_open(monkeypatch):
+    monkeypatch.setattr(byok_task, "_existing_pr", lambda branch: "")
+
+    result = byok_task.run_task(
+        _task(tests=[]),
+        base_branch="main",
+        dry_run=False,
+        force=True,
+        required_pr="50",
+    )
+
+    assert result == 1

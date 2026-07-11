@@ -4,6 +4,8 @@ on:
   schedule:
     # GitHub schedules are UTC. 07:00 UTC is fixed 09:00 EET.
     - cron: "0 7 * * *"
+  repository_dispatch:
+    types: [azure-byok-pr-rework]
   workflow_dispatch:
     inputs:
       dry_run:
@@ -24,7 +26,7 @@ on:
 
 permissions:
   contents: write
-  issues: read
+  issues: write
   pull-requests: write
 
 concurrency:
@@ -72,6 +74,24 @@ jobs:
         run: |
           set -euo pipefail
 
+          if [ "$EVENT_NAME" = "repository_dispatch" ]; then
+            if [[ ! "$TARGET_ISSUE" =~ ^[1-9][0-9]*$ ]] || \
+               [[ ! "$REWORK_PR" =~ ^[1-9][0-9]*$ ]] || \
+               [[ ! "$REWORK_STATUS_COMMENT_ID" =~ ^[1-9][0-9]*$ ]] || \
+               [[ ! "$REWORK_REQUEST_ID" =~ ^[1-9][0-9]*-[1-9][0-9]*$ ]] || \
+               [[ ! "$REWORK_ACTOR" =~ ^[A-Za-z0-9][A-Za-z0-9-]{0,38}$ ]]; then
+              echo "Malformed automated PR rework dispatch metadata." >&2
+              exit 2
+            fi
+            case "$REWORK_TRIGGER" in
+              slash-command|request-changes) ;;
+              *)
+                echo "Unsupported automated PR rework trigger." >&2
+                exit 2
+                ;;
+            esac
+          fi
+
           args=(
             --issues "$RUNNER_TEMP/azure-backlog-issues.json"
             --repository "$GITHUB_REPOSITORY"
@@ -89,14 +109,21 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
-          TARGET_ISSUE: ${{ inputs.target_issue || '' }}
+          TARGET_ISSUE: ${{ github.event.client_payload.target_issue || inputs.target_issue || '' }}
+          EVENT_NAME: ${{ github.event_name }}
+          REWORK_PR: ${{ github.event.client_payload.rework_pr || '' }}
+          REWORK_STATUS_COMMENT_ID: ${{ github.event.client_payload.rework_status_comment_id || '' }}
+          REWORK_REQUEST_ID: ${{ github.event.client_payload.rework_request_id || '' }}
+          REWORK_TRIGGER: ${{ github.event.client_payload.rework_trigger || '' }}
+          REWORK_ACTOR: ${{ github.event.client_payload.rework_actor || '' }}
 
       - name: Run Azure BYOK Copilot tasks and open bounded draft PRs
         env:
-          DRY_RUN: ${{ inputs.dry_run }}
-          FORCE: ${{ inputs.force }}
+          DRY_RUN: ${{ inputs.dry_run || false }}
+          FORCE: ${{ github.event_name == 'repository_dispatch' || inputs.force }}
           BASE_BRANCH: ${{ github.event.repository.default_branch || 'main' }}
           GH_TOKEN: ${{ github.token }}
+          REWORK_PR: ${{ github.event.client_payload.rework_pr || '' }}
           AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_KEY }}
           AZURE_OPENAI_ENDPOINT: ${{ vars.AZURE_OPENAI_ENDPOINT }}
           AZURE_OPENAI_DEPLOYMENT: ${{ vars.AZURE_COPILOT_DEPLOYMENT || vars.AZURE_OPENAI_DEPLOYMENT }}
@@ -140,6 +167,9 @@ jobs:
             if [ "$FORCE" = "true" ]; then
               args+=(--force)
             fi
+            if [ -n "${REWORK_PR:-}" ]; then
+              args+=(--require-pr "$REWORK_PR")
+            fi
             if ! python scripts/run_azure_byok_task.py "${args[@]}" 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"; then
               failures=1
             fi
@@ -158,3 +188,22 @@ jobs:
           path: ${{ runner.temp }}/byok-audit
           if-no-files-found: ignore
           retention-days: 30
+
+      - name: Finalize automated PR rework status
+        if: ${{ always() && github.event_name == 'repository_dispatch' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.client_payload.rework_pr }}
+          STATUS_COMMENT_ID: ${{ github.event.client_payload.rework_status_comment_id }}
+          REQUEST_ID: ${{ github.event.client_payload.rework_request_id }}
+          REWORK_OUTCOME: ${{ job.status }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          python scripts/manage_azure_pr_rework.py finalize-status \
+            --repository "$GITHUB_REPOSITORY" \
+            --pr-number "$PR_NUMBER" \
+            --comment-id "$STATUS_COMMENT_ID" \
+            --request-id "$REQUEST_ID" \
+            --outcome "$REWORK_OUTCOME" \
+            --run-url "$RUN_URL"
