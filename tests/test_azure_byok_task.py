@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -134,24 +135,43 @@ def test_copilot_command_requires_installed_cli(monkeypatch):
 
 
 def test_pull_request_body_closes_source_issue():
-    body_path = byok_task._write_pr_body(_task())
+    body_path = byok_task._write_pr_body(
+        _task(
+            evidence={
+                "issue_title": "Improve blog social output",
+                "objective": "Improve social drafts.",
+                "priority": 300,
+            }
+        ),
+        "### Decision\nAdded focused coverage.",
+        {"README.md"},
+    )
     try:
         body = body_path.read_text(encoding="utf-8")
     finally:
         body_path.unlink(missing_ok=True)
 
     assert "Closes #42" in body
-    assert "passed deterministic validation" in body
+    assert "## Why this task was selected" in body
+    assert "Queue priority: High" in body
+    assert "### Decision" in body
+    assert "`README.md`" in body
+    assert "git diff --check" in body
 
 
 def test_recurring_pull_request_body_does_not_close_source_issue():
-    body_path = byok_task._write_pr_body(_task(recurring=True))
+    body_path = byok_task._write_pr_body(
+        _task(recurring=True),
+        "### Decision\nAdjusted timeout handling.",
+        {"README.md"},
+    )
     try:
         body = body_path.read_text(encoding="utf-8")
     finally:
         body_path.unlink(missing_ok=True)
 
     assert "Closes #42" not in body
+    assert "merging this PR will not close" in body
 
 
 def test_agent_prompt_includes_scope_and_untrusted_context_rules():
@@ -253,6 +273,62 @@ def test_agent_invocation_enables_internal_autopilot_but_denies_shell(monkeypatc
     assert "--deny-tool=shell" in captured["args"]
     assert "--no-ask-user" in captured["args"]
     assert not any(argument.startswith("--available-tools=") for argument in captured["args"])
+    output_index = captured["args"].index("--output-format")
+    assert captured["args"][output_index + 1] == "json"
+
+
+def test_extract_agent_rationale_uses_only_final_assistant_message_and_redacts():
+    output = "\n".join(
+        [
+            json.dumps({"type": "assistant.reasoning", "data": {"content": "private"}}),
+            json.dumps(
+                {
+                    "type": "assistant.message",
+                    "data": {"content": "### Decision\nOld draft"},
+                }
+            ),
+            json.dumps(
+                {
+                    "type": "assistant.message",
+                    "data": {
+                        "content": "### Decision\nUse the focused fix.\nToken: ghp_abcdefghijklmnop"
+                    },
+                }
+            ),
+            json.dumps({"type": "result", "data": {"exitCode": 0}}),
+        ]
+    )
+
+    rationale = byok_task._extract_agent_rationale(output)
+
+    assert "Use the focused fix" in rationale
+    assert "Old draft" not in rationale
+    assert "private" not in rationale
+    assert "ghp_abcdefghijklmnop" not in rationale
+    assert "[REDACTED]" in rationale
+
+
+def test_selection_summary_includes_live_unknown_evidence_and_recurring_semantics():
+    summary = byok_task._selection_summary(
+        _task(
+            recurring=True,
+            evidence={
+                "issue_title": "Investigate unknowns",
+                "objective": "Preserve trustworthy status evidence.",
+                "priority": 400,
+                "current_unknown_status": {
+                    "selected_category": "aksExtensions",
+                    "unknown_count": 39831,
+                    "error_codes": [["AzureCliCommandFailed", 39831]],
+                },
+            },
+        )
+    )
+
+    assert "Queue priority: Urgent" in summary
+    assert "aksExtensions` (39831 checks)" in summary
+    assert "AzureCliCommandFailed" in summary
+    assert "will not close" in summary
 
 
 def test_copilot_command_wraps_windows_batch_shim(monkeypatch):

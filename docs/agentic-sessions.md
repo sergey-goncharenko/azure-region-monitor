@@ -61,6 +61,15 @@ Every task is bounded before a branch or PR is created:
 - A failed, ambiguous, out-of-scope, or no-change task creates no pull request.
 - Generated live snapshots are never included in a patch scope.
 
+Every generated PR includes a reviewer-facing rationale in its description:
+
+- why the issue was selected, including queue priority and source issue;
+- the objective and any current live unknown-status evidence;
+- the agent's concise final decision, evidence, implementation summary, alternatives/risks, and validation notes;
+- the exact changed files and deterministic checks run.
+
+Only the final `assistant.message` is used. Opaque/encrypted reasoning events, private chain-of-thought, tool traces, and secret-like values are excluded or redacted.
+
 ## Azure Configuration
 
 Configure these repository settings:
