@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 from pathlib import Path
 
@@ -102,6 +103,45 @@ def test_targeted_rework_selects_one_issue_and_skips_docs(monkeypatch, tmp_path)
 
     assert captured["target_issue"] == 49
     assert [task["category"] for task in cycle["tasks"]] == ["issue-49"]
+
+
+def test_targeted_issue_context_uses_selected_issue_not_full_queue_index(tmp_path):
+    issues_path = tmp_path / "issues.json"
+    issues_path.write_text(
+        json.dumps(
+            [
+                {
+                    "number": 48,
+                    "title": "[azure-backlog] Investigate unknown status regressions",
+                    "body": "### Priority\nUrgent\n\n### Objective\nInvestigate unknowns.",
+                    "labels": [{"name": "azure-backlog"}],
+                    "url": "https://example.test/issues/48",
+                },
+                {
+                    "number": 49,
+                    "title": "[azure-backlog] Improve dashboard visual design",
+                    "body": (
+                        "### Priority\nNormal\n\n### Objective\n"
+                        "Improve dashboard design and responsive usability."
+                    ),
+                    "labels": [{"name": "azure-backlog"}],
+                    "url": "https://example.test/issues/49",
+                },
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    tasks = backlog_cycle._build_issue_tasks(
+        issues_path,
+        3,
+        "",
+        target_issue=49,
+    )
+
+    assert [task["category"] for task in tasks] == ["issue-49"]
+    assert tasks[0]["evidence"]["issue_number"] == 49
+    assert tasks[0]["evidence"]["objective"].startswith("Improve dashboard")
 
 
 def test_current_unknown_context_selects_top_group_scope(monkeypatch):

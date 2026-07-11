@@ -550,8 +550,9 @@ def build_issue_context(
     github_context_client: GitHubIssueContextClient | None = None,
     scope_override: tuple[list[str], list[str]] | None = None,
     additional_evidence: dict[str, Any] | None = None,
+    selected_issue: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    issues = _load_issues(issues_path)
+    issues = [selected_issue] if selected_issue is not None else _load_issues(issues_path)
     if not issues:
         return {
             "category": "",

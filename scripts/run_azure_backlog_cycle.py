@@ -137,10 +137,11 @@ def _build_issue_tasks(
             }
         task = issues.build_issue_context(
             issues_path,
-            index,
+            0 if target_issue is not None else index,
             github_context_client,
             scope_override,
             additional_evidence,
+            issue if target_issue is not None else None,
         )
         if not task["category"]:
             continue
