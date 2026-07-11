@@ -288,11 +288,19 @@ def run_report_task(
         print("GH_TOKEN and GITHUB_REPOSITORY are required to publish maintenance reports.")
         return 1
 
-    fetched = byok_task._run("git", "fetch", "origin", base_branch, "--depth", "1")
-    checked_out = byok_task._run("git", "checkout", "-B", base_branch, f"origin/{base_branch}")
-    if fetched.returncode != 0 or checked_out.returncode != 0:
-        print("Could not prepare a clean default-branch checkout for read-only analysis.")
-        return 1
+    if os.environ.get("BYOK_REPORT_TRUST_CHECKOUT") == "true":
+        current_branch = byok_task._run("git", "branch", "--show-current")
+        if current_branch.returncode != 0 or current_branch.stdout.strip() != base_branch:
+            print("The trusted report checkout is not on the expected source branch.")
+            return 1
+    else:
+        fetched = byok_task._run("git", "fetch", "origin", base_branch, "--depth", "1")
+        checked_out = byok_task._run(
+            "git", "checkout", "-B", base_branch, f"origin/{base_branch}"
+        )
+        if fetched.returncode != 0 or checked_out.returncode != 0:
+            print("Could not prepare a clean default-branch checkout for read-only analysis.")
+            return 1
     byok_task._reset()
 
     transcript_path, telemetry_path, metadata_path = byok_task._audit_paths(task)

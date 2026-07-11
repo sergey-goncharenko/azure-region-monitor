@@ -1,6 +1,6 @@
 # Azure-Funded Agent Sessions
 
-This repository runs two bounded Azure-funded schedules. The issue backlog runs daily at 07:00 UTC through [.github/workflows/scheduled-azure-backlog.yml](../.github/workflows/scheduled-azure-backlog.yml). Three separate maintenance sessions run at 09:00 UTC through [.github/workflows/scheduled-azure-maintenance.yml](../.github/workflows/scheduled-azure-maintenance.yml). Actionable coding work lives in GitHub Issues, not in repository configuration files.
+This repository runs bounded Azure-funded schedules. The issue backlog runs daily at 07:00 UTC through [.github/workflows/scheduled-azure-backlog.yml](../.github/workflows/scheduled-azure-backlog.yml). Public documentation alignment runs at 09:00 UTC through [.github/workflows/scheduled-azure-maintenance.yml](../.github/workflows/scheduled-azure-maintenance.yml). Maintainer-only security and repository-hygiene analysis runs at 10:00 UTC in the private `azure-region-monitor-maintainers` companion repository, using the reviewed template at [.github/private-reporting/scheduled-private-analysis.yml](../.github/private-reporting/scheduled-private-analysis.yml). Actionable public coding work lives in GitHub Issues, not in repository configuration files.
 
 ## Issue Backlog Order
 
@@ -8,13 +8,15 @@ The 07:00 UTC run selects up to three eligible open issues, highest priority fir
 
 ## Three Separate Maintenance Sessions
 
-The 09:00 UTC workflow starts three isolated Copilot CLI sessions with separate Copilot homes, transcripts, telemetry, token metadata, and outcomes:
+The maintenance system starts three isolated Copilot CLI sessions with separate Copilot homes, transcripts, telemetry, token metadata, and outcomes:
 
-1. **Documentation alignment** — may create one narrow draft PR. It can edit only [README.md](../README.md), [.github/copilot-instructions.md](../.github/copilot-instructions.md), and this operating guide. Selected workflows and recent history are read-only evidence.
-2. **Security analysis** — read-only static analysis of repository code, scripts, dependencies, infrastructure, and GitHub Actions. Deterministic outer code extracts a bounded set of line-numbered security surfaces before the model starts, preventing unbounded repository exploration. The session updates the stable `[agent-report] Security analysis` issue with concrete evidence, prioritized remediation, model/token usage, and a sanitized-chat artifact link. It is not a penetration test, dependency-CVE feed, live Azure audit, or secret scan.
-3. **Repository hygiene** — read-only analysis of remote branches, recent pull requests, and worktrees visible on the runner. It updates the stable `[agent-report] Repository hygiene recommendations` issue with confidence-ranked deletion candidates and commands for a human to consider. It never deletes a branch, reference, or worktree.
+1. **Documentation alignment (public repository)** — may create one narrow draft PR. It can edit only [README.md](../README.md), [.github/copilot-instructions.md](../.github/copilot-instructions.md), and this operating guide. Selected workflows and recent history are read-only evidence.
+2. **Security analysis (private companion repository)** — read-only static analysis of repository code, scripts, dependencies, infrastructure, and GitHub Actions. Deterministic outer code extracts a bounded set of line-numbered security surfaces before the model starts, preventing unbounded repository exploration. The session replaces a stable private `[agent-report] Security analysis` issue with concrete evidence and prioritized remediation. It is not a penetration test, dependency-CVE feed, live Azure audit, or secret scan.
+3. **Repository hygiene (private companion repository)** — read-only analysis of public remote branches, recent pull requests, and worktrees visible on the runner. It replaces a stable private `[agent-report] Repository hygiene recommendations` issue with confidence-ranked deletion candidates and commands for a human to consider. It never deletes a branch, reference, or worktree.
 
-The two report issues use `azure-agent-report` plus a category label and never receive `azure-backlog` automatically. Report text is replaced on each run rather than creating daily duplicate issues; a previously closed stable report is reopened when the next scheduled analysis is published.
+GitHub does not provide maintainer-only issues inside a public repository. Therefore security/hygiene reports, their Actions logs, and their sanitized chat artifacts must never be generated here. The private companion repository grants access only to the same maintainers/co-authors and stores both stable report issues plus private artifacts. Report text is replaced on each run rather than creating daily duplicates; a previously closed report is reopened on the next analysis.
+
+If security analysis identifies a credible vulnerability, maintainers should validate it privately and promote it manually to a draft GitHub repository security advisory. Draft advisories are the supported private collaboration mechanism for vulnerabilities in public repositories; they should be published only after remediation and disclosure review.
 
 Git worktrees exist on a filesystem, not on GitHub. A GitHub-hosted runner sees only its ephemeral checkout and cannot inspect worktrees on a developer machine. The hygiene report states this limitation and recommends running `git worktree list --porcelain` and `git worktree prune --dry-run` locally. Actual removal remains a human decision.
 
@@ -69,7 +71,7 @@ Security and repository-hygiene sessions have an additional report-only boundary
 - Copilot CLI excludes shell, PowerShell, file viewing/search, create, edit, and write tools from report sessions. Reports operate only on the bounded precomputed evidence, receive no GitHub token, and have no GitHub MCP, Azure CLI, or network access.
 - Deterministic outer code gathers branch/PR/worktree evidence before the model starts. Branch names, PR text, files, and evidence remain untrusted context.
 - The runner checks the Git working tree after each analysis. If any tracked or untracked file changed, it resets the checkout and publishes no report.
-- Only deterministic outer code can create labels or replace the two stable report issue bodies. Generated mentions are neutralized before publication.
+- Only deterministic outer code in the private companion repository can create labels or replace the two stable report issue bodies. Generated mentions are neutralized before publication.
 - The hygiene session can recommend commands but has no branch/worktree deletion implementation or permission path.
 - Every Copilot process has a 10-minute hard timeout. Uploaded audit artifacts include only sanitized chat Markdown and derived metadata JSON; raw OpenTelemetry JSONL is never selected for upload, including after cancellation.
 
@@ -124,10 +126,10 @@ The scheduled workflows use the built-in `GITHUB_TOKEN` only in deterministic ou
 ## Cost Controls
 
 - Azure OpenAI is the scheduled provider for Copilot CLI issue and documentation work.
-- The 07:00 UTC backlog run starts at most three issue-agent sessions. The 09:00 UTC maintenance run starts exactly three task slots: documentation alignment, security analysis, and repository hygiene. These use Azure tokens, not GitHub Copilot model quota.
+- The 07:00 UTC backlog run starts at most three issue-agent sessions. Public documentation alignment runs at 09:00 UTC. The private companion repository starts security and hygiene sessions at 10:00 UTC. These use Azure tokens, not GitHub Copilot model quota.
 - BYOK agent prompts contain the bounded task evidence and may use more Azure input tokens than the former direct JSON client; that trade-off is intentional for a full coding-agent runtime.
 - Live tasks wait 65 seconds between sessions to respect the current Azure OpenAI TPM allocation.
-- The backlog workflow has a 40-minute hard timeout and can create at most three draft PRs. The maintenance workflow has a 50-minute hard timeout and can create at most one documentation draft PR plus two stable issue updates. Each workflow has its own concurrency lock.
+- The backlog workflow has a 40-minute hard timeout and can create at most three draft PRs. Public documentation alignment can create at most one draft PR. Private analysis can replace at most two stable private report issues. Each workflow has its own concurrency lock.
 - The older Copilot path is intentionally manual-only in [.github/workflows/scheduled-copilot-agents.yml](../.github/workflows/scheduled-copilot-agents.yml), for an occasional comparison rather than recurring consumption.
 
 ## Manual Run
@@ -140,6 +142,6 @@ For coding backlog work:
 4. Run again with `dry_run` disabled when the queue is ready.
 5. Review draft PRs normally. Merging an issue-backed PR closes its source issue.
 
-For documentation/security/hygiene work, select **Scheduled Azure maintenance sessions**. A dry run builds and displays all three manifests without starting a model, creating a PR, or updating report issues.
+For public documentation work, select **Scheduled Azure documentation alignment**. For security/hygiene work, use **Scheduled private Azure analysis** in the private companion repository. Dry runs build the relevant manifests without starting a model, creating a PR, or updating reports.
 
 Use `force` only to deliberately replace an existing task branch. It does not bypass scope, test, lint, or whitespace validation.

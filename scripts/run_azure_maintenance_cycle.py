@@ -4,8 +4,11 @@ import argparse
 import importlib.util
 import json
 import os
+import re
 import subprocess
 import sys
+import urllib.error
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -66,27 +69,28 @@ def _run(*args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def _json_command(*args: str) -> Any:
-    completed = _run(*args)
-    if completed.returncode != 0:
-        detail = completed.stderr.strip()[:500]
-        raise RuntimeError(f"Evidence command failed: {' '.join(args[:3])}. {detail}")
+def _source_api(repository: str, path: str) -> Any:
+    token = os.environ.get("SOURCE_GITHUB_TOKEN", "").strip()
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "azure-region-monitor-private-analysis",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    request = urllib.request.Request(
+        f"https://api.github.com/repos/{repository}/{path.lstrip('/')}",
+        headers=headers,
+    )
     try:
-        return json.loads(completed.stdout)
+        with urllib.request.urlopen(request, timeout=30) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as error:
+        raise RuntimeError(f"Source GitHub API request failed: HTTP {error.code}.") from error
+    except (urllib.error.URLError, OSError) as error:
+        raise RuntimeError(f"Source GitHub API request failed: {error}.") from error
     except json.JSONDecodeError as error:
-        raise RuntimeError(f"Evidence command returned invalid JSON: {' '.join(args[:3])}.") from error
-
-
-def _flatten_pages(value: object) -> list[dict[str, Any]]:
-    if not isinstance(value, list):
-        return []
-    flattened: list[dict[str, Any]] = []
-    for item in value:
-        if isinstance(item, dict):
-            flattened.append(item)
-        elif isinstance(item, list):
-            flattened.extend(entry for entry in item if isinstance(entry, dict))
-    return flattened
+        raise RuntimeError("Source GitHub API returned invalid JSON.") from error
 
 
 def _login(value: object) -> str:
@@ -96,22 +100,20 @@ def _login(value: object) -> str:
 
 
 def _remote_branches(repository: str) -> list[dict[str, Any]]:
-    pages = _json_command(
-        "gh",
-        "api",
-        "--paginate",
-        "--slurp",
-        f"repos/{repository}/branches?per_page={MAX_REMOTE_BRANCHES}",
-    )
+    payload = _source_api(repository, f"branches?per_page={MAX_REMOTE_BRANCHES}")
     branches = []
-    for branch in _flatten_pages(pages)[:MAX_REMOTE_BRANCHES]:
+    if not isinstance(payload, list):
+        return branches
+    for branch in payload[:MAX_REMOTE_BRANCHES]:
+        if not isinstance(branch, dict):
+            continue
         name = branch.get("name")
         commit = branch.get("commit")
         sha = commit.get("sha") if isinstance(commit, dict) else None
         if not isinstance(name, str) or not isinstance(sha, str):
             continue
         committed_at = ""
-        commit_payload = _json_command("gh", "api", f"repos/{repository}/commits/{sha}")
+        commit_payload = _source_api(repository, f"commits/{sha}")
         if isinstance(commit_payload, dict):
             detail = commit_payload.get("commit")
             committer = detail.get("committer") if isinstance(detail, dict) else None
@@ -129,21 +131,9 @@ def _remote_branches(repository: str) -> list[dict[str, Any]]:
 
 
 def _pull_requests(repository: str) -> list[dict[str, Any]]:
-    payload = _json_command(
-        "gh",
-        "pr",
-        "list",
-        "--repo",
+    payload = _source_api(
         repository,
-        "--state",
-        "all",
-        "--limit",
-        str(MAX_PULL_REQUESTS),
-        "--json",
-        (
-            "number,title,state,isDraft,headRefName,baseRefName,author,createdAt,"
-            "updatedAt,closedAt,mergedAt,url"
-        ),
+        f"pulls?state=all&sort=updated&direction=desc&per_page={MAX_PULL_REQUESTS}",
     )
     if not isinstance(payload, list):
         return []
@@ -155,16 +145,18 @@ def _pull_requests(repository: str) -> list[dict[str, Any]]:
             {
                 "number": pull["number"],
                 "title": str(pull.get("title", ""))[:300],
-                "state": str(pull.get("state", "")),
-                "draft": bool(pull.get("isDraft")),
-                "head": str(pull.get("headRefName", "")),
-                "base": str(pull.get("baseRefName", "")),
-                "author": _login(pull.get("author")),
-                "created_at": str(pull.get("createdAt", "")),
-                "updated_at": str(pull.get("updatedAt", "")),
-                "closed_at": pull.get("closedAt"),
-                "merged_at": pull.get("mergedAt"),
-                "url": str(pull.get("url", "")),
+                "state": "MERGED"
+                if pull.get("merged_at")
+                else str(pull.get("state", "")).upper(),
+                "draft": bool(pull.get("draft")),
+                "head": str((pull.get("head") or {}).get("ref", "")),
+                "base": str((pull.get("base") or {}).get("ref", "")),
+                "author": _login(pull.get("user")),
+                "created_at": str(pull.get("created_at", "")),
+                "updated_at": str(pull.get("updated_at", "")),
+                "closed_at": pull.get("closed_at"),
+                "merged_at": pull.get("merged_at"),
+                "url": str(pull.get("html_url", "")),
             }
         )
     return values
@@ -421,18 +413,25 @@ def build_cycle(
     *,
     default_branch: str = "main",
     now: datetime | None = None,
+    session_set: str = "all",
 ) -> dict[str, list[dict[str, Any]]]:
-    if not repository or not os.environ.get("GH_TOKEN"):
-        raise RuntimeError("GITHUB_REPOSITORY and GH_TOKEN are required for maintenance evidence.")
+    if not re.fullmatch(r"[^/\s]+/[^/\s]+", repository):
+        raise RuntimeError("The source repository must use the owner/name format.")
+    if session_set not in {"all", "docs", "reports"}:
+        raise RuntimeError("Unsupported maintenance session set.")
     current_time = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     backlog_cycle = _load_backlog_cycle()
-    return {
-        "tasks": [
-            backlog_cycle._build_docs_task(),
-            _build_security_task(backlog_cycle),
-            _build_hygiene_task(repository, default_branch, current_time),
-        ]
-    }
+    tasks = []
+    if session_set in {"all", "docs"}:
+        tasks.append(backlog_cycle._build_docs_task())
+    if session_set in {"all", "reports"}:
+        tasks.extend(
+            [
+                _build_security_task(backlog_cycle),
+                _build_hygiene_task(repository, default_branch, current_time),
+            ]
+        )
+    return {"tasks": tasks}
 
 
 def render_cycle_markdown(cycle: dict[str, Any]) -> str:
@@ -455,10 +454,15 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Build three Azure BYOK maintenance tasks.")
     parser.add_argument("--repository", default=os.environ.get("GITHUB_REPOSITORY", ""))
     parser.add_argument("--default-branch", default="main")
+    parser.add_argument("--session-set", choices=("all", "docs", "reports"), default="all")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
 
-    cycle = build_cycle(args.repository, default_branch=args.default_branch)
+    cycle = build_cycle(
+        args.repository,
+        default_branch=args.default_branch,
+        session_set=args.session_set,
+    )
     args.output.write_text(json.dumps(cycle, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(render_cycle_markdown(cycle))
 

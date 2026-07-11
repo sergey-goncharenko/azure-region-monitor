@@ -1,0 +1,125 @@
+name: Scheduled private Azure analysis
+
+on:
+  schedule:
+    # Runs after public documentation alignment while keeping reports private.
+    - cron: "0 10 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Build private security and hygiene manifests without starting Azure BYOK"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: scheduled-private-azure-analysis
+  cancel-in-progress: false
+
+jobs:
+  private-analysis:
+    name: Maintainer-only security and repository hygiene
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout public source repository
+        uses: actions/checkout@v4
+        with:
+          repository: sergey-goncharenko/azure-region-monitor
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install project dependencies
+        run: python -m pip install ".[dev]"
+
+      - name: Install pinned GitHub Copilot CLI
+        run: |
+          npm install --global @github/copilot@1.0.70
+          copilot --version
+
+      - name: Build two private report sessions
+        env:
+          SOURCE_REPOSITORY: sergey-goncharenko/azure-region-monitor
+        run: |
+          set -euo pipefail
+          python scripts/run_azure_maintenance_cycle.py \
+            --repository "$SOURCE_REPOSITORY" \
+            --default-branch main \
+            --session-set reports \
+            --output "$RUNNER_TEMP/private-analysis-manifest.json" \
+            >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Run isolated private Azure BYOK analysis sessions
+        env:
+          DRY_RUN: ${{ inputs.dry_run || false }}
+          BASE_BRANCH: main
+          BYOK_REPORT_TRUST_CHECKOUT: "true"
+          GH_TOKEN: ${{ github.token }}
+          AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_KEY }}
+          AZURE_OPENAI_ENDPOINT: ${{ vars.AZURE_OPENAI_ENDPOINT }}
+          AZURE_OPENAI_DEPLOYMENT: ${{ vars.AZURE_COPILOT_DEPLOYMENT || vars.AZURE_OPENAI_DEPLOYMENT }}
+          COPILOT_BYOK_MODEL_ID: ${{ vars.COPILOT_BYOK_MODEL_ID || 'gpt-5.4-mini' }}
+          BYOK_AGENT_TIMEOUT_SECONDS: "600"
+          BYOK_TASK_COOLDOWN_SECONDS: "65"
+          BYOK_AUDIT_DIR: ${{ runner.temp }}/byok-audit
+        run: |
+          set -euo pipefail
+
+          if [ "$DRY_RUN" != "true" ] && { [ -z "${AZURE_OPENAI_API_KEY:-}" ] || [ -z "${AZURE_OPENAI_ENDPOINT:-}" ] || [ -z "${AZURE_OPENAI_DEPLOYMENT:-}" ]; }; then
+            echo "Missing Azure OpenAI BYOK configuration." >&2
+            exit 2
+          fi
+
+          python - "$RUNNER_TEMP/private-analysis-manifest.json" "$RUNNER_TEMP" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          manifest = json.load(open(sys.argv[1], encoding="utf-8"))
+          tasks = manifest.get("tasks", [])
+          if len(tasks) != 2 or any(task.get("kind") != "report" for task in tasks):
+              raise SystemExit("Expected exactly two private report tasks.")
+          output = Path(sys.argv[2])
+          for index, task in enumerate(tasks):
+              (output / f"private-report-{index}.json").write_text(
+                  json.dumps(task), encoding="utf-8"
+              )
+          PY
+
+          failures=0
+          task_paths=("$RUNNER_TEMP"/private-report-[0-9]*.json)
+          for index in "${!task_paths[@]}"; do
+            args=(--task "${task_paths[$index]}" --base-branch "$BASE_BRANCH")
+            if [ "$DRY_RUN" = "true" ]; then
+              args+=(--dry-run)
+            fi
+            if ! python scripts/run_azure_byok_report.py "${args[@]}" 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"; then
+              failures=1
+            fi
+            if [ "$DRY_RUN" != "true" ] && [ "$index" -lt "$(( ${#task_paths[@]} - 1 ))" ]; then
+              echo "Waiting ${BYOK_TASK_COOLDOWN_SECONDS}s for Azure BYOK TPM capacity." | tee -a "$GITHUB_STEP_SUMMARY"
+              sleep "$BYOK_TASK_COOLDOWN_SECONDS"
+            fi
+          done
+          exit "$failures"
+
+      - name: Upload private sanitized chats and usage
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: private-azure-analysis-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/byok-audit/*-chat.md
+            ${{ runner.temp }}/byok-audit/*-metadata.json
+          if-no-files-found: ignore
+          retention-days: 30

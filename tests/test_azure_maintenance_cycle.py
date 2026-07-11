@@ -93,6 +93,34 @@ def test_worktree_candidates_are_recommendations_only():
     assert all(candidate["recommendation_only"] for candidate in candidates)
 
 
+def test_pull_request_evidence_normalizes_rest_merged_state(monkeypatch):
+    monkeypatch.setattr(
+        maintenance,
+        "_source_api",
+        lambda repository, path: [
+            {
+                "number": 50,
+                "title": "Merged work",
+                "state": "closed",
+                "draft": False,
+                "head": {"ref": "feature"},
+                "base": {"ref": "main"},
+                "user": {"login": "bot"},
+                "created_at": "2026-07-10T00:00:00Z",
+                "updated_at": "2026-07-11T00:00:00Z",
+                "closed_at": "2026-07-11T00:00:00Z",
+                "merged_at": "2026-07-11T00:00:00Z",
+                "html_url": "https://example.test/pull/50",
+            }
+        ],
+    )
+
+    pulls = maintenance._pull_requests("example/repo")
+
+    assert pulls[0]["state"] == "MERGED"
+    assert pulls[0]["head"] == "feature"
+
+
 def test_hygiene_evidence_never_authorizes_deletion(monkeypatch):
     monkeypatch.setattr(maintenance, "_remote_branches", lambda repository: [_branch("main")])
     monkeypatch.setattr(maintenance, "_pull_requests", lambda repository: [])
@@ -169,6 +197,34 @@ def test_cycle_contains_three_isolated_sessions_in_required_order(monkeypatch):
     assert "Never perform deletion" in cycle["tasks"][2]["evidence"]["objective"]
 
 
+def test_cycle_can_build_docs_or_reports_separately(monkeypatch):
+    class BacklogCycle:
+        @staticmethod
+        def _build_docs_task():
+            return {
+                "kind": "docs",
+                "category": "documentation-alignment",
+                "summary": "Docs",
+            }
+
+        @staticmethod
+        def _git_history():
+            return "abc123 docs"
+
+    monkeypatch.setattr(maintenance, "_load_backlog_cycle", lambda: BacklogCycle)
+    monkeypatch.setattr(
+        maintenance,
+        "_collect_hygiene_evidence",
+        lambda repository, default_branch, now: {"safety": "No deletion."},
+    )
+
+    docs = maintenance.build_cycle("example/repo", session_set="docs", now=NOW)
+    reports = maintenance.build_cycle("example/repo", session_set="reports", now=NOW)
+
+    assert [task["kind"] for task in docs["tasks"]] == ["docs"]
+    assert [task["kind"] for task in reports["tasks"]] == ["report", "report"]
+
+
 def test_cycle_markdown_marks_analysis_sessions_report_only():
     rendered = maintenance.render_cycle_markdown(
         {
@@ -196,7 +252,7 @@ def test_cycle_markdown_marks_analysis_sessions_report_only():
     assert rendered.count("Mode: report only") == 2
 
 
-def test_maintenance_workflow_runs_three_sessions_without_deletion_commands():
+def test_public_maintenance_workflow_runs_documentation_only():
     workflow = (REPO_ROOT / ".github/workflows/scheduled-azure-maintenance.yml").read_text(
         encoding="utf-8"
     )
@@ -204,12 +260,31 @@ def test_maintenance_workflow_runs_three_sessions_without_deletion_commands():
     assert 'cron: "0 9 * * *"' in workflow
     assert "run_azure_maintenance_cycle.py" in workflow
     assert "run_azure_byok_task.py" in workflow
-    assert "run_azure_byok_report.py" in workflow
+    assert "--session-set docs" in workflow
+    assert "run_azure_byok_report.py" not in workflow
     assert "persist-credentials: false" in workflow
     assert "azure-byok-chat-${{ github.run_id }}" in workflow
     assert "*-metadata.json" in workflow
     assert "*-telemetry.jsonl" not in workflow
     assert 'BYOK_AGENT_TIMEOUT_SECONDS: "600"' in workflow
+
+
+def test_private_analysis_template_keeps_reports_out_of_public_repository():
+    workflow = (
+        REPO_ROOT / ".github/private-reporting/scheduled-private-analysis.yml"
+    ).read_text(encoding="utf-8")
+
+    assert 'cron: "0 10 * * *"' in workflow
+    assert "repository: sergey-goncharenko/azure-region-monitor" in workflow
+    assert "--session-set reports" in workflow
+    assert "run_azure_byok_report.py" in workflow
+    assert 'BYOK_REPORT_TRUST_CHECKOUT: "true"' in workflow
+    assert "issues: write" in workflow
+    assert "pull-requests: write" not in workflow
+    assert "private-azure-analysis-${{ github.run_id }}" in workflow
+    assert "*-telemetry.jsonl" not in workflow
+    assert "git worktree remove" not in workflow
+    assert "git push --delete" not in workflow
     assert "git worktree remove" not in workflow
     assert "git push --delete" not in workflow
     assert "gh api --method DELETE" not in workflow

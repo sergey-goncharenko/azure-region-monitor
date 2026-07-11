@@ -102,6 +102,21 @@ def test_report_session_rejects_option_like_base_branch():
     assert result == 1
 
 
+def test_trusted_report_checkout_must_match_expected_source_branch(monkeypatch):
+    monkeypatch.setenv("GH_TOKEN", "token")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "private/reports")
+    monkeypatch.setenv("BYOK_REPORT_TRUST_CHECKOUT", "true")
+    monkeypatch.setattr(
+        report_task.byok_task,
+        "_run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(args, 0, "wrong-branch\n", ""),
+    )
+
+    result = report_task.run_report_task(_task(), base_branch="main")
+
+    assert result == 1
+
+
 def test_report_body_neutralizes_mentions_and_includes_audit_metadata():
     body_path = report_task._write_report_body(
         _task(),
