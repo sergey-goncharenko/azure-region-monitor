@@ -80,6 +80,8 @@ def test_hygiene_prompt_never_authorizes_deletion():
 
     assert "do not execute or imply that any deletion occurred" in prompt
     assert "cannot inspect worktrees on developer machines" in prompt
+    assert "MERGED as the primary high-confidence" in prompt
+    assert "CLOSED-but-unmerged branches as preservation" in prompt
 
 
 def test_report_evidence_is_redacted_before_prompting():

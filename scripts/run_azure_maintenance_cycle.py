@@ -225,14 +225,23 @@ def _branch_candidates(
         classification = ""
         confidence = ""
         reason = ""
+        recommended_action = ""
         if pull and pull.get("state") == "MERGED":
             classification = "merged-pr-branch"
             confidence = "high"
             reason = f"Latest associated PR #{pull['number']} is merged."
+            recommended_action = (
+                "Recommend deleting the remote branch after a final human check that no open "
+                "PR or protected-branch policy depends on it."
+            )
         elif pull and pull.get("state") == "CLOSED":
             classification = "closed-unmerged-pr-branch"
             confidence = "medium"
             reason = f"Latest associated PR #{pull['number']} closed without merge."
+            recommended_action = (
+                "Preserve by default; ask the owner to confirm the unmerged work is abandoned "
+                "or backed up before deletion."
+            )
         elif not pull:
             committed_at = str(branch.get("committed_at", ""))
             try:
@@ -244,6 +253,9 @@ def _branch_candidates(
                 classification = "stale-branch-without-recent-pr"
                 confidence = "low"
                 reason = f"No recent PR was found and the tip is {age_days} days old."
+                recommended_action = (
+                    "Investigate ownership and unique commits; do not delete solely because of age."
+                )
         if classification:
             candidates.append(
                 {
@@ -251,6 +263,7 @@ def _branch_candidates(
                     "classification": classification,
                     "confidence": confidence,
                     "reason": reason,
+                    "recommended_action": recommended_action,
                     "committed_at": branch.get("committed_at", ""),
                     "associated_pr": pull,
                 }

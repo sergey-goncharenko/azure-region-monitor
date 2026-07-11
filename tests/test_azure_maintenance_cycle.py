@@ -60,7 +60,9 @@ def test_branch_candidates_prioritize_merged_and_preserve_open_or_protected_bran
     by_name = {candidate["branch"]: candidate for candidate in candidates}
     assert by_name["merged-work"]["confidence"] == "high"
     assert by_name["merged-work"]["classification"] == "merged-pr-branch"
+    assert "Recommend deleting" in by_name["merged-work"]["recommended_action"]
     assert by_name["closed-work"]["confidence"] == "medium"
+    assert "Preserve by default" in by_name["closed-work"]["recommended_action"]
     assert by_name["old-no-pr"]["confidence"] == "low"
     assert "main" not in by_name
     assert "open-work" not in by_name
