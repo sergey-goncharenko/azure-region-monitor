@@ -275,7 +275,7 @@ def test_model_task_manifest_includes_pull_request_feedback(monkeypatch):
     assert feedback["reviews"][0]["state"] == "CHANGES_REQUESTED"
 
 
-def test_agent_environment_uses_reduced_provider_token_limits(monkeypatch):
+def test_agent_environment_uses_mini_coding_token_limits(monkeypatch):
     monkeypatch.setenv("AZURE_OPENAI_API_KEY", "azure-key")
     monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://eastus.api.cognitive.microsoft.com")
     monkeypatch.setenv("AZURE_OPENAI_DEPLOYMENT", "gpt-5.4-mini")
@@ -283,8 +283,8 @@ def test_agent_environment_uses_reduced_provider_token_limits(monkeypatch):
 
     environment = byok_task._agent_environment()
 
-    assert environment["COPILOT_PROVIDER_MAX_PROMPT_TOKENS"] == "5500"
-    assert environment["COPILOT_PROVIDER_MAX_OUTPUT_TOKENS"] == "500"
+    assert environment["COPILOT_PROVIDER_MAX_PROMPT_TOKENS"] == "32000"
+    assert environment["COPILOT_PROVIDER_MAX_OUTPUT_TOKENS"] == "4000"
 
 
 def test_agent_environment_uses_nano_token_limits(monkeypatch):

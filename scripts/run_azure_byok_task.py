@@ -168,7 +168,7 @@ def _agent_environment() -> dict[str, str]:
 
 
 def _provider_token_limits(model_id: str) -> tuple[str, str]:
-    if model_id == "gpt-5.4-nano":
+    if model_id in {"gpt-5.4-nano", "gpt-5.4-mini"}:
         return "32000", "4000"
     return "5500", "500"
 

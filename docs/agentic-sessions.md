@@ -118,8 +118,8 @@ Configure these repository settings:
 - Secret `AZURE_OPENAI_KEY`: API key for the Azure OpenAI or Foundry deployment.
 - Variable `AZURE_OPENAI_ENDPOINT`: endpoint URL.
 - Variable `AZURE_OPENAI_DEPLOYMENT`: shared deployment name for blog, social, and narrative generation.
-- Optional variable `AZURE_COPILOT_DEPLOYMENT`: dedicated deployment name for scheduled coding tasks. It currently uses `copilot-gpt-5-4-nano` so coding has its own higher TPM allocation without changing content generation.
-- Optional variable `COPILOT_BYOK_MODEL_ID`: the known base model ID for Copilot CLI prompting and token limits. It is set to `gpt-5.4-nano` for the dedicated coding deployment.
+- Optional variable `AZURE_COPILOT_DEPLOYMENT`: dedicated deployment name for scheduled coding tasks. Public issue work currently uses `copilot-gpt-5-4-mini` at 40K TPM; the existing Nano deployment remains available for rollback without changing content generation.
+- Optional variable `COPILOT_BYOK_MODEL_ID`: the known base model ID for Copilot CLI prompting and token limits. It is set to `gpt-5.4-mini` for public issue coding; private report workflows may retain Nano independently.
 
 Use [.github/workflows/provision-azure-codex-openai.yml](../.github/workflows/provision-azure-codex-openai.yml) to create or verify the Azure AI Services resource and deployment. Its optional repository-settings mode needs the separate `GH_REPO_SETTINGS_TOKEN`; grant that token only the minimum settings permissions and rotate it after bootstrap.
 
