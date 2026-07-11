@@ -176,6 +176,9 @@ def test_selected_issue_includes_comments_and_subissue_context(tmp_path):
                 "sub_issues": [{"number": 12, "title": "Validate summary", "comments": []}],
             }
 
+        def fetch_pull_request_feedback(self, issue_number):
+            return None
+
     context = issue_agent.build_issue_context(path, github_context_client=ContextClient())
 
     rich_context = context["evidence"]["github_issue_context"]
@@ -190,6 +193,9 @@ def test_selected_issue_reports_context_fetch_warning_without_broadening_scope(t
     class ContextClient:
         def fetch(self, issue_number):
             raise RuntimeError("GitHub issue context request failed: HTTP 503.")
+
+        def fetch_pull_request_feedback(self, issue_number):
+            return None
 
     context = issue_agent.build_issue_context(path, github_context_client=ContextClient())
 
@@ -264,6 +270,74 @@ def test_github_context_client_fetches_comments_and_direct_subissues():
     assert context["issue"]["comments"][0]["body"] == "Root comment"
     assert context["sub_issues"][0]["title"] == "Child work"
     assert context["sub_issues"][0]["comments"][0]["body"] == "Child comment"
+
+
+def test_github_context_client_fetches_pull_request_review_feedback():
+    class Response:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc_value, traceback):
+            return False
+
+        def read(self):
+            return json.dumps(self._payload).encode("utf-8")
+
+    class Opener:
+        def __init__(self, responses):
+            self.responses = responses
+
+        def open(self, request, timeout):
+            return Response(self.responses[request.full_url])
+
+    base = "https://api.github.com/repos/example/repo"
+    opener = Opener(
+        {
+            f"{base}/pulls?state=open&head=example%3Aazure-issues%2Fissue-11&per_page=10": [
+                {
+                    "number": 50,
+                    "title": "Improve API",
+                    "body": "Initial PR body",
+                    "html_url": "https://github.com/example/repo/pull/50",
+                }
+            ],
+            f"{base}/issues/50/comments?per_page=100&page=1": [
+                {"id": 1, "body": "Please explain the fallback.", "user": {"login": "owner"}}
+            ],
+            f"{base}/pulls/50/reviews?per_page=100&page=1": [
+                {
+                    "id": 2,
+                    "state": "CHANGES_REQUESTED",
+                    "body": "Avoid process-global state.",
+                    "user": {"login": "owner"},
+                }
+            ],
+            f"{base}/pulls/50/comments?per_page=100&page=1": [
+                {
+                    "id": 3,
+                    "path": "src/api.py",
+                    "line": 42,
+                    "side": "RIGHT",
+                    "body": "Add a regression test here.",
+                    "user": {"login": "owner"},
+                }
+            ],
+        }
+    )
+    client = issue_agent.GitHubIssueContextClient(
+        repository="example/repo", token="test-token", opener=opener
+    )
+
+    feedback = client.fetch_pull_request_feedback(11)
+
+    assert feedback is not None
+    assert feedback["number"] == 50
+    assert feedback["conversation_comments"][0]["body"] == "Please explain the fallback."
+    assert feedback["reviews"][0]["state"] == "CHANGES_REQUESTED"
+    assert feedback["inline_comments"][0]["path"] == "src/api.py"
 
 
 def test_issue_context_budget_marks_truncation(monkeypatch):

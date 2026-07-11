@@ -43,7 +43,7 @@ def test_documentation_alignment_is_always_last(monkeypatch, tmp_path):
     monkeypatch.setattr(
         backlog_cycle,
         "_build_issue_tasks",
-        lambda issues_path, limit, repository, snapshot_url: [
+        lambda issues_path, limit, repository, snapshot_url, target_issue: [
             {"kind": "issue", "category": "issue-1", "summary": "First task"},
             {"kind": "issue", "category": "issue-2", "summary": "Second task"},
             {"kind": "issue", "category": "issue-3", "summary": "Third task"},
@@ -63,6 +63,32 @@ def test_documentation_alignment_is_always_last(monkeypatch, tmp_path):
         "issue",
         "docs",
     ]
+
+
+def test_targeted_rework_selects_one_issue_and_skips_docs(monkeypatch, tmp_path):
+    captured = {}
+
+    def build_tasks(issues_path, limit, repository, snapshot_url, target_issue):
+        captured["target_issue"] = target_issue
+        return [{"kind": "issue", "category": "issue-49", "summary": "Rework"}]
+
+    monkeypatch.setattr(backlog_cycle, "_build_issue_tasks", build_tasks)
+    monkeypatch.setattr(
+        backlog_cycle,
+        "_build_docs_task",
+        lambda: (_ for _ in ()).throw(AssertionError("docs should be skipped")),
+    )
+
+    cycle = backlog_cycle.build_cycle(
+        tmp_path / "issues.json",
+        3,
+        "example/repo",
+        target_issue=49,
+        include_docs=False,
+    )
+
+    assert captured["target_issue"] == 49
+    assert [task["category"] for task in cycle["tasks"]] == ["issue-49"]
 
 
 def test_current_unknown_context_selects_top_group_scope(monkeypatch):

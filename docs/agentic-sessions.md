@@ -70,6 +70,19 @@ Every generated PR includes a reviewer-facing rationale in its description:
 
 Only the final `assistant.message` is used. Opaque/encrypted reasoning events, private chain-of-thought, tool traces, and secret-like values are excluded or redacted.
 
+Generated PRs also report the Azure model ID/deployment, exact OpenTelemetry input and output token counts, reasoning-output tokens, API call count, session duration, and Copilot session ID. Cached input tokens are shown as a subset of input tokens and are not added twice to the total. Each workflow uploads a 30-day `azure-byok-chat-<run-id>` artifact containing a sanitized native Copilot chat export and machine-readable metadata for each executed task. The PR links to the workflow run's artifact section. The exported chat includes visible user/assistant messages and tool interactions, but not opaque/encrypted reasoning or secrets.
+
+## Requesting Changes On A Bot PR
+
+1. Leave normal PR conversation comments, inline review comments, or submit **Request changes**.
+2. Open **Actions** → **Scheduled Azure backlog** → **Run workflow**.
+3. Set `target_issue` to the source issue number shown in the PR description.
+4. Set `force` to `true` and leave `dry_run` disabled.
+
+The targeted run selects only that issue and skips documentation alignment. It fetches the open PR's conversation comments, submitted reviews, and inline comments; checks out the existing PR branch; applies bounded amendments; reruns tests/Ruff/whitespace validation; pushes another bot commit; refreshes the same PR description with new rationale/model/token/chat metadata; and posts a bot comment. It does not create a second PR.
+
+Only trusted repository collaborators should dispatch forced rework. The agent still cannot change files outside the issue-derived scope, even if a review comment requests broader work; broader work should become a separate backlog issue.
+
 ## Azure Configuration
 
 Configure these repository settings:

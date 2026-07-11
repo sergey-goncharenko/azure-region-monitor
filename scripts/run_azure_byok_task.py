@@ -215,6 +215,11 @@ def _model_task_manifest(task: dict[str, Any]) -> dict[str, Any]:
     rich_context = evidence.get("github_issue_context")
     if rich_context is not None:
         compact_evidence["github_issue_context"] = _truncate_json(rich_context)
+    pull_request_feedback = evidence.get("github_pull_request_feedback")
+    if pull_request_feedback is not None:
+        compact_evidence["github_pull_request_feedback"] = _truncate_json(
+            pull_request_feedback
+        )
     current_unknown_status = evidence.get("current_unknown_status")
     if current_unknown_status is not None:
         compact_evidence["current_unknown_status"] = _truncate_json(current_unknown_status)
@@ -241,9 +246,23 @@ def _truncate_json(value: object) -> object:
     return serialized[:MAX_AGENT_EVIDENCE_CHARS] + "\n[...context truncated for model rate budget...]"
 
 
-def _run_agent(task: dict[str, Any]) -> subprocess.CompletedProcess[str]:
+def _run_agent(
+    task: dict[str, Any],
+    transcript_path: Path | None = None,
+    telemetry_path: Path | None = None,
+) -> subprocess.CompletedProcess[str]:
     environment = _agent_environment()
-    return _run(
+    if telemetry_path is not None:
+        telemetry_path.parent.mkdir(parents=True, exist_ok=True)
+        telemetry_path.unlink(missing_ok=True)
+        environment.update(
+            {
+                "COPILOT_OTEL_ENABLED": "true",
+                "COPILOT_OTEL_EXPORTER_TYPE": "file",
+                "COPILOT_OTEL_FILE_EXPORTER_PATH": str(telemetry_path),
+            }
+        )
+    command = [
         *_copilot_command(),
         "--model",
         environment["COPILOT_PROVIDER_MODEL_ID"],
@@ -267,8 +286,125 @@ def _run_agent(task: dict[str, Any]) -> subprocess.CompletedProcess[str]:
         "--secret-env-vars=AZURE_OPENAI_API_KEY,COPILOT_PROVIDER_API_KEY,GH_TOKEN,GITHUB_TOKEN",
         "--output-format",
         "json",
-        env=environment,
+    ]
+    if transcript_path is not None:
+        transcript_path.parent.mkdir(parents=True, exist_ok=True)
+        transcript_path.unlink(missing_ok=True)
+        command.append(f"--share={transcript_path}")
+    return _run(*command, env=environment)
+
+
+def _audit_paths(task: dict[str, Any]) -> tuple[Path, Path, Path]:
+    configured = os.environ.get("BYOK_AUDIT_DIR")
+    base = Path(configured) if configured else Path(tempfile.mkdtemp(prefix="azure-byok-audit-"))
+    base.mkdir(parents=True, exist_ok=True)
+    stem = str(task["category"])
+    return (
+        base / f"{stem}-chat.md",
+        base / f"{stem}-telemetry.jsonl",
+        base / f"{stem}-metadata.json",
     )
+
+
+def _sanitize_transcript(path: Path) -> None:
+    if not path.is_file():
+        return
+    text = path.read_text(encoding="utf-8", errors="replace")
+    path.write_text(_redact_sensitive_text(text), encoding="utf-8")
+
+
+def _agent_metadata(
+    stdout: str,
+    telemetry_path: Path,
+    task: dict[str, Any],
+) -> dict[str, Any]:
+    metadata: dict[str, Any] = {
+        "model_id": os.environ.get("COPILOT_BYOK_MODEL_ID", CLI_MODEL_ID),
+        "deployment": os.environ.get("AZURE_OPENAI_DEPLOYMENT", ""),
+        "session_id": "",
+        "session_duration_ms": 0,
+        "api_duration_ms": 0,
+        "api_calls": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "reasoning_output_tokens": 0,
+        "cached_input_tokens": 0,
+        "issue_number": task.get("issue_number"),
+        "category": task["category"],
+    }
+    json_output_tokens = 0
+    for line in stdout.splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(event, dict):
+            continue
+        data = event.get("data")
+        if event.get("type") == "assistant.message" and isinstance(data, dict):
+            model = data.get("model")
+            if isinstance(model, str):
+                metadata["response_model"] = model
+            output_tokens = data.get("outputTokens")
+            if isinstance(output_tokens, int):
+                json_output_tokens += output_tokens
+        if event.get("type") == "result":
+            session_id = event.get("sessionId")
+            if isinstance(session_id, str):
+                metadata["session_id"] = session_id
+            usage = event.get("usage")
+            if isinstance(usage, dict):
+                metadata["session_duration_ms"] = int(usage.get("sessionDurationMs", 0) or 0)
+                metadata["api_duration_ms"] = int(usage.get("totalApiDurationMs", 0) or 0)
+
+    seen_spans: set[str] = set()
+    if telemetry_path.is_file():
+        for line in telemetry_path.read_text(encoding="utf-8", errors="replace").splitlines():
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(event, dict) or event.get("type") != "span":
+                continue
+            span_id = event.get("spanId")
+            if isinstance(span_id, str) and span_id in seen_spans:
+                continue
+            attributes = event.get("attributes")
+            if not isinstance(attributes, dict) or attributes.get("gen_ai.operation.name") != "chat":
+                continue
+            if isinstance(span_id, str):
+                seen_spans.add(span_id)
+            metadata["api_calls"] += 1
+            metadata["input_tokens"] += _int_attribute(
+                attributes, "gen_ai.usage.input_tokens"
+            )
+            metadata["output_tokens"] += _int_attribute(
+                attributes, "gen_ai.usage.output_tokens"
+            )
+            metadata["reasoning_output_tokens"] += _int_attribute(
+                attributes, "gen_ai.usage.reasoning.output_tokens"
+            )
+            metadata["cached_input_tokens"] += max(
+                _int_attribute(attributes, "gen_ai.usage.cached_input_tokens"),
+                _int_attribute(attributes, "gen_ai.usage.cache_read.input_tokens"),
+            )
+            response_model = attributes.get("gen_ai.response.model")
+            if isinstance(response_model, str):
+                metadata["response_model"] = response_model
+    if metadata["api_calls"] == 0:
+        metadata["output_tokens"] = json_output_tokens
+    metadata["total_tokens"] = metadata["input_tokens"] + metadata["output_tokens"]
+    return metadata
+
+
+def _int_attribute(attributes: dict[str, Any], key: str) -> int:
+    value = attributes.get(key, 0)
+    return int(value) if isinstance(value, (int, float)) else 0
+
+
+def _write_metadata(path: Path, metadata: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
 def _changed_paths() -> set[str]:
@@ -284,7 +420,10 @@ def _reset() -> None:
 
 
 def _write_pr_body(
-    task: dict[str, Any], rationale: str, changed_paths: set[str]
+    task: dict[str, Any],
+    rationale: str,
+    changed_paths: set[str],
+    metadata: dict[str, Any],
 ) -> Path:
     tests = task["tests"] or [""]
     issue_number = task.get("issue_number")
@@ -302,6 +441,10 @@ def _write_pr_body(
         + (rationale or "The agent returned no final rationale summary.")
         + "\n\n## Changed files\n\n"
         + "\n".join(f"- `{path}`" for path in sorted(changed_paths))
+        + "\n\n## Model and token usage\n\n"
+        + _usage_summary(metadata)
+        + "\n\n## Full sanitized chat\n\n"
+        + _chat_summary(metadata)
         + "\n\n## Deterministic validation\n\n"
         + "\n".join(f"- python -m pytest {path}".rstrip() for path in tests)
         + "\n- python -m ruff check .\n"
@@ -311,6 +454,52 @@ def _write_pr_body(
     )
     handle.close()
     return Path(handle.name)
+
+
+def _usage_summary(metadata: dict[str, Any]) -> str:
+    duration_seconds = round(int(metadata.get("session_duration_ms", 0)) / 1000, 2)
+    return "\n".join(
+        [
+            f"- Model ID: `{metadata.get('model_id') or 'not reported'}`",
+            f"- Azure deployment / response model: `{metadata.get('response_model') or metadata.get('deployment') or 'not reported'}`",
+            f"- Input tokens: {int(metadata.get('input_tokens', 0)):,}",
+            f"- Cached input tokens (subset of input): {int(metadata.get('cached_input_tokens', 0)):,}",
+            f"- Output tokens: {int(metadata.get('output_tokens', 0)):,}",
+            f"- Reasoning output tokens (included in output): {int(metadata.get('reasoning_output_tokens', 0)):,}",
+            f"- Total tokens (input + output; cached input is not added twice): {int(metadata.get('total_tokens', 0)):,}",
+            f"- Model API calls: {int(metadata.get('api_calls', 0))}",
+            f"- Session duration: {duration_seconds}s",
+            f"- Copilot session ID: `{metadata.get('session_id') or 'not reported'}`",
+        ]
+    )
+
+
+def _chat_summary(metadata: dict[str, Any]) -> str:
+    artifact = metadata.get("artifact_name") or "Azure BYOK chat artifact"
+    transcript = metadata.get("transcript_file") or "transcript unavailable"
+    run_url = metadata.get("run_url")
+    if run_url:
+        location = f"Download artifact `{artifact}` from [the workflow run]({run_url}#artifacts) and open `{transcript}`."
+    else:
+        location = f"Artifact `{artifact}`, file `{transcript}`."
+    return (
+        location
+        + "\n\nThe transcript contains user/assistant conversation and visible tool interactions. "
+        "Opaque/encrypted reasoning and secret-like values are excluded or redacted."
+    )
+
+
+def _artifact_metadata(transcript_path: Path) -> dict[str, str]:
+    run_id = os.environ.get("GITHUB_RUN_ID", "")
+    repository = os.environ.get("GITHUB_REPOSITORY", "")
+    server = os.environ.get("GITHUB_SERVER_URL", "https://github.com").rstrip("/")
+    return {
+        "artifact_name": f"azure-byok-chat-{run_id}" if run_id else "azure-byok-chat",
+        "transcript_file": transcript_path.name,
+        "run_url": f"{server}/{repository}/actions/runs/{run_id}"
+        if repository and run_id
+        else "",
+    }
 
 
 def _selection_summary(task: dict[str, Any]) -> str:
@@ -367,6 +556,24 @@ def _extract_agent_rationale(stdout: str) -> str:
 
 def _redact_sensitive_text(text: str) -> str:
     clean = "".join(character for character in text if character in "\n\t" or ord(character) >= 32)
+    clean = re.sub(r"(?i)(bearer\s+)\S+", r"\1[REDACTED]", clean)
+    clean = re.sub(
+        r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b",
+        "[REDACTED]",
+        clean,
+    )
+    clean = re.sub(r"\bgithub_pat_[A-Za-z0-9_]{16,}\b", "[REDACTED]", clean)
+    clean = re.sub(r"\bgh[pousr]_[A-Za-z0-9]{16,}\b", "[REDACTED]", clean)
+    clean = re.sub(
+        r"(?i)([?&](?:sig|signature)=)[^&\s]+",
+        r"\1[REDACTED]",
+        clean,
+    )
+    clean = re.sub(
+        r"(?i)((?:AccountKey|SharedAccessKey|ClientSecret|client_secret)=)[^;\s]+",
+        r"\1[REDACTED]",
+        clean,
+    )
     clean = re.sub(
         r"(?i)(api[_ -]?key|token|authorization|password|secret)\s*[:=]\s*\S+",
         r"\1=[REDACTED]",
@@ -376,6 +583,7 @@ def _redact_sensitive_text(text: str) -> str:
 
 
 def _safe_failure_detail(stderr: str) -> str:
+    stderr = _redact_sensitive_text(stderr)
     diagnostic_lines = [
         line.strip()
         for line in stderr.splitlines()
@@ -386,8 +594,6 @@ def _safe_failure_detail(stderr: str) -> str:
         )
     ]
     detail = "\n".join(diagnostic_lines)[:MAX_FAILURE_DETAIL_CHARS]
-    detail = re.sub(r"(?i)(api[_ -]?key|token|authorization)\s*[:=]\s*\S+", r"\1=[REDACTED]", detail)
-    detail = re.sub(r"\b(?:sk|gh[opsu])[-_A-Za-z0-9]{8,}\b", "[REDACTED]", detail)
     return detail
 
 
@@ -407,14 +613,29 @@ def run_task(task: dict[str, Any], *, base_branch: str, dry_run: bool, force: bo
         return 0
 
     _run("git", "fetch", "origin", base_branch, "--depth", "1")
-    checkout = _run("git", "checkout", "-B", branch, f"origin/{base_branch}")
+    start_ref = f"origin/{base_branch}"
+    if existing and force:
+        branch_fetch = _run(
+            "git",
+            "fetch",
+            "origin",
+            f"{branch}:refs/remotes/origin/{branch}",
+            "--depth",
+            "50",
+        )
+        if branch_fetch.returncode != 0:
+            _summary("Could not fetch the existing PR branch; no rework was applied.")
+            return 0
+        start_ref = f"origin/{branch}"
+    checkout = _run("git", "checkout", "-B", branch, start_ref)
     if checkout.returncode != 0:
         _summary("Could not create a clean task branch; no PR was created.")
         return 0
     _reset()
 
+    transcript_path, telemetry_path, metadata_path = _audit_paths(task)
     try:
-        agent = _run_agent(task)
+        agent = _run_agent(task, transcript_path, telemetry_path)
     except OSError as error:
         _reset()
         detail = _safe_failure_detail(str(error))
@@ -423,6 +644,11 @@ def run_task(task: dict[str, Any], *, base_branch: str, dry_run: bool, force: bo
             message += "\nSanitized launcher diagnostic:\n" + detail
         _summary(message)
         return 0
+    _sanitize_transcript(transcript_path)
+    metadata = _agent_metadata(agent.stdout, telemetry_path, task)
+    metadata.update(_artifact_metadata(transcript_path))
+    _write_metadata(metadata_path, metadata)
+    telemetry_path.unlink(missing_ok=True)
     if agent.returncode != 0:
         _reset()
         detail = _safe_failure_detail(agent.stderr)
@@ -461,16 +687,41 @@ def run_task(task: dict[str, Any], *, base_branch: str, dry_run: bool, force: bo
         _reset()
         _summary("Task could not be committed; no PR was created.")
         return 0
+    cumulative_changed = set(
+        _run("git", "diff", "--name-only", f"origin/{base_branch}...HEAD").stdout.splitlines()
+    )
+    if not cumulative_changed or not cumulative_changed.issubset(allowed):
+        _summary("Cumulative PR changes are outside the derived safe scope; branch was not pushed.")
+        return 0
     if _run("git", "push", "--force-with-lease", "origin", branch).returncode != 0:
         _summary("Task committed locally but could not be pushed; no PR was created.")
         return 0
-    if existing:
-        _summary(f"Updated existing draft PR #{existing}: {branch}.")
-        return 0
 
     rationale = _extract_agent_rationale(agent.stdout)
-    body = _write_pr_body(task, rationale, changed)
+    body = _write_pr_body(task, rationale, cumulative_changed, metadata)
     try:
+        if existing:
+            updated = _run(
+                "gh",
+                "pr",
+                "edit",
+                existing,
+                "--body-file",
+                str(body),
+            )
+            if updated.returncode != 0:
+                _summary(f"Updated branch {branch}, but could not refresh PR #{existing} body.")
+                return 1
+            _run(
+                "gh",
+                "pr",
+                "comment",
+                existing,
+                "--body",
+                "Azure BYOK bot applied the latest review feedback, reran validation, and refreshed the PR rationale and usage metadata.",
+            )
+            _summary(f"Updated existing draft PR #{existing}: {branch}.")
+            return 0
         created = _run(
             "gh",
             "pr",

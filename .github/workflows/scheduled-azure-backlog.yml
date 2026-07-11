@@ -16,6 +16,11 @@ on:
         required: false
         type: boolean
         default: false
+      target_issue:
+        description: "Optional issue number for a targeted rework run; use with force after leaving PR review feedback"
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: write
@@ -64,16 +69,27 @@ jobs:
             --json number,title,body,labels,url > "$RUNNER_TEMP/azure-backlog-issues.json"
 
       - name: Build bounded Azure BYOK task manifest
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
 
-          python scripts/run_azure_backlog_cycle.py \
-            --issues "$RUNNER_TEMP/azure-backlog-issues.json" \
-            --repository "$GITHUB_REPOSITORY" \
-            --output "$RUNNER_TEMP/azure-byok-task-manifest.json" >> "$GITHUB_STEP_SUMMARY"
+          args=(
+            --issues "$RUNNER_TEMP/azure-backlog-issues.json"
+            --repository "$GITHUB_REPOSITORY"
+            --output "$RUNNER_TEMP/azure-byok-task-manifest.json"
+          )
+          if [ -n "${TARGET_ISSUE:-}" ]; then
+            if [[ ! "$TARGET_ISSUE" =~ ^[1-9][0-9]*$ ]]; then
+              echo "target_issue must be a positive integer." >&2
+              exit 2
+            fi
+            args+=(--target-issue "$TARGET_ISSUE" --skip-docs)
+          fi
+          python scripts/run_azure_backlog_cycle.py "${args[@]}" \
+            >> "$GITHUB_STEP_SUMMARY"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          TARGET_ISSUE: ${{ inputs.target_issue || '' }}
 
       - name: Run Azure BYOK Copilot tasks and open bounded draft PRs
         env:
@@ -86,6 +102,7 @@ jobs:
           AZURE_OPENAI_DEPLOYMENT: ${{ vars.AZURE_COPILOT_DEPLOYMENT || vars.AZURE_OPENAI_DEPLOYMENT }}
           COPILOT_BYOK_MODEL_ID: ${{ vars.COPILOT_BYOK_MODEL_ID || 'gpt-5.4-mini' }}
           BYOK_TASK_COOLDOWN_SECONDS: "65"
+          BYOK_AUDIT_DIR: ${{ runner.temp }}/byok-audit
         run: |
           set -euo pipefail
 
@@ -132,3 +149,12 @@ jobs:
             fi
           done
           exit "$failures"
+
+      - name: Upload sanitized BYOK chats and usage
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: azure-byok-chat-${{ github.run_id }}
+          path: ${{ runner.temp }}/byok-audit
+          if-no-files-found: ignore
+          retention-days: 30

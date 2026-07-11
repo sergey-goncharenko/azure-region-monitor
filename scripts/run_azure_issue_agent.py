@@ -86,6 +86,46 @@ class GitHubIssueContextClient:
         }
         return _limit_issue_context(context)
 
+    def fetch_pull_request_feedback(self, issue_number: int) -> dict[str, Any] | None:
+        owner = self._repository.split("/", 1)[0]
+        query = urllib.parse.urlencode(
+            {
+                "state": "open",
+                "head": f"{owner}:azure-issues/issue-{issue_number}",
+                "per_page": 10,
+            }
+        )
+        pulls = self._request(f"/repos/{self._repository}/pulls?{query}")
+        if not isinstance(pulls, list) or not pulls:
+            return None
+        pull = pulls[0]
+        number = pull.get("number")
+        if not isinstance(number, int):
+            return None
+        return {
+            "number": number,
+            "title": pull.get("title", ""),
+            "body": _limit_text(pull.get("body")),
+            "url": pull.get("html_url", ""),
+            "conversation_comments": [
+                _comment_detail(comment)
+                for comment in self._paginate(
+                    f"/repos/{self._repository}/issues/{number}/comments"
+                )
+                if isinstance(comment, dict)
+            ],
+            "reviews": [
+                _review_detail(review)
+                for review in self._paginate(f"/repos/{self._repository}/pulls/{number}/reviews")
+                if isinstance(review, dict)
+            ],
+            "inline_comments": [
+                _review_comment_detail(comment)
+                for comment in self._paginate(f"/repos/{self._repository}/pulls/{number}/comments")
+                if isinstance(comment, dict)
+            ],
+        }
+
     def _get_issue(self, issue_number: int) -> dict[str, Any]:
         payload = self._request(f"/repos/{self._repository}/issues/{issue_number}")
         if not isinstance(payload, dict):
@@ -196,6 +236,33 @@ def _comment_detail(value: dict[str, Any]) -> dict[str, Any]:
         "updated_at": value.get("updated_at", ""),
         "body": _limit_text(value.get("body")),
         "reactions": value.get("reactions", {}),
+    }
+
+
+def _review_detail(value: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": value.get("id"),
+        "url": value.get("html_url", ""),
+        "author": _login(value.get("user")),
+        "author_association": value.get("author_association", ""),
+        "state": value.get("state", ""),
+        "submitted_at": value.get("submitted_at", ""),
+        "body": _limit_text(value.get("body")),
+    }
+
+
+def _review_comment_detail(value: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": value.get("id"),
+        "url": value.get("html_url", ""),
+        "author": _login(value.get("user")),
+        "author_association": value.get("author_association", ""),
+        "created_at": value.get("created_at", ""),
+        "updated_at": value.get("updated_at", ""),
+        "path": value.get("path", ""),
+        "line": value.get("line"),
+        "side": value.get("side"),
+        "body": _limit_text(value.get("body")),
     }
 
 
@@ -515,12 +582,21 @@ def build_issue_context(
     allowed_paths = list(dict.fromkeys([*source_paths, *tests]))
     evidence_paths = allowed_paths[:MAX_EVIDENCE_FILES]
     github_issue_context: dict[str, Any] | None = None
+    github_pull_request_feedback: dict[str, Any] | None = None
     github_context_warning = ""
     if github_context_client is not None:
         try:
             github_issue_context = github_context_client.fetch(issue["number"])
         except RuntimeError as error:
             github_context_warning = str(error)
+        try:
+            github_pull_request_feedback = github_context_client.fetch_pull_request_feedback(
+                issue["number"]
+            )
+        except RuntimeError as error:
+            github_context_warning = " ".join(
+                value for value in (github_context_warning, str(error)) if value
+            )
     evidence = {
         "issue_number": issue["number"],
         "issue_url": issue["url"],
@@ -535,6 +611,8 @@ def build_issue_context(
     }
     if github_issue_context is not None:
         evidence["github_issue_context"] = github_issue_context
+    if github_pull_request_feedback is not None:
+        evidence["github_pull_request_feedback"] = github_pull_request_feedback
     if github_context_warning:
         evidence["github_issue_context_warning"] = github_context_warning
     if additional_evidence:

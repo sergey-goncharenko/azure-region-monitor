@@ -106,6 +106,7 @@ def _build_issue_tasks(
     limit: int,
     repository: str,
     snapshot_url: str = DEFAULT_SNAPSHOT_URL,
+    target_issue: int | None = None,
 ) -> list[dict[str, Any]]:
     issues = _load_module("azure_backlog_issues", "run_azure_issue_agent.py")
     if repository and not os.environ.get("GH_TOKEN"):
@@ -116,6 +117,10 @@ def _build_issue_tasks(
     tasks = []
     unknown_context: dict[str, Any] | None = None
     eligible_issues = issues._load_issues(issues_path)
+    if target_issue is not None:
+        eligible_issues = [
+            issue for issue in eligible_issues if issue["number"] == target_issue
+        ]
     for index, issue in enumerate(eligible_issues):
         scope_override = None
         additional_evidence = None
@@ -209,14 +214,18 @@ def build_cycle(
     max_issues: object,
     repository: str = "",
     snapshot_url: str = DEFAULT_SNAPSHOT_URL,
+    target_issue: int | None = None,
+    include_docs: bool = True,
 ) -> dict[str, list[dict[str, Any]]]:
     tasks = _build_issue_tasks(
         issues_path,
         _max_issue_items(max_issues),
         repository,
         snapshot_url,
+        target_issue,
     )
-    tasks.append(_build_docs_task())
+    if include_docs:
+        tasks.append(_build_docs_task())
     return {"tasks": tasks}
 
 
@@ -246,10 +255,19 @@ def main() -> None:
     parser.add_argument("--max-issues", type=int, default=3)
     parser.add_argument("--repository", default=os.environ.get("GITHUB_REPOSITORY", ""))
     parser.add_argument("--snapshot-url", default=DEFAULT_SNAPSHOT_URL)
+    parser.add_argument("--target-issue", type=int)
+    parser.add_argument("--skip-docs", action="store_true")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
 
-    cycle = build_cycle(args.issues, args.max_issues, args.repository, args.snapshot_url)
+    cycle = build_cycle(
+        args.issues,
+        args.max_issues,
+        args.repository,
+        args.snapshot_url,
+        args.target_issue,
+        not args.skip_docs,
+    )
     args.output.write_text(json.dumps(cycle, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(render_cycle_markdown(cycle))
 

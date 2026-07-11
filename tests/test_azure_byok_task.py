@@ -30,6 +30,27 @@ def _task(**overrides):
     return task
 
 
+def _metadata(**overrides):
+    metadata = {
+        "model_id": "gpt-5.4-nano",
+        "response_model": "copilot-gpt-5-4-nano",
+        "deployment": "copilot-gpt-5-4-nano",
+        "input_tokens": 15446,
+        "cached_input_tokens": 0,
+        "output_tokens": 26,
+        "reasoning_output_tokens": 16,
+        "total_tokens": 15472,
+        "api_calls": 1,
+        "session_duration_ms": 5957,
+        "session_id": "session-123",
+        "artifact_name": "azure-byok-chat-42",
+        "transcript_file": "issue-42-chat.md",
+        "run_url": "https://github.com/example/repo/actions/runs/42",
+    }
+    metadata.update(overrides)
+    return metadata
+
+
 def test_dry_run_never_invokes_commands(monkeypatch, capsys):
     monkeypatch.setattr(
         byok_task,
@@ -145,6 +166,7 @@ def test_pull_request_body_closes_source_issue():
         ),
         "### Decision\nAdded focused coverage.",
         {"README.md"},
+        _metadata(),
     )
     try:
         body = body_path.read_text(encoding="utf-8")
@@ -156,6 +178,12 @@ def test_pull_request_body_closes_source_issue():
     assert "Queue priority: High" in body
     assert "### Decision" in body
     assert "`README.md`" in body
+    assert "Input tokens: 15,446" in body
+    assert "Cached input tokens (subset of input): 0" in body
+    assert "cached input is not added twice" in body
+    assert "copilot-gpt-5-4-nano" in body
+    assert "azure-byok-chat-42" in body
+    assert "actions/runs/42#artifacts" in body
     assert "git diff --check" in body
 
 
@@ -164,6 +192,7 @@ def test_recurring_pull_request_body_does_not_close_source_issue():
         _task(recurring=True),
         "### Decision\nAdjusted timeout handling.",
         {"README.md"},
+        _metadata(),
     )
     try:
         body = body_path.read_text(encoding="utf-8")
@@ -223,6 +252,27 @@ def test_model_task_manifest_includes_current_unknown_status(monkeypatch):
     assert manifest["evidence"]["current_unknown_status"]["selected_category"] == (
         "aksExtensions"
     )
+
+
+def test_model_task_manifest_includes_pull_request_feedback(monkeypatch):
+    monkeypatch.setattr(byok_task, "MAX_AGENT_EVIDENCE_CHARS", 300)
+    task = _task(
+        evidence={
+            "objective": "Address requested API changes.",
+            "github_pull_request_feedback": {
+                "number": 50,
+                "reviews": [
+                    {"state": "CHANGES_REQUESTED", "body": "Avoid global state."}
+                ],
+            },
+        }
+    )
+
+    manifest = byok_task._model_task_manifest(task)
+
+    feedback = manifest["evidence"]["github_pull_request_feedback"]
+    assert feedback["number"] == 50
+    assert feedback["reviews"][0]["state"] == "CHANGES_REQUESTED"
 
 
 def test_agent_environment_uses_reduced_provider_token_limits(monkeypatch):
@@ -308,6 +358,80 @@ def test_extract_agent_rationale_uses_only_final_assistant_message_and_redacts()
     assert "[REDACTED]" in rationale
 
 
+def test_agent_metadata_parses_exact_otel_token_usage(tmp_path, monkeypatch):
+    monkeypatch.setenv("COPILOT_BYOK_MODEL_ID", "gpt-5.4-nano")
+    monkeypatch.setenv("AZURE_OPENAI_DEPLOYMENT", "copilot-gpt-5-4-nano")
+    telemetry = tmp_path / "telemetry.jsonl"
+    telemetry.write_text(
+        json.dumps(
+            {
+                "type": "span",
+                "spanId": "span-1",
+                "attributes": {
+                    "gen_ai.operation.name": "chat",
+                    "gen_ai.usage.input_tokens": 15446,
+                    "gen_ai.usage.output_tokens": 26,
+                    "gen_ai.usage.reasoning.output_tokens": 16,
+                    "gen_ai.response.model": "copilot-gpt-5-4-nano",
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    stdout = "\n".join(
+        [
+            json.dumps(
+                {
+                    "type": "assistant.message",
+                    "data": {"model": "copilot-gpt-5-4-nano", "outputTokens": 26},
+                }
+            ),
+            json.dumps(
+                {
+                    "type": "result",
+                    "sessionId": "session-123",
+                    "usage": {"sessionDurationMs": 5957, "totalApiDurationMs": 2383},
+                }
+            ),
+        ]
+    )
+
+    metadata = byok_task._agent_metadata(stdout, telemetry, _task())
+
+    assert metadata["input_tokens"] == 15446
+    assert metadata["output_tokens"] == 26
+    assert metadata["reasoning_output_tokens"] == 16
+    assert metadata["total_tokens"] == 15472
+    assert metadata["api_calls"] == 1
+    assert metadata["session_id"] == "session-123"
+
+
+def test_sanitize_transcript_redacts_secret_like_text(tmp_path):
+    transcript = tmp_path / "chat.md"
+    transcript.write_text(
+        "# Chat\n"
+        "Token: ghp_abcdefghijklmnop\n"
+        "github_pat_abcdefghijklmnopqrstuv\n"
+        "Authorization: Bearer eyJabcdefgh.ijklmnop.qrstuvwx\n"
+        "https://storage.example/blob?sv=1&sig=azure-signature&sp=r\n"
+        "AccountKey=connection-secret;EndpointSuffix=core.windows.net\n"
+        "API_KEY=secret-value\n",
+        encoding="utf-8",
+    )
+
+    byok_task._sanitize_transcript(transcript)
+
+    sanitized = transcript.read_text(encoding="utf-8")
+    assert "ghp_abcdefghijklmnop" not in sanitized
+    assert "github_pat_abcdefghijklmnopqrstuv" not in sanitized
+    assert "eyJabcdefgh.ijklmnop.qrstuvwx" not in sanitized
+    assert "azure-signature" not in sanitized
+    assert "connection-secret" not in sanitized
+    assert "secret-value" not in sanitized
+    assert "[REDACTED]" in sanitized
+
+
 def test_selection_summary_includes_live_unknown_evidence_and_recurring_semantics():
     summary = byok_task._selection_summary(
         _task(
@@ -351,3 +475,68 @@ def test_failure_detail_filters_noise_and_redacts_secrets():
     assert "secret-value" not in detail
     assert "ghp_abcdefghijklmnop" not in detail
     assert "[REDACTED]" in detail
+
+
+def test_force_rework_updates_existing_pr_branch_and_body(monkeypatch, tmp_path):
+    calls = []
+    transcript = tmp_path / "issue-42-chat.md"
+    telemetry = tmp_path / "issue-42-telemetry.jsonl"
+    metadata_path = tmp_path / "issue-42-metadata.json"
+    monkeypatch.setattr(byok_task, "_existing_pr", lambda branch: "50")
+    monkeypatch.setattr(
+        byok_task,
+        "_audit_paths",
+        lambda task: (transcript, telemetry, metadata_path),
+    )
+    monkeypatch.setattr(
+        byok_task,
+        "_run_agent",
+        lambda task, transcript_path, telemetry_path: subprocess.CompletedProcess(
+            ["copilot"],
+            0,
+            json.dumps(
+                {
+                    "type": "assistant.message",
+                    "data": {"content": "### Decision\nApplied requested changes."},
+                }
+            ),
+            "",
+        ),
+    )
+    monkeypatch.setattr(byok_task, "_changed_paths", lambda: {"README.md"})
+    monkeypatch.setattr(byok_task, "_sanitize_transcript", lambda path: None)
+    monkeypatch.setattr(
+        byok_task,
+        "_agent_metadata",
+        lambda stdout, telemetry_path, task: _metadata(),
+    )
+    monkeypatch.setattr(byok_task, "_artifact_metadata", lambda path: {})
+    monkeypatch.setattr(byok_task, "_write_metadata", lambda path, metadata: None)
+
+    def run(*args, **kwargs):
+        calls.append(args)
+        stdout = "README.md\n" if args[:3] == ("git", "diff", "--name-only") else ""
+        return subprocess.CompletedProcess(args, 0, stdout, "")
+
+    monkeypatch.setattr(byok_task, "_run", run)
+
+    result = byok_task.run_task(
+        _task(tests=[]),
+        base_branch="main",
+        dry_run=False,
+        force=True,
+    )
+
+    assert result == 0
+    assert (
+        "git",
+        "fetch",
+        "origin",
+        "azure-issues/issue-42:refs/remotes/origin/azure-issues/issue-42",
+        "--depth",
+        "50",
+    ) in calls
+    assert ("git", "checkout", "-B", "azure-issues/issue-42", "origin/azure-issues/issue-42") in calls
+    assert any(args[:4] == ("gh", "pr", "edit", "50") for args in calls)
+    assert any(args[:4] == ("gh", "pr", "comment", "50") for args in calls)
+    assert not any(args[:3] == ("gh", "pr", "create") for args in calls)
