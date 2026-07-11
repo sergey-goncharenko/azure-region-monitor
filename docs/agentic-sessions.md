@@ -16,6 +16,8 @@ The maintenance system starts three isolated Copilot CLI sessions with separate 
 
 GitHub does not provide maintainer-only issues inside a public repository. Therefore security/hygiene reports, their Actions logs, and their sanitized chat artifacts must never be generated here. The private companion repository grants access only to the same maintainers/co-authors and stores both stable report issues plus private artifacts. Report text is replaced on each run rather than creating daily duplicates; a previously closed report is reopened on the next analysis.
 
+Collaborator access is not inherited between repositories. Whenever a user receives or loses write/maintain/admin access here, mirror that change in `azure-region-monitor-maintainers`. Do not grant report access to public read/triage users.
+
 If security analysis identifies a credible vulnerability, maintainers should validate it privately and promote it manually to a draft GitHub repository security advisory. Draft advisories are the supported private collaboration mechanism for vulnerabilities in public repositories; they should be published only after remediation and disclosure review.
 
 Git worktrees exist on a filesystem, not on GitHub. A GitHub-hosted runner sees only its ephemeral checkout and cannot inspect worktrees on a developer machine. The hygiene report states this limitation and recommends running `git worktree list --porcelain` and `git worktree prune --dry-run` locally. Actual removal remains a human decision.
