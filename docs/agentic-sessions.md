@@ -6,10 +6,10 @@ This repository runs a bounded Azure-funded maintenance cycle daily at 07:00 UTC
 
 Every scheduled run follows this order:
 
-1. **GitHub backlog issues** — selects up to two eligible open issues, highest priority first.
+1. **GitHub backlog issues** — selects up to three eligible open issues, highest priority first.
 2. **Documentation alignment** — always runs last, after the issue lanes, even if no issue is eligible. The Azure-BYOK coding agent may create one narrow documentation draft PR only when the bounded evidence justifies it.
 
-A run can open at most three draft PRs: two issue-backed PRs plus one documentation-alignment PR. It never merges a generated PR.
+A run can open at most four draft PRs: three issue-backed PRs plus one documentation-alignment PR. It never merges a generated PR.
 
 Documentation alignment may read selected workflow files as evidence, but it can edit only [README.md](../README.md), [.github/copilot-instructions.md](../.github/copilot-instructions.md), and this operating guide.
 
@@ -19,7 +19,7 @@ The schedule does not invent other coding tasks from local JSON, snapshot data, 
 
 Use the **Azure autonomous backlog item** template from the repository's **New issue** page. The template applies the `azure-backlog` label and asks only for:
 
-- **Priority**: `High`, `Normal`, or `Low`.
+- **Priority**: `Urgent`, `High`, `Normal`, or `Low`.
 - **Objective**: the outcome that should be improved.
 - **Context or acceptance evidence**: optional factual context or an observable success condition.
 
@@ -31,7 +31,11 @@ An issue is eligible when it is:
 - labelled `azure-backlog`; and
 - not labelled `azure-paused`.
 
+Eligible issues are sorted by `Urgent` → `High` → `Normal` → `Low`. Issues with the same priority are processed by ascending issue number (oldest first). The first three actionable issues become coding lanes; documentation alignment is appended after them and therefore always remains last.
+
 To defer an item without closing it, add `azure-paused`. To remove it permanently from the queue, close the issue or remove `azure-backlog`. A generated PR includes `Closes #<issue-number>`, so merging that PR closes the originating issue automatically.
+
+Issues labelled `azure-recurring` are different: their generated PRs do not close the source issue, so they can produce another bounded maintenance PR after the previous one is merged. The recurring unknown-regression issue also carries `azure-unknowns`; before each run, the task builder reads the live snapshot, selects the largest current unknown category, adds its counts/error evidence, and restricts the agent to that category's probe, test, and focused workflow files. If no current unknowns exist, that recurring lane is skipped and another eligible issue can fill the slot.
 
 The planned PR branch is stable per issue: `azure-issues/issue-<number>`. If a draft PR for that issue is already open, the workflow leaves it alone unless a manual run explicitly enables `force`.
 
@@ -74,10 +78,10 @@ The scheduled workflow uses the built-in `GITHUB_TOKEN` to read issues and creat
 ## Cost Controls
 
 - Azure OpenAI is the scheduled provider for Copilot CLI issue and documentation work.
-- A run starts at most two issue-agent sessions plus one documentation-alignment session. These use Azure tokens, not GitHub Copilot model quota.
+- A run starts at most three issue-agent sessions plus one documentation-alignment session. These use Azure tokens, not GitHub Copilot model quota.
 - BYOK agent prompts contain the bounded task evidence and may use more Azure input tokens than the former direct JSON client; that trade-off is intentional for a full coding-agent runtime.
 - Live tasks wait 65 seconds between sessions to respect the current Azure OpenAI TPM allocation before documentation alignment runs last.
-- The workflow has a 25-minute hard timeout, a concurrency lock, and a maximum of three draft PRs per run.
+- The workflow has a 40-minute hard timeout, a concurrency lock, and a maximum of four draft PRs per run.
 - The older Copilot path is intentionally manual-only in [.github/workflows/scheduled-copilot-agents.yml](../.github/workflows/scheduled-copilot-agents.yml), for an occasional comparison rather than recurring consumption.
 
 ## Manual Run

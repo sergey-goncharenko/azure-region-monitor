@@ -206,6 +206,9 @@ def _model_task_manifest(task: dict[str, Any]) -> dict[str, Any]:
     rich_context = evidence.get("github_issue_context")
     if rich_context is not None:
         compact_evidence["github_issue_context"] = _truncate_json(rich_context)
+    current_unknown_status = evidence.get("current_unknown_status")
+    if current_unknown_status is not None:
+        compact_evidence["current_unknown_status"] = _truncate_json(current_unknown_status)
     if task["kind"] == "docs":
         compact_evidence["documentation_files"] = sorted(evidence.get("files", {}))
         compact_evidence["recent_git_history"] = evidence.get("recent_git_history", "")
@@ -214,6 +217,7 @@ def _model_task_manifest(task: dict[str, Any]) -> dict[str, Any]:
         "category": task["category"],
         "summary": task["summary"],
         "issue_number": task.get("issue_number"),
+        "recurring": bool(task.get("recurring")),
         "objective": evidence.get("objective", ""),
         "allowed_paths": task["allowed_paths"],
         "tests": task["tests"],
@@ -273,7 +277,11 @@ def _reset() -> None:
 def _write_pr_body(task: dict[str, Any]) -> Path:
     tests = task["tests"] or [""]
     issue_number = task.get("issue_number")
-    closes_issue = f"\n\nCloses #{issue_number}" if type(issue_number) is int else ""
+    closes_issue = (
+        f"\n\nCloses #{issue_number}"
+        if type(issue_number) is int and not task.get("recurring")
+        else ""
+    )
     handle = tempfile.NamedTemporaryFile("w", suffix=".md", encoding="utf-8", delete=False)
     handle.write(
         "Azure OpenAI BYOK Copilot CLI task.\n\n"

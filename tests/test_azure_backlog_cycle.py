@@ -14,12 +14,12 @@ sys.modules[SPEC.name] = backlog_cycle
 SPEC.loader.exec_module(backlog_cycle)
 
 
-def test_max_issue_items_is_bounded_to_two_coding_slots():
-    assert backlog_cycle._max_issue_items(8) == 2
+def test_max_issue_items_is_bounded_to_three_coding_slots():
+    assert backlog_cycle._max_issue_items(8) == 3
 
 
 def test_max_issue_items_uses_safe_default_for_invalid_input():
-    assert backlog_cycle._max_issue_items("not-a-number") == 2
+    assert backlog_cycle._max_issue_items("not-a-number") == 3
 
 
 def test_cycle_markdown_identifies_docs_as_the_final_alignment_lane():
@@ -43,9 +43,10 @@ def test_documentation_alignment_is_always_last(monkeypatch, tmp_path):
     monkeypatch.setattr(
         backlog_cycle,
         "_build_issue_tasks",
-        lambda issues_path, limit, repository: [
+        lambda issues_path, limit, repository, snapshot_url: [
             {"kind": "issue", "category": "issue-1", "summary": "First task"},
             {"kind": "issue", "category": "issue-2", "summary": "Second task"},
+            {"kind": "issue", "category": "issue-3", "summary": "Third task"},
         ][:limit],
     )
     monkeypatch.setattr(
@@ -54,9 +55,50 @@ def test_documentation_alignment_is_always_last(monkeypatch, tmp_path):
         lambda: {"kind": "docs", "category": "documentation-alignment", "summary": "Docs"},
     )
 
-    cycle = backlog_cycle.build_cycle(tmp_path / "issues.json", 2, "example/repo")
+    cycle = backlog_cycle.build_cycle(tmp_path / "issues.json", 3, "example/repo")
 
-    assert [task["kind"] for task in cycle["tasks"]] == ["issue", "issue", "docs"]
+    assert [task["kind"] for task in cycle["tasks"]] == [
+        "issue",
+        "issue",
+        "issue",
+        "docs",
+    ]
+
+
+def test_current_unknown_context_selects_top_group_scope(monkeypatch):
+    class SnapshotResult:
+        snapshot = {"regions": {}}
+        source = "https://example.test/latest.json"
+        warning = None
+
+    class Group:
+        category = "aksExtensions"
+        unknown_count = 39831
+        regions = ("eastus", "westeurope")
+        services = ("aks",)
+        features = ("extensionCatalog",)
+        error_codes = (("AzureCliCommandFailed", 39831),)
+        messages = (("Azure CLI command timed out after 30 seconds.", 39831),)
+        test_hints = ("tests/test_aks_extension_catalog_probe.py",)
+        workflow_hints = (".github/workflows/aks-extension-tests.yml",)
+
+    class Sessions:
+        @staticmethod
+        def load_snapshot(snapshot_url, snapshot_path):
+            return SnapshotResult()
+
+        @staticmethod
+        def rank_unknown_groups(snapshot):
+            return [Group()]
+
+    monkeypatch.setattr(backlog_cycle, "_load_module", lambda name, script_name: Sessions)
+
+    context = backlog_cycle._current_unknown_context("https://example.test/latest.json")
+
+    assert context["category"] == "aksExtensions"
+    assert context["evidence"]["unknown_count"] == 39831
+    assert "src/azure_region_monitor/probes/aks_extension_catalog.py" in context["source_paths"]
+    assert "tests/test_aks_extension_catalog_probe.py" in context["tests"]
 
 
 def test_docs_task_keeps_workflows_as_evidence_not_edit_scope():

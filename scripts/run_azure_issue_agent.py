@@ -18,6 +18,7 @@ MAX_AUTO_TESTS = 3
 MAX_FILE_CHARS = 3_600
 BACKLOG_LABEL = "azure-backlog"
 PAUSED_LABEL = "azure-paused"
+RECURRING_LABEL = "azure-recurring"
 MAX_ISSUE_CONTEXT_CHARS = 60_000
 MAX_TEXT_FIELD_CHARS = 8_000
 MAX_GITHUB_REQUEST_ATTEMPTS = 3
@@ -29,7 +30,6 @@ _STOP_WORDS = {
     "availability",
     "azure",
     "bound",
-    "dashboard",
     "evidence",
     "for",
     "from",
@@ -44,7 +44,14 @@ _STOP_WORDS = {
     "to",
     "without",
 }
-_PRIORITIES = {"high": 300, "normal": 200, "low": 100}
+_PRIORITIES = {"urgent": 400, "high": 300, "normal": 200, "low": 100}
+_SCOPE_STEM_ALIASES = {
+    "accessibility": {"static_site"},
+    "dashboard": {"static_site"},
+    "design": {"static_site"},
+    "responsive": {"static_site"},
+    "visual": {"static_site"},
+}
 
 class GitHubIssueContextClient:
     """Fetches bounded, relevant GitHub issue discussion and hierarchy context."""
@@ -376,6 +383,7 @@ def _load_issues(path: Path) -> list[dict[str, Any]]:
                 "title": title.strip(),
                 "objective": objective,
                 "priority": _priority(body),
+                "labels": sorted(labels),
                 "url": url.strip() if isinstance(url, str) else "",
             }
         )
@@ -427,10 +435,13 @@ def _derive_scope(issue: dict[str, Any]) -> tuple[list[str], list[str]]:
         ((_score_path(path, tokens), path) for path in _candidate_source_paths(tokens)),
         key=lambda item: (-item[0], item[1]),
     )
+    preferred_stems = set(tokens)
+    for token in tokens:
+        preferred_stems.update(_SCOPE_STEM_ALIASES.get(token, set()))
     exact_sources = [
         (score, path)
         for score, path in ranked_sources
-        if Path(path).stem.lower() in tokens
+        if Path(path).stem.lower() in preferred_stems
     ]
     selected_sources = exact_sources or ranked_sources
     sources = [path for score, path in selected_sources if score > 0][:MAX_EVIDENCE_FILES]
@@ -448,19 +459,21 @@ def _derive_scope(issue: dict[str, Any]) -> tuple[list[str], list[str]]:
             if (REPO_ROOT / static_site_test).is_file() and static_site_test not in tests:
                 tests.append(static_site_test)
 
-    test_paths = [
-        path.relative_to(REPO_ROOT).as_posix() for path in (REPO_ROOT / "tests").glob("test_*.py")
-    ]
-    ranked_tests = sorted(
-        ((_score_path(path, tokens), path) for path in test_paths),
-        key=lambda item: (-item[0], item[1]),
-    )
-    for score, path in ranked_tests:
-        if score <= 0 or path in tests:
-            continue
-        tests.append(path)
-        if len(tests) >= MAX_AUTO_TESTS:
-            break
+    if not tests:
+        test_paths = [
+            path.relative_to(REPO_ROOT).as_posix()
+            for path in (REPO_ROOT / "tests").glob("test_*.py")
+        ]
+        ranked_tests = sorted(
+            ((_score_path(path, tokens), path) for path in test_paths),
+            key=lambda item: (-item[0], item[1]),
+        )
+        for score, path in ranked_tests:
+            if score <= 0 or path in tests:
+                continue
+            tests.append(path)
+            if len(tests) >= MAX_AUTO_TESTS:
+                break
     return sources, tests[:MAX_AUTO_TESTS]
 
 
@@ -468,6 +481,8 @@ def build_issue_context(
     issues_path: Path,
     index: int = 0,
     github_context_client: GitHubIssueContextClient | None = None,
+    scope_override: tuple[list[str], list[str]] | None = None,
+    additional_evidence: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     issues = _load_issues(issues_path)
     if not issues:
@@ -488,7 +503,7 @@ def build_issue_context(
         }
 
     issue = issues[index]
-    source_paths, tests = _derive_scope(issue)
+    source_paths, tests = scope_override or _derive_scope(issue)
     if not source_paths:
         return {
             "category": "",
@@ -512,6 +527,7 @@ def build_issue_context(
         "issue_title": issue["title"],
         "objective": issue["objective"],
         "priority": issue["priority"],
+        "issue_labels": issue["labels"],
         "recent_git_history": _git_history(),
         "allowed_paths": allowed_paths,
         "tests": tests,
@@ -521,12 +537,15 @@ def build_issue_context(
         evidence["github_issue_context"] = github_issue_context
     if github_context_warning:
         evidence["github_issue_context_warning"] = github_context_warning
+    if additional_evidence:
+        evidence.update(additional_evidence)
     return {
         "category": f"issue-{issue['number']}",
         "summary": "Highest-priority eligible GitHub backlog issue selected with auto-derived scope.",
         "allowed_paths": allowed_paths,
         "tests": tests,
         "issue_number": issue["number"],
+        "recurring": RECURRING_LABEL in issue["labels"],
         "evidence": evidence,
     }
 

@@ -144,6 +144,16 @@ def test_pull_request_body_closes_source_issue():
     assert "passed deterministic validation" in body
 
 
+def test_recurring_pull_request_body_does_not_close_source_issue():
+    body_path = byok_task._write_pr_body(_task(recurring=True))
+    try:
+        body = body_path.read_text(encoding="utf-8")
+    finally:
+        body_path.unlink(missing_ok=True)
+
+    assert "Closes #42" not in body
+
+
 def test_agent_prompt_includes_scope_and_untrusted_context_rules():
     prompt = byok_task._agent_prompt(_task())
 
@@ -172,6 +182,27 @@ def test_model_task_manifest_excludes_raw_file_excerpts_and_bounds_rich_context(
     assert isinstance(manifest["evidence"]["github_issue_context"], str)
     assert "context truncated for model rate budget" in manifest["evidence"]["github_issue_context"]
     assert "sensitive implementation text" not in prompt
+
+
+def test_model_task_manifest_includes_current_unknown_status(monkeypatch):
+    monkeypatch.setattr(byok_task, "MAX_AGENT_EVIDENCE_CHARS", 200)
+    task = _task(
+        recurring=True,
+        evidence={
+            "objective": "Investigate current unknown regressions.",
+            "current_unknown_status": {
+                "selected_category": "aksExtensions",
+                "unknown_count": 39831,
+            },
+        },
+    )
+
+    manifest = byok_task._model_task_manifest(task)
+
+    assert manifest["recurring"] is True
+    assert manifest["evidence"]["current_unknown_status"]["selected_category"] == (
+        "aksExtensions"
+    )
 
 
 def test_agent_environment_uses_reduced_provider_token_limits(monkeypatch):

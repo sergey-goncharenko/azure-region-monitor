@@ -15,10 +15,11 @@ body:
       label: Priority
       description: Higher-priority open items are selected first.
       options:
+        - Urgent
         - High
         - Normal
         - Low
-      default: 1
+      default: 2
     validations:
       required: true
 

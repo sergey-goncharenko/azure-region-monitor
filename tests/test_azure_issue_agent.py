@@ -72,6 +72,27 @@ def test_highest_priority_issue_is_selected_and_auto_scoped(tmp_path):
     assert context["evidence"]["issue_url"].endswith("/11")
 
 
+def test_urgent_issue_precedes_high_and_recurring_label_is_preserved(tmp_path):
+    path = tmp_path / "issues.json"
+    urgent = _issue(
+        30,
+        priority="Urgent",
+        labels=["azure-backlog", "azure-recurring", "azure-unknowns"],
+    )
+    high = _issue(20, priority="High")
+    path.write_text(json.dumps([high, urgent]), encoding="utf-8")
+
+    loaded = issue_agent._load_issues(path)
+    context = issue_agent.build_issue_context(path)
+
+    assert loaded[0]["number"] == 30
+    assert loaded[0]["priority"] == 400
+    assert "azure-unknowns" in loaded[0]["labels"]
+    assert context["issue_number"] == 30
+    assert context["recurring"] is True
+    assert "azure-recurring" in context["evidence"]["issue_labels"]
+
+
 def test_api_contract_issue_selects_api_source_and_tests(tmp_path):
     path = tmp_path / "issues.json"
     issue = _issue(45, priority="High")
@@ -94,6 +115,29 @@ Extend public API contract coverage for `/api/diff`, `/api/services/{service}`, 
     assert not any(path.startswith(".github/workflows/") for path in context["allowed_paths"])
     assert "src/azure_region_monitor/static_site.py" not in context["allowed_paths"]
     assert "src/azure_region_monitor/cli.py" not in context["allowed_paths"]
+
+
+def test_dashboard_design_issue_selects_static_site_scope(tmp_path):
+    path = tmp_path / "issues.json"
+    issue = _issue(49, priority="Normal")
+    issue["title"] = "Improve dashboard visual design and responsive usability"
+    issue["body"] = """### Priority
+
+Normal
+
+### Objective
+
+Improve dashboard visual design, responsive layout, navigation, and accessibility while preserving full data fidelity.
+"""
+    path.write_text(json.dumps([issue]), encoding="utf-8")
+
+    context = issue_agent.build_issue_context(path)
+
+    assert context["allowed_paths"] == [
+        "src/azure_region_monitor/static_site.py",
+        "tests/test_static_site.py",
+    ]
+    assert context["tests"] == ["tests/test_static_site.py"]
 
 
 def test_missing_priority_defaults_to_normal(tmp_path):
