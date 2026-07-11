@@ -314,7 +314,23 @@ def run_report_task(
         )
     except (OSError, ValueError, subprocess.TimeoutExpired) as error:
         byok_task._reset()
-        print("Azure BYOK report session could not start: " + byok_task._safe_failure_detail(str(error)))
+        byok_task._sanitize_transcript(transcript_path)
+        partial_stdout = error.stdout if isinstance(error, subprocess.TimeoutExpired) else ""
+        if isinstance(partial_stdout, bytes):
+            partial_stdout = partial_stdout.decode("utf-8", errors="replace")
+        metadata = byok_task._agent_metadata(partial_stdout or "", telemetry_path, task)
+        metadata.update(byok_task._artifact_metadata(transcript_path))
+        metadata["outcome"] = (
+            "timeout" if isinstance(error, subprocess.TimeoutExpired) else "launcher-error"
+        )
+        byok_task._write_metadata(metadata_path, metadata)
+        telemetry_path.unlink(missing_ok=True)
+        detail = (
+            f"Copilot CLI timed out after {error.timeout} seconds."
+            if isinstance(error, subprocess.TimeoutExpired)
+            else byok_task._safe_failure_detail(str(error))
+        )
+        print("Azure BYOK report session could not start: " + detail)
         return 1
 
     byok_task._sanitize_transcript(transcript_path)

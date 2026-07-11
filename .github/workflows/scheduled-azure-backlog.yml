@@ -134,7 +134,7 @@ jobs:
           AZURE_OPENAI_ENDPOINT: ${{ vars.AZURE_OPENAI_ENDPOINT }}
           AZURE_OPENAI_DEPLOYMENT: ${{ vars.AZURE_COPILOT_DEPLOYMENT || vars.AZURE_OPENAI_DEPLOYMENT }}
           COPILOT_BYOK_MODEL_ID: ${{ vars.COPILOT_BYOK_MODEL_ID || 'gpt-5.4-mini' }}
-          BYOK_AGENT_TIMEOUT_SECONDS: "600"
+          BYOK_AGENT_TIMEOUT_SECONDS: "1200"
           BYOK_TASK_COOLDOWN_SECONDS: "65"
           BYOK_AUDIT_DIR: ${{ runner.temp }}/byok-audit
         run: |

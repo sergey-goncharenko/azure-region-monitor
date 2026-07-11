@@ -678,12 +678,27 @@ def run_task(
         agent = _run_agent(task, transcript_path, telemetry_path)
     except (OSError, subprocess.TimeoutExpired) as error:
         _reset()
-        detail = _safe_failure_detail(str(error))
-        message = "Azure BYOK Copilot task could not start; no PR was created."
+        _sanitize_transcript(transcript_path)
+        partial_stdout = error.stdout if isinstance(error, subprocess.TimeoutExpired) else ""
+        if isinstance(partial_stdout, bytes):
+            partial_stdout = partial_stdout.decode("utf-8", errors="replace")
+        metadata = _agent_metadata(partial_stdout or "", telemetry_path, task)
+        metadata.update(_artifact_metadata(transcript_path))
+        metadata["outcome"] = (
+            "timeout" if isinstance(error, subprocess.TimeoutExpired) else "launcher-error"
+        )
+        _write_metadata(metadata_path, metadata)
+        telemetry_path.unlink(missing_ok=True)
+        detail = (
+            f"Copilot CLI timed out after {error.timeout} seconds."
+            if isinstance(error, subprocess.TimeoutExpired)
+            else _safe_failure_detail(str(error))
+        )
+        message = "Azure BYOK Copilot task did not complete; no PR was created."
         if detail:
             message += "\nSanitized launcher diagnostic:\n" + detail
         _summary(message)
-        return 0
+        return 1
     _sanitize_transcript(transcript_path)
     metadata = _agent_metadata(agent.stdout, telemetry_path, task)
     metadata.update(_artifact_metadata(transcript_path))

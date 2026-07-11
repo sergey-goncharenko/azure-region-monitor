@@ -372,6 +372,59 @@ def test_agent_invocation_has_hard_session_timeout(monkeypatch):
     assert captured["kwargs"]["timeout"] == 123
 
 
+def test_timed_out_coding_session_fails_and_records_sanitized_metadata(
+    monkeypatch, tmp_path, capsys
+):
+    transcript = tmp_path / "issue-42-chat.md"
+    telemetry = tmp_path / "issue-42-telemetry.jsonl"
+    metadata_path = tmp_path / "issue-42-metadata.json"
+    recorded = {}
+    monkeypatch.setattr(byok_task, "_existing_pr", lambda branch: "")
+    monkeypatch.setattr(
+        byok_task,
+        "_run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(args, 0, "", ""),
+    )
+    monkeypatch.setattr(byok_task, "_reset", lambda: None)
+    monkeypatch.setattr(
+        byok_task,
+        "_audit_paths",
+        lambda task: (transcript, telemetry, metadata_path),
+    )
+    monkeypatch.setattr(
+        byok_task,
+        "_run_agent",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            subprocess.TimeoutExpired(
+                "copilot",
+                1200,
+                output=json.dumps(
+                    {"type": "assistant.message", "data": {"outputTokens": 3}}
+                ),
+            )
+        ),
+    )
+    monkeypatch.setattr(byok_task, "_sanitize_transcript", lambda path: recorded.update(sanitized=path))
+    monkeypatch.setattr(byok_task, "_artifact_metadata", lambda path: {})
+    monkeypatch.setattr(
+        byok_task,
+        "_write_metadata",
+        lambda path, metadata: recorded.update(metadata=metadata),
+    )
+
+    result = byok_task.run_task(
+        _task(tests=[]),
+        base_branch="main",
+        dry_run=False,
+        force=False,
+    )
+
+    assert result == 1
+    assert recorded["sanitized"] == transcript
+    assert recorded["metadata"]["outcome"] == "timeout"
+    assert "timed out after 1200 seconds" in capsys.readouterr().out
+
+
 def test_extract_agent_rationale_uses_only_final_assistant_message_and_redacts():
     output = "\n".join(
         [

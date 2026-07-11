@@ -75,7 +75,7 @@ Security and repository-hygiene sessions have an additional report-only boundary
 - The runner checks the Git working tree after each analysis. If any tracked or untracked file changed, it resets the checkout and publishes no report.
 - Only deterministic outer code in the private companion repository can create labels or replace the two stable report issue bodies. Generated mentions are neutralized before publication.
 - The hygiene session can recommend commands but has no branch/worktree deletion implementation or permission path.
-- Every Copilot process has a 10-minute hard timeout. Uploaded audit artifacts include only sanitized chat Markdown and derived metadata JSON; raw OpenTelemetry JSONL is never selected for upload, including after cancellation.
+- Issue-based coding sessions have a 20-minute hard timeout; documentation and private report sessions remain capped at 10 minutes. Interrupted sessions fail visibly and retain only sanitized chat/derived metadata. Raw OpenTelemetry JSONL is never selected for upload, including after cancellation.
 
 Every generated PR includes a reviewer-facing rationale in its description:
 
