@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import json
 import time
 
@@ -7,6 +8,9 @@ from azure_region_monitor.config import AksExtensionFeature, DEFAULT_AKS_EXTENSI
 from azure_region_monitor.models import FeatureResult
 from azure_region_monitor.probes.azure_cli import AzureCliError, CliRunner, az_executable, run_az
 from azure_region_monitor.probes.base import ProbeResult
+
+
+_MIN_AKS_EXTENSION_AZ_CLI_TIMEOUT_SECONDS = 120
 
 
 class AksExtensionCliProbe:
@@ -18,7 +22,29 @@ class AksExtensionCliProbe:
         cli_runner: CliRunner | None = None,
     ) -> None:
         self._features = features or DEFAULT_AKS_EXTENSION_FEATURES
-        self._cli_runner = cli_runner or run_az
+        if cli_runner is not None:
+            self._cli_runner = cli_runner
+            return
+
+        def cli_runner_with_min_timeout(command: list[str]):
+            # Some workflows set AZURE_CLI_TIMEOUT_SECONDS too low for the
+            # k8s-extension extension-types list command; enforce a minimum so
+            # timeouts don't unnecessarily increase `unknown` results.
+            timeout_seconds = int(os.environ.get("AZURE_CLI_TIMEOUT_SECONDS", "90"))
+            if timeout_seconds >= _MIN_AKS_EXTENSION_AZ_CLI_TIMEOUT_SECONDS:
+                return run_az(command)
+
+            previous_timeout = os.environ.get("AZURE_CLI_TIMEOUT_SECONDS")
+            os.environ["AZURE_CLI_TIMEOUT_SECONDS"] = str(_MIN_AKS_EXTENSION_AZ_CLI_TIMEOUT_SECONDS)
+            try:
+                return run_az(command)
+            finally:
+                if previous_timeout is None:
+                    os.environ.pop("AZURE_CLI_TIMEOUT_SECONDS", None)
+                else:
+                    os.environ["AZURE_CLI_TIMEOUT_SECONDS"] = previous_timeout
+
+        self._cli_runner = cli_runner_with_min_timeout
 
     def run(self, region: str):
         started = time.perf_counter()
