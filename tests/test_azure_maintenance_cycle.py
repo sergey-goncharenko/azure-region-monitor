@@ -107,6 +107,25 @@ def test_hygiene_evidence_never_authorizes_deletion(monkeypatch):
     assert evidence["branch_deletion_candidates"] == []
 
 
+def test_security_surfaces_are_bounded_and_line_numbered(monkeypatch, tmp_path):
+    source = maintenance.REPO_ROOT / "scripts" / "security-surface-test.py"
+    source.write_text("safe = True\nsubprocess.run(['tool'])\n", encoding="utf-8")
+    try:
+        snippets = maintenance._security_surface_evidence(
+            ["scripts/security-surface-test.py"]
+        )
+    finally:
+        source.unlink(missing_ok=True)
+
+    assert snippets == [
+        {
+            "path": "scripts/security-surface-test.py",
+            "start_line": 1,
+            "lines": ["safe = True", "subprocess.run(['tool'])"],
+        }
+    ]
+
+
 def test_cycle_contains_three_isolated_sessions_in_required_order(monkeypatch):
     class BacklogCycle:
         @staticmethod
@@ -144,7 +163,7 @@ def test_cycle_contains_three_isolated_sessions_in_required_order(monkeypatch):
         "repository-hygiene",
     ]
     assert [task["kind"] for task in cycle["tasks"]] == ["docs", "report", "report"]
-    assert maintenance.REPORT_LABEL not in cycle["tasks"][1].get("labels", [])
+    assert cycle["tasks"][1]["read_paths"] == []
     assert "Never perform deletion" in cycle["tasks"][2]["evidence"]["objective"]
 
 
@@ -186,6 +205,9 @@ def test_maintenance_workflow_runs_three_sessions_without_deletion_commands():
     assert "run_azure_byok_report.py" in workflow
     assert "persist-credentials: false" in workflow
     assert "azure-byok-chat-${{ github.run_id }}" in workflow
+    assert "*-metadata.json" in workflow
+    assert "*-telemetry.jsonl" not in workflow
+    assert 'BYOK_AGENT_TIMEOUT_SECONDS: "600"' in workflow
     assert "git worktree remove" not in workflow
     assert "git push --delete" not in workflow
     assert "gh api --method DELETE" not in workflow
@@ -199,3 +221,5 @@ def test_issue_backlog_workflow_no_longer_runs_documentation_lane():
     assert "run_azure_maintenance_cycle.py" not in workflow
     assert "--skip-docs" not in workflow
     assert "persist-credentials: false" in workflow
+    assert "*-metadata.json" in workflow
+    assert "*-telemetry.jsonl" not in workflow

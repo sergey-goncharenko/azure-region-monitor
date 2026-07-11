@@ -344,9 +344,32 @@ def test_report_only_agent_invocation_denies_file_mutation_tools(monkeypatch):
 
     byok_task._run_agent(_task(), prompt="Analyze only.", report_only=True)
 
-    assert "--deny-tool=write" in captured["args"]
-    assert "--deny-tool=edit" in captured["args"]
-    assert "--deny-tool=create" in captured["args"]
+    assert "--excluded-tools=write" in captured["args"]
+    assert "--excluded-tools=edit" in captured["args"]
+    assert "--excluded-tools=create" in captured["args"]
+    assert "--excluded-tools=view" in captured["args"]
+    assert "--excluded-tools=rg" in captured["args"]
+
+
+def test_agent_invocation_has_hard_session_timeout(monkeypatch):
+    captured = {}
+    monkeypatch.setenv("BYOK_AGENT_TIMEOUT_SECONDS", "123")
+    monkeypatch.setattr(byok_task, "_copilot_command", lambda: ["copilot"])
+    monkeypatch.setattr(
+        byok_task,
+        "_agent_environment",
+        lambda: {"COPILOT_PROVIDER_MODEL_ID": "gpt-5.4-mini"},
+    )
+    monkeypatch.setattr(
+        byok_task,
+        "_run",
+        lambda *args, **kwargs: captured.update(kwargs=kwargs)
+        or subprocess.CompletedProcess(args, 0, "", ""),
+    )
+
+    byok_task._run_agent(_task())
+
+    assert captured["kwargs"]["timeout"] == 123
 
 
 def test_extract_agent_rationale_uses_only_final_assistant_message_and_redacts():

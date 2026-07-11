@@ -17,6 +17,30 @@ HYGIENE_LABEL = "azure-repository-hygiene"
 MAX_REMOTE_BRANCHES = 100
 MAX_PULL_REQUESTS = 100
 STALE_UNASSOCIATED_DAYS = 30
+MAX_SECURITY_SNIPPETS = 240
+MAX_SECURITY_SNIPPETS_PER_FILE = 24
+_SECURITY_SURFACE = (
+    "permission",
+    "secret",
+    "token",
+    "credential",
+    "password",
+    "subprocess",
+    "shell=true",
+    "os.system",
+    "eval(",
+    "exec(",
+    "urllib",
+    "request(",
+    "yaml.load",
+    "json.loads",
+    "repository_dispatch",
+    "pull_request_target",
+    "workflow_run",
+    "persist-credentials",
+    "uses:",
+    "run:",
+)
 
 
 def _load_backlog_cycle():
@@ -284,27 +308,50 @@ def _collect_hygiene_evidence(
     }
 
 
+def _security_surface_evidence(tracked: list[str]) -> list[dict[str, Any]]:
+    snippets = []
+    allowed_suffixes = {".py", ".yml", ".yaml", ".json", ".toml", ".bicep"}
+    allowed_roots = ("src/", "scripts/", ".github/workflows/", "infra/", "public/")
+    for path in tracked:
+        if Path(path).suffix.lower() not in allowed_suffixes and path != "Dockerfile":
+            continue
+        if not path.startswith(allowed_roots) and path not in {"pyproject.toml", "Dockerfile"}:
+            continue
+        target = REPO_ROOT / path
+        if not target.is_file():
+            continue
+        lines = target.read_text(encoding="utf-8", errors="replace").splitlines()
+        file_count = 0
+        for index, line in enumerate(lines):
+            lowered = line.lower()
+            if not any(pattern in lowered for pattern in _SECURITY_SURFACE):
+                continue
+            start = max(0, index - 1)
+            end = min(len(lines), index + 2)
+            snippets.append(
+                {
+                    "path": path,
+                    "start_line": start + 1,
+                    "lines": lines[start:end],
+                }
+            )
+            file_count += 1
+            if file_count >= MAX_SECURITY_SNIPPETS_PER_FILE or len(snippets) >= MAX_SECURITY_SNIPPETS:
+                break
+        if len(snippets) >= MAX_SECURITY_SNIPPETS:
+            break
+    return snippets
+
+
 def _build_security_task(backlog_cycle: Any) -> dict[str, Any]:
     tracked = _run("git", "ls-files").stdout.splitlines()
-    read_paths = [
-        path
-        for path in (
-            "src/",
-            "scripts/",
-            ".github/workflows/",
-            "infra/",
-            "pyproject.toml",
-            "public/staticwebapp.config.json",
-        )
-        if (REPO_ROOT / path).exists()
-    ]
     return {
         "kind": "report",
         "category": "security-analysis",
         "summary": "Read-only static security analysis of repository code and automation.",
         "report_title": "[agent-report] Security analysis",
         "report_label": SECURITY_LABEL,
-        "read_paths": read_paths,
+        "read_paths": [],
         "evidence": {
             "objective": (
                 "Identify concrete security weaknesses with repository file/line evidence and "
@@ -326,6 +373,7 @@ def _build_security_task(backlog_cycle: Any) -> dict[str, Any]:
             "workflow_files": [
                 path for path in tracked if path.startswith(".github/workflows/")
             ],
+            "line_numbered_security_surfaces": _security_surface_evidence(tracked),
             "recent_git_history": backlog_cycle._git_history(),
             "analysis_limit": (
                 "Static repository review only; no external vulnerability database, live Azure "

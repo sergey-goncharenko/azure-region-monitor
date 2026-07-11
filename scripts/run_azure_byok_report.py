@@ -5,6 +5,7 @@ import importlib.util
 import json
 import os
 import re
+import subprocess
 import sys
 import tempfile
 from datetime import datetime, timezone
@@ -303,7 +304,7 @@ def run_report_task(
             prompt=_report_prompt(task),
             report_only=True,
         )
-    except (OSError, ValueError) as error:
+    except (OSError, ValueError, subprocess.TimeoutExpired) as error:
         byok_task._reset()
         print("Azure BYOK report session could not start: " + byok_task._safe_failure_detail(str(error)))
         return 1

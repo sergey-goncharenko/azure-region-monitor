@@ -235,6 +235,28 @@ def test_report_session_rejects_any_repository_change(monkeypatch, tmp_path):
     assert result == 1
 
 
+def test_report_session_timeout_publishes_nothing(monkeypatch, tmp_path):
+    _mock_agent_run(monkeypatch, tmp_path, set())
+    monkeypatch.setattr(
+        report_task.byok_task,
+        "_run_agent",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            subprocess.TimeoutExpired("copilot", 10)
+        ),
+    )
+    monkeypatch.setattr(
+        report_task,
+        "_publish_report",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("timed-out report must not publish")
+        ),
+    )
+
+    result = report_task.run_report_task(_task(), base_branch="main")
+
+    assert result == 1
+
+
 def test_report_session_publishes_only_final_visible_message(monkeypatch, tmp_path):
     _mock_agent_run(monkeypatch, tmp_path, set())
     captured = {}

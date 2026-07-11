@@ -11,7 +11,7 @@ The 07:00 UTC run selects up to three eligible open issues, highest priority fir
 The 09:00 UTC workflow starts three isolated Copilot CLI sessions with separate Copilot homes, transcripts, telemetry, token metadata, and outcomes:
 
 1. **Documentation alignment** — may create one narrow draft PR. It can edit only [README.md](../README.md), [.github/copilot-instructions.md](../.github/copilot-instructions.md), and this operating guide. Selected workflows and recent history are read-only evidence.
-2. **Security analysis** — read-only static analysis of repository code, scripts, dependencies, infrastructure, and GitHub Actions. It updates the stable `[agent-report] Security analysis` issue with concrete file/line evidence, prioritized remediation, model/token usage, and a sanitized-chat artifact link. It is not a penetration test, dependency-CVE feed, live Azure audit, or secret scan.
+2. **Security analysis** — read-only static analysis of repository code, scripts, dependencies, infrastructure, and GitHub Actions. Deterministic outer code extracts a bounded set of line-numbered security surfaces before the model starts, preventing unbounded repository exploration. The session updates the stable `[agent-report] Security analysis` issue with concrete evidence, prioritized remediation, model/token usage, and a sanitized-chat artifact link. It is not a penetration test, dependency-CVE feed, live Azure audit, or secret scan.
 3. **Repository hygiene** — read-only analysis of remote branches, recent pull requests, and worktrees visible on the runner. It updates the stable `[agent-report] Repository hygiene recommendations` issue with confidence-ranked deletion candidates and commands for a human to consider. It never deletes a branch, reference, or worktree.
 
 The two report issues use `azure-agent-report` plus a category label and never receive `azure-backlog` automatically. Report text is replaced on each run rather than creating daily duplicate issues; a previously closed stable report is reopened when the next scheduled analysis is published.
@@ -66,11 +66,12 @@ Every editing task is bounded before a branch or PR is created:
 
 Security and repository-hygiene sessions have an additional report-only boundary:
 
-- Copilot CLI is denied shell, PowerShell, create, edit, and write tools. It receives no GitHub token and has no GitHub MCP, Azure CLI, or network access.
+- Copilot CLI excludes shell, PowerShell, file viewing/search, create, edit, and write tools from report sessions. Reports operate only on the bounded precomputed evidence, receive no GitHub token, and have no GitHub MCP, Azure CLI, or network access.
 - Deterministic outer code gathers branch/PR/worktree evidence before the model starts. Branch names, PR text, files, and evidence remain untrusted context.
 - The runner checks the Git working tree after each analysis. If any tracked or untracked file changed, it resets the checkout and publishes no report.
 - Only deterministic outer code can create labels or replace the two stable report issue bodies. Generated mentions are neutralized before publication.
 - The hygiene session can recommend commands but has no branch/worktree deletion implementation or permission path.
+- Every Copilot process has a 10-minute hard timeout. Uploaded audit artifacts include only sanitized chat Markdown and derived metadata JSON; raw OpenTelemetry JSONL is never selected for upload, including after cancellation.
 
 Every generated PR includes a reviewer-facing rationale in its description:
 

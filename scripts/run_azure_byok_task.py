@@ -20,13 +20,18 @@ _SAFE_BRANCH_COMPONENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,63}")
 _SECRET_ENV_NAME = re.compile(r"token|key|secret|password|credential|connection[_-]?string", re.I)
 
 
-def _run(*args: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+def _run(
+    *args: str,
+    env: dict[str, str] | None = None,
+    timeout: int | None = None,
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         args,
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
         env=env,
+        timeout=timeout,
     )
 
 
@@ -291,18 +296,24 @@ def _run_agent(
         "json",
     ]
     if report_only:
-        command.extend(
-            [
-                "--deny-tool=write",
-                "--deny-tool=edit",
-                "--deny-tool=create",
-            ]
-        )
+        for tool in (
+            "write",
+            "edit",
+            "create",
+            "view",
+            "rg",
+            "grep",
+            "glob",
+            "ls",
+            "read",
+        ):
+            command.append(f"--excluded-tools={tool}")
     if transcript_path is not None:
         transcript_path.parent.mkdir(parents=True, exist_ok=True)
         transcript_path.unlink(missing_ok=True)
         command.append(f"--share={transcript_path}")
-    return _run(*command, env=environment)
+    timeout_seconds = int(os.environ.get("BYOK_AGENT_TIMEOUT_SECONDS", "600"))
+    return _run(*command, env=environment, timeout=timeout_seconds)
 
 
 def _audit_paths(task: dict[str, Any]) -> tuple[Path, Path, Path]:
@@ -665,7 +676,7 @@ def run_task(
     transcript_path, telemetry_path, metadata_path = _audit_paths(task)
     try:
         agent = _run_agent(task, transcript_path, telemetry_path)
-    except OSError as error:
+    except (OSError, subprocess.TimeoutExpired) as error:
         _reset()
         detail = _safe_failure_detail(str(error))
         message = "Azure BYOK Copilot task could not start; no PR was created."

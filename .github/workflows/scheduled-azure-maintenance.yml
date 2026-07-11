@@ -71,6 +71,7 @@ jobs:
           AZURE_OPENAI_ENDPOINT: ${{ vars.AZURE_OPENAI_ENDPOINT }}
           AZURE_OPENAI_DEPLOYMENT: ${{ vars.AZURE_COPILOT_DEPLOYMENT || vars.AZURE_OPENAI_DEPLOYMENT }}
           COPILOT_BYOK_MODEL_ID: ${{ vars.COPILOT_BYOK_MODEL_ID || 'gpt-5.4-mini' }}
+          BYOK_AGENT_TIMEOUT_SECONDS: "600"
           BYOK_TASK_COOLDOWN_SECONDS: "65"
           BYOK_AUDIT_DIR: ${{ runner.temp }}/byok-audit
         run: |
@@ -135,6 +136,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: azure-byok-chat-${{ github.run_id }}
-          path: ${{ runner.temp }}/byok-audit
+          path: |
+            ${{ runner.temp }}/byok-audit/*-chat.md
+            ${{ runner.temp }}/byok-audit/*-metadata.json
           if-no-files-found: ignore
           retention-days: 30
