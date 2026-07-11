@@ -327,6 +327,28 @@ def test_agent_invocation_enables_internal_autopilot_but_denies_shell(monkeypatc
     assert captured["args"][output_index + 1] == "json"
 
 
+def test_report_only_agent_invocation_denies_file_mutation_tools(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(byok_task, "_copilot_command", lambda: ["copilot"])
+    monkeypatch.setattr(
+        byok_task,
+        "_agent_environment",
+        lambda: {"COPILOT_PROVIDER_MODEL_ID": "gpt-5.4-mini"},
+    )
+    monkeypatch.setattr(
+        byok_task,
+        "_run",
+        lambda *args, **kwargs: captured.update(args=args)
+        or subprocess.CompletedProcess(args, 0, "", ""),
+    )
+
+    byok_task._run_agent(_task(), prompt="Analyze only.", report_only=True)
+
+    assert "--deny-tool=write" in captured["args"]
+    assert "--deny-tool=edit" in captured["args"]
+    assert "--deny-tool=create" in captured["args"]
+
+
 def test_extract_agent_rationale_uses_only_final_assistant_message_and_redacts():
     output = "\n".join(
         [
@@ -356,6 +378,17 @@ def test_extract_agent_rationale_uses_only_final_assistant_message_and_redacts()
     assert "private" not in rationale
     assert "ghp_abcdefghijklmnop" not in rationale
     assert "[REDACTED]" in rationale
+
+
+def test_extract_final_agent_message_honors_report_limit():
+    output = json.dumps(
+        {
+            "type": "assistant.message",
+            "data": {"content": "1234567890"},
+        }
+    )
+
+    assert byok_task._extract_final_agent_message(output, 5) == "12345"
 
 
 def test_agent_metadata_parses_exact_otel_token_usage(tmp_path, monkeypatch):

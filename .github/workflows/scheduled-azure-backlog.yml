@@ -43,6 +43,12 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
+
+      - name: Configure Git authentication
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh auth setup-git
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -102,7 +108,7 @@ jobs:
               echo "target_issue must be a positive integer." >&2
               exit 2
             fi
-            args+=(--target-issue "$TARGET_ISSUE" --skip-docs)
+            args+=(--target-issue "$TARGET_ISSUE")
           fi
           python scripts/run_azure_backlog_cycle.py "${args[@]}" \
             >> "$GITHUB_STEP_SUMMARY"

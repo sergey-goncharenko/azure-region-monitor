@@ -199,7 +199,7 @@ def _build_docs_task() -> dict[str, Any]:
     return {
         "kind": "docs",
         "category": "documentation-alignment",
-        "summary": "Documentation alignment runs after all selected GitHub backlog issues.",
+        "summary": "Documentation alignment runs as a separate scheduled maintenance session.",
         "allowed_paths": allowed_paths,
         "tests": tests,
         "evidence": {
@@ -215,7 +215,7 @@ def build_cycle(
     repository: str = "",
     snapshot_url: str = DEFAULT_SNAPSHOT_URL,
     target_issue: int | None = None,
-    include_docs: bool = True,
+    include_docs: bool = False,
 ) -> dict[str, list[dict[str, Any]]]:
     tasks = _build_issue_tasks(
         issues_path,
@@ -256,7 +256,6 @@ def main() -> None:
     parser.add_argument("--repository", default=os.environ.get("GITHUB_REPOSITORY", ""))
     parser.add_argument("--snapshot-url", default=DEFAULT_SNAPSHOT_URL)
     parser.add_argument("--target-issue", type=int)
-    parser.add_argument("--skip-docs", action="store_true")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
 
@@ -266,7 +265,7 @@ def main() -> None:
         args.repository,
         args.snapshot_url,
         args.target_issue,
-        not args.skip_docs,
+        False,
     )
     args.output.write_text(json.dumps(cycle, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(render_cycle_markdown(cycle))

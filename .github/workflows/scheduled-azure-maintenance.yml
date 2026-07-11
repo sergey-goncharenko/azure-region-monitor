@@ -1,0 +1,140 @@
+name: Scheduled Azure maintenance sessions
+
+on:
+  schedule:
+    # Runs after the 07:00 UTC issue backlog window.
+    - cron: "0 9 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Build the three maintenance manifests without starting Azure BYOK sessions"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: scheduled-azure-maintenance
+  cancel-in-progress: false
+
+jobs:
+  maintenance:
+    name: Documentation, security, and repository hygiene
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Configure Git authentication
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh auth setup-git
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install project dependencies
+        run: python -m pip install ".[dev]"
+
+      - name: Install pinned GitHub Copilot CLI
+        run: |
+          npm install --global @github/copilot@1.0.70
+          copilot --version
+
+      - name: Build three bounded maintenance sessions
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python scripts/run_azure_maintenance_cycle.py \
+            --repository "$GITHUB_REPOSITORY" \
+            --default-branch "${{ github.event.repository.default_branch || 'main' }}" \
+            --output "$RUNNER_TEMP/azure-maintenance-manifest.json" \
+            >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Run isolated Azure BYOK maintenance sessions
+        env:
+          DRY_RUN: ${{ inputs.dry_run || false }}
+          BASE_BRANCH: ${{ github.event.repository.default_branch || 'main' }}
+          GH_TOKEN: ${{ github.token }}
+          AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_KEY }}
+          AZURE_OPENAI_ENDPOINT: ${{ vars.AZURE_OPENAI_ENDPOINT }}
+          AZURE_OPENAI_DEPLOYMENT: ${{ vars.AZURE_COPILOT_DEPLOYMENT || vars.AZURE_OPENAI_DEPLOYMENT }}
+          COPILOT_BYOK_MODEL_ID: ${{ vars.COPILOT_BYOK_MODEL_ID || 'gpt-5.4-mini' }}
+          BYOK_TASK_COOLDOWN_SECONDS: "65"
+          BYOK_AUDIT_DIR: ${{ runner.temp }}/byok-audit
+        run: |
+          set -euo pipefail
+
+          if [ "$DRY_RUN" != "true" ] && { [ -z "${AZURE_OPENAI_API_KEY:-}" ] || [ -z "${AZURE_OPENAI_ENDPOINT:-}" ] || [ -z "${AZURE_OPENAI_DEPLOYMENT:-}" ]; }; then
+            echo "Missing Azure OpenAI BYOK configuration." >&2
+            exit 2
+          fi
+
+          python - "$RUNNER_TEMP/azure-maintenance-manifest.json" "$RUNNER_TEMP" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          manifest = json.load(open(sys.argv[1], encoding="utf-8"))
+          output = Path(sys.argv[2])
+          for index, task in enumerate(manifest["tasks"]):
+              (output / f"azure-maintenance-task-{index}.json").write_text(
+                  json.dumps(task), encoding="utf-8"
+              )
+          PY
+
+          shopt -s nullglob
+          failures=0
+          task_paths=("$RUNNER_TEMP"/azure-maintenance-task-[0-9]*.json)
+          for index in "${!task_paths[@]}"; do
+            task_path="${task_paths[$index]}"
+            task_kind="$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["kind"])' "$task_path")"
+            case "$task_kind" in
+              docs|report) ;;
+              *)
+                echo "Unsupported maintenance task kind: $task_kind" | tee -a "$GITHUB_STEP_SUMMARY"
+                failures=1
+                continue
+                ;;
+            esac
+            args=(--task "$task_path" --base-branch "$BASE_BRANCH")
+            if [ "$DRY_RUN" = "true" ]; then
+              args+=(--dry-run)
+            fi
+
+            if [ "$task_kind" = "docs" ]; then
+              if ! python scripts/run_azure_byok_task.py "${args[@]}" 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"; then
+                failures=1
+              fi
+            elif [ "$task_kind" = "report" ]; then
+              if ! python scripts/run_azure_byok_report.py "${args[@]}" 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"; then
+                failures=1
+              fi
+            fi
+
+            if [ "$DRY_RUN" != "true" ] && [ "$index" -lt "$(( ${#task_paths[@]} - 1 ))" ]; then
+              echo "Waiting ${BYOK_TASK_COOLDOWN_SECONDS}s for Azure BYOK TPM capacity." | tee -a "$GITHUB_STEP_SUMMARY"
+              sleep "$BYOK_TASK_COOLDOWN_SECONDS"
+            fi
+          done
+          exit "$failures"
+
+      - name: Upload sanitized maintenance chats and usage
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: azure-byok-chat-${{ github.run_id }}
+          path: ${{ runner.temp }}/byok-audit
+          if-no-files-found: ignore
+          retention-days: 30

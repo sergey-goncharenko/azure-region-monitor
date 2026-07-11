@@ -39,7 +39,7 @@ def test_cycle_markdown_identifies_docs_as_the_final_alignment_lane():
     assert "Copilot CLI edits are validated locally" in rendered
 
 
-def test_documentation_alignment_is_always_last(monkeypatch, tmp_path):
+def test_issue_backlog_excludes_documentation_alignment_by_default(monkeypatch, tmp_path):
     monkeypatch.setattr(
         backlog_cycle,
         "_build_issue_tasks",
@@ -52,17 +52,30 @@ def test_documentation_alignment_is_always_last(monkeypatch, tmp_path):
     monkeypatch.setattr(
         backlog_cycle,
         "_build_docs_task",
-        lambda: {"kind": "docs", "category": "documentation-alignment", "summary": "Docs"},
+        lambda: (_ for _ in ()).throw(AssertionError("docs use the maintenance workflow")),
     )
 
     cycle = backlog_cycle.build_cycle(tmp_path / "issues.json", 3, "example/repo")
 
-    assert [task["kind"] for task in cycle["tasks"]] == [
-        "issue",
-        "issue",
-        "issue",
-        "docs",
-    ]
+    assert [task["kind"] for task in cycle["tasks"]] == ["issue", "issue", "issue"]
+
+
+def test_documentation_task_can_still_be_built_explicitly(monkeypatch, tmp_path):
+    monkeypatch.setattr(backlog_cycle, "_build_issue_tasks", lambda *args: [])
+    monkeypatch.setattr(
+        backlog_cycle,
+        "_build_docs_task",
+        lambda: {"kind": "docs", "category": "documentation-alignment", "summary": "Docs"},
+    )
+
+    cycle = backlog_cycle.build_cycle(
+        tmp_path / "issues.json",
+        3,
+        "example/repo",
+        include_docs=True,
+    )
+
+    assert [task["kind"] for task in cycle["tasks"]] == ["docs"]
 
 
 def test_targeted_rework_selects_one_issue_and_skips_docs(monkeypatch, tmp_path):

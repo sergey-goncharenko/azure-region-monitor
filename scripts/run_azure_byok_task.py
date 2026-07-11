@@ -250,6 +250,9 @@ def _run_agent(
     task: dict[str, Any],
     transcript_path: Path | None = None,
     telemetry_path: Path | None = None,
+    *,
+    prompt: str | None = None,
+    report_only: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     environment = _agent_environment()
     if telemetry_path is not None:
@@ -267,7 +270,7 @@ def _run_agent(
         "--model",
         environment["COPILOT_PROVIDER_MODEL_ID"],
         "--prompt",
-        _agent_prompt(task),
+        prompt or _agent_prompt(task),
         "--autopilot",
         "--max-autopilot-continues",
         "3",
@@ -287,6 +290,14 @@ def _run_agent(
         "--output-format",
         "json",
     ]
+    if report_only:
+        command.extend(
+            [
+                "--deny-tool=write",
+                "--deny-tool=edit",
+                "--deny-tool=create",
+            ]
+        )
     if transcript_path is not None:
         transcript_path.parent.mkdir(parents=True, exist_ok=True)
         transcript_path.unlink(missing_ok=True)
@@ -535,7 +546,7 @@ def _selection_summary(task: dict[str, Any]) -> str:
     return "\n".join(lines) or "- Scheduled bounded maintenance task."
 
 
-def _extract_agent_rationale(stdout: str) -> str:
+def _extract_final_agent_message(stdout: str, max_chars: int) -> str:
     final_messages = []
     for line in stdout.splitlines():
         try:
@@ -550,8 +561,12 @@ def _extract_agent_rationale(stdout: str) -> str:
             final_messages.append(content.strip())
     if not final_messages:
         return ""
-    rationale = _redact_sensitive_text(final_messages[-1])
-    return rationale[:MAX_RATIONALE_CHARS].strip()
+    message = _redact_sensitive_text(final_messages[-1])
+    return message[:max_chars].strip()
+
+
+def _extract_agent_rationale(stdout: str) -> str:
+    return _extract_final_agent_message(stdout, MAX_RATIONALE_CHARS)
 
 
 def _redact_sensitive_text(text: str) -> str:

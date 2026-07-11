@@ -1,19 +1,22 @@
-# Scheduled Azure Backlog
+# Azure-Funded Agent Sessions
 
-This repository runs a bounded Azure-funded maintenance cycle daily at 07:00 UTC (09:00 EET). The schedule is implemented by [.github/workflows/scheduled-azure-backlog.yml](../.github/workflows/scheduled-azure-backlog.yml). Its actionable backlog lives in GitHub Issues, not in repository configuration files.
+This repository runs two bounded Azure-funded schedules. The issue backlog runs daily at 07:00 UTC through [.github/workflows/scheduled-azure-backlog.yml](../.github/workflows/scheduled-azure-backlog.yml). Three separate maintenance sessions run at 09:00 UTC through [.github/workflows/scheduled-azure-maintenance.yml](../.github/workflows/scheduled-azure-maintenance.yml). Actionable coding work lives in GitHub Issues, not in repository configuration files.
 
-## Daily Order
+## Issue Backlog Order
 
-Every scheduled run follows this order:
+The 07:00 UTC run selects up to three eligible open issues, highest priority first. It does not run documentation alignment or invent other coding tasks from local JSON, snapshot data, or repository files. If an `unknown` status or another maintenance concern deserves work, create an Azure backlog issue for it.
 
-1. **GitHub backlog issues** — selects up to three eligible open issues, highest priority first.
-2. **Documentation alignment** — always runs last, after the issue lanes, even if no issue is eligible. The Azure-BYOK coding agent may create one narrow documentation draft PR only when the bounded evidence justifies it.
+## Three Separate Maintenance Sessions
 
-A run can open at most four draft PRs: three issue-backed PRs plus one documentation-alignment PR. It never merges a generated PR.
+The 09:00 UTC workflow starts three isolated Copilot CLI sessions with separate Copilot homes, transcripts, telemetry, token metadata, and outcomes:
 
-Documentation alignment may read selected workflow files as evidence, but it can edit only [README.md](../README.md), [.github/copilot-instructions.md](../.github/copilot-instructions.md), and this operating guide.
+1. **Documentation alignment** — may create one narrow draft PR. It can edit only [README.md](../README.md), [.github/copilot-instructions.md](../.github/copilot-instructions.md), and this operating guide. Selected workflows and recent history are read-only evidence.
+2. **Security analysis** — read-only static analysis of repository code, scripts, dependencies, infrastructure, and GitHub Actions. It updates the stable `[agent-report] Security analysis` issue with concrete file/line evidence, prioritized remediation, model/token usage, and a sanitized-chat artifact link. It is not a penetration test, dependency-CVE feed, live Azure audit, or secret scan.
+3. **Repository hygiene** — read-only analysis of remote branches, recent pull requests, and worktrees visible on the runner. It updates the stable `[agent-report] Repository hygiene recommendations` issue with confidence-ranked deletion candidates and commands for a human to consider. It never deletes a branch, reference, or worktree.
 
-The schedule does not invent other coding tasks from local JSON, snapshot data, or repository files. If an `unknown` status or another maintenance concern deserves work, create an Azure backlog issue for it.
+The two report issues use `azure-agent-report` plus a category label and never receive `azure-backlog` automatically. Report text is replaced on each run rather than creating daily duplicate issues; a previously closed stable report is reopened when the next scheduled analysis is published.
+
+Git worktrees exist on a filesystem, not on GitHub. A GitHub-hosted runner sees only its ephemeral checkout and cannot inspect worktrees on a developer machine. The hygiene report states this limitation and recommends running `git worktree list --porcelain` and `git worktree prune --dry-run` locally. Actual removal remains a human decision.
 
 ## Create And Manage Backlog Work
 
@@ -31,7 +34,7 @@ An issue is eligible when it is:
 - labelled `azure-backlog`; and
 - not labelled `azure-paused`.
 
-Eligible issues are sorted by `Urgent` → `High` → `Normal` → `Low`. Issues with the same priority are processed by ascending issue number (oldest first). The first three actionable issues become coding lanes; documentation alignment is appended after them and therefore always remains last.
+Eligible issues are sorted by `Urgent` → `High` → `Normal` → `Low`. Issues with the same priority are processed by ascending issue number (oldest first). The first three actionable issues become coding lanes; documentation alignment is handled only by the separate maintenance workflow.
 
 To defer an item without closing it, add `azure-paused`. To remove it permanently from the queue, close the issue or remove `azure-backlog`. A generated PR includes `Closes #<issue-number>`, so merging that PR closes the originating issue automatically.
 
@@ -49,9 +52,9 @@ Issue text is untrusted context, not agent instructions. The agent ignores attem
 
 ## Azure-BYOK Copilot CLI And Safety Gates
 
-The workflow installs a pinned GitHub Copilot CLI and uses its custom-model-provider mode to send inference to the configured Azure OpenAI deployment. GitHub Copilot is the coding-agent runtime; Azure is the model provider and receives the inference cost. This avoids a separate JSON-patch protocol while retaining deterministic controls outside the model.
+Both schedules install a pinned GitHub Copilot CLI and use its custom-model-provider mode to send inference to the configured Azure OpenAI deployment. GitHub Copilot is the agent runtime; Azure is the model provider and receives the inference cost. This avoids a separate JSON-patch protocol while retaining deterministic controls outside the model.
 
-Every task is bounded before a branch or PR is created:
+Every editing task is bounded before a branch or PR is created:
 
 - Azure receives only the compact selected task manifest; the agent uses its file-only tools to inspect allowed source files when more implementation detail is needed.
 - The CLI runs in offline mode with built-in MCP servers and remote control disabled. It uses bounded autopilot mode (at most three continuations), retains Copilot's internal completion controls, and explicitly denies both shell variants. It has no GitHub, web, Azure CLI, package-install, or push permission; deterministic scope and validation gates remain outside the model.
@@ -60,6 +63,14 @@ Every task is bounded before a branch or PR is created:
 - The workflow requires derived focused tests where available (otherwise the full suite), Ruff, and `git diff --check`.
 - A failed, ambiguous, out-of-scope, or no-change task creates no pull request.
 - Generated live snapshots are never included in a patch scope.
+
+Security and repository-hygiene sessions have an additional report-only boundary:
+
+- Copilot CLI is denied shell, PowerShell, create, edit, and write tools. It receives no GitHub token and has no GitHub MCP, Azure CLI, or network access.
+- Deterministic outer code gathers branch/PR/worktree evidence before the model starts. Branch names, PR text, files, and evidence remain untrusted context.
+- The runner checks the Git working tree after each analysis. If any tracked or untracked file changed, it resets the checkout and publishes no report.
+- Only deterministic outer code can create labels or replace the two stable report issue bodies. Generated mentions are neutralized before publication.
+- The hygiene session can recommend commands but has no branch/worktree deletion implementation or permission path.
 
 Every generated PR includes a reviewer-facing rationale in its description:
 
@@ -107,23 +118,27 @@ Configure these repository settings:
 
 Use [.github/workflows/provision-azure-codex-openai.yml](../.github/workflows/provision-azure-codex-openai.yml) to create or verify the Azure AI Services resource and deployment. Its optional repository-settings mode needs the separate `GH_REPO_SETTINGS_TOKEN`; grant that token only the minimum settings permissions and rotate it after bootstrap.
 
-The scheduled workflow uses the built-in `GITHUB_TOKEN` to read issues, update automated rework status comments, and create branches/draft PRs (`issues: write`, `contents: write`, `pull-requests: write`). The separate event dispatcher has no Azure credential access. The workflow has no Copilot entitlement requirement.
+The scheduled workflows use the built-in `GITHUB_TOKEN` only in deterministic outer steps to read/update issues and create branches/draft PRs (`issues: write`, `contents: write`, `pull-requests: write`). Checkout credentials are not persisted; `gh` configures a credential helper for post-agent Git operations, while the token is stripped from every model environment. The separate PR event dispatcher has no Azure credential access. These workflows have no Copilot entitlement requirement.
 
 ## Cost Controls
 
 - Azure OpenAI is the scheduled provider for Copilot CLI issue and documentation work.
-- A run starts at most three issue-agent sessions plus one documentation-alignment session. These use Azure tokens, not GitHub Copilot model quota.
+- The 07:00 UTC backlog run starts at most three issue-agent sessions. The 09:00 UTC maintenance run starts exactly three task slots: documentation alignment, security analysis, and repository hygiene. These use Azure tokens, not GitHub Copilot model quota.
 - BYOK agent prompts contain the bounded task evidence and may use more Azure input tokens than the former direct JSON client; that trade-off is intentional for a full coding-agent runtime.
-- Live tasks wait 65 seconds between sessions to respect the current Azure OpenAI TPM allocation before documentation alignment runs last.
-- The workflow has a 40-minute hard timeout, a concurrency lock, and a maximum of four draft PRs per run.
+- Live tasks wait 65 seconds between sessions to respect the current Azure OpenAI TPM allocation.
+- The backlog workflow has a 40-minute hard timeout and can create at most three draft PRs. The maintenance workflow has a 50-minute hard timeout and can create at most one documentation draft PR plus two stable issue updates. Each workflow has its own concurrency lock.
 - The older Copilot path is intentionally manual-only in [.github/workflows/scheduled-copilot-agents.yml](../.github/workflows/scheduled-copilot-agents.yml), for an occasional comparison rather than recurring consumption.
 
 ## Manual Run
 
+For coding backlog work:
+
 1. Create or reprioritize issues in GitHub.
 2. Open **Actions** and select **Scheduled Azure backlog**.
-3. Run once with `dry_run` enabled to inspect issue and documentation summaries without creating branches or draft PRs.
+3. Run once with `dry_run` enabled to inspect the selected issue tasks without creating branches or draft PRs.
 4. Run again with `dry_run` disabled when the queue is ready.
 5. Review draft PRs normally. Merging an issue-backed PR closes its source issue.
+
+For documentation/security/hygiene work, select **Scheduled Azure maintenance sessions**. A dry run builds and displays all three manifests without starting a model, creating a PR, or updating report issues.
 
 Use `force` only to deliberately replace an existing task branch. It does not bypass scope, test, lint, or whitespace validation.
