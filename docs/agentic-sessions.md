@@ -4,7 +4,7 @@ This repository runs bounded Azure-funded schedules. The issue backlog runs dail
 
 ## Issue Backlog Order
 
-The 07:00 UTC run selects up to three eligible open issues, highest priority first. It does not run documentation alignment or invent other coding tasks from local JSON, snapshot data, or repository files. If an `unknown` status or another maintenance concern deserves work, create an Azure backlog issue for it.
+The 07:00 UTC run selects up to two eligible open issues by default, highest priority first. Manual dispatch can choose one, two, or three sessions. It does not run documentation alignment or invent other coding tasks from local JSON, snapshot data, or repository files. If an `unknown` status or another maintenance concern deserves work, create an Azure backlog issue for it.
 
 ## Three Separate Maintenance Sessions
 
@@ -130,10 +130,10 @@ The scheduled workflows use the built-in `GITHUB_TOKEN` only in deterministic ou
 ## Cost Controls
 
 - Azure OpenAI is the scheduled provider for Copilot CLI issue and documentation work.
-- The 07:00 UTC backlog run starts at most three issue-agent sessions. Public documentation alignment runs at 09:00 UTC. The private companion repository starts security and hygiene sessions at 10:00 UTC. These use Azure tokens, not GitHub Copilot model quota.
+- The 07:00 UTC backlog run starts two issue-agent sessions by default; manual dispatch may choose one to three. Public documentation alignment runs at 09:00 UTC. The private companion repository starts security and hygiene sessions at 10:00 UTC. These use Azure tokens, not GitHub Copilot model quota.
 - BYOK agent prompts contain the bounded task evidence and may use more Azure input tokens than the former direct JSON client; that trade-off is intentional for a full coding-agent runtime.
 - Live tasks wait 65 seconds between sessions to respect the current Azure OpenAI TPM allocation.
-- The backlog workflow has a 40-minute hard timeout and can create at most three draft PRs. Public documentation alignment can create at most one draft PR. Private analysis can replace at most two stable private report issues. Each workflow has its own concurrency lock.
+- The backlog workflow has a 70-minute hard timeout so an explicitly requested three-issue manual run can finish; scheduled runs still default to two issues and create at most two draft PRs. Public documentation alignment can create at most one draft PR. Private analysis can replace at most two stable private report issues. Each workflow has its own concurrency lock.
 - The older Copilot path is intentionally manual-only in [.github/workflows/scheduled-copilot-agents.yml](../.github/workflows/scheduled-copilot-agents.yml), for an occasional comparison rather than recurring consumption.
 
 ## Manual Run
