@@ -56,14 +56,14 @@ Issue text is untrusted context, not agent instructions. The agent ignores attem
 
 ## Azure-BYOK Coding And Maintenance Harnesses
 
-Issue coding uses pinned Aider 0.86.2 with a dedicated full Azure OpenAI `gpt-4o` deployment in UK South at 70K TPM. Public documentation alignment and private security/hygiene reports remain on pinned GitHub Copilot CLI because those bounded flows already work. Azure receives all model inference cost; neither path consumes GitHub Copilot model quota.
+Issue coding uses pinned Aider 0.86.2 with the Azure OpenAI `o4-mini` reasoning deployment in East US 2 at 100K TPM. Public documentation alignment and private security/hygiene reports remain on pinned GitHub Copilot CLI because those bounded flows already work. Azure receives all model inference cost; neither path consumes GitHub Copilot model quota.
 
 Every editing task is bounded before a branch or PR is created:
 
 - Aider receives the compact task manifest, a full repository map, and only trusted `allowed_paths` as editable files. One full GPT-4o pass applies SEARCH/REPLACE diffs directly. The prompt requires reuse of existing helpers/assets and forbids undeclared template variables. Shell suggestions, auto-commits, dirty commits, URL detection, Playwright, update checks, remote analytics, and Git-ignore mutation are disabled; deterministic outer code owns validation and Git operations.
 - Histories, the full LLM exchange, and exact local-only analytics are written outside the repository. Aider's repo-map cache is deleted after each run. Only the sanitized chat/output artifact and derived metadata are uploaded; raw local analytics are parsed and deleted.
 - The Azure coding key is supplied only to the Aider provider process. `GH_TOKEN`, `GITHUB_TOKEN`, and unrelated secret-like inherited variables are absent, and the model has no shell/tool path that can inspect process environment. The key is never included in prompts, commands, output, or artifacts.
-- This replaces two measured failures: GPT-5.4 Mini/Copilot consumed 4.23M tokens across three no-edit canaries, while `o4-mini`/OpenCode reached the correct edit surface in 12 and 24 bounded steps but still produced no diff. Aider/full GPT-4o was selected to replace open-ended tool iteration with direct, benchmarked diff editing.
+- This replaces measured harness/model failures: GPT-5.4 Mini/Copilot consumed 4.23M tokens across three no-edit canaries, `o4-mini`/OpenCode reached the correct edit surface but produced no diff, and full GPT-4o/Aider generated invalid template edits. Aider with reasoning `o4-mini` passed a clean direct-edit smoke and combines bounded diff application with stronger reasoning.
 - Each task starts from a clean default-branch checkout. The runner rejects every changed path outside the automatically derived scope.
 - The workflow requires derived focused tests where available (otherwise the full suite), Ruff, and `git diff --check`.
 - A failed, ambiguous, out-of-scope, or no-change task creates no pull request.
@@ -122,13 +122,13 @@ Configure these repository settings:
 - Variable `AZURE_OPENAI_ENDPOINT`: endpoint URL.
 - Variable `AZURE_OPENAI_DEPLOYMENT`: shared deployment name for blog, social, and narrative generation.
 - Secret `AZURE_CODING_OPENAI_KEY`: key for the dedicated OpenCode coding resource. It is copied only into a temporary mode-`0600` auth file.
-- Variable `AZURE_CODING_RESOURCE_NAME`: Azure OpenAI resource name; currently `azrm-code-uks-16221e01`.
-- Variable `AZURE_CODING_MODEL`: deployment/model name; currently `gpt-4o`.
+- Variable `AZURE_CODING_RESOURCE_NAME`: Azure OpenAI resource name; currently `azrm-code-eus2-16221e01`.
+- Variable `AZURE_CODING_MODEL`: deployment/model name; currently `o4-mini`.
 - Optional `AZURE_COPILOT_DEPLOYMENT` and `COPILOT_BYOK_MODEL_ID`: retained for public documentation and private report Copilot sessions, not issue coding.
 
-Use [.github/workflows/provision-azure-codex-openai.yml](../.github/workflows/provision-azure-codex-openai.yml) to create or verify the dedicated UK South OpenAI resource and full `gpt-4o` deployment. Its optional repository-settings mode writes only the `AZURE_CODING_*` settings and needs the separate `GH_REPO_SETTINGS_TOKEN`; grant that token only minimum settings permissions and rotate it after bootstrap.
+Use [.github/workflows/provision-azure-codex-openai.yml](../.github/workflows/provision-azure-codex-openai.yml) to create or verify the dedicated East US 2 OpenAI resource and `o4-mini` deployment. Its optional repository-settings mode writes only the `AZURE_CODING_*` settings and needs the separate `GH_REPO_SETTINGS_TOKEN`; grant that token only minimum settings permissions and rotate it after bootstrap.
 
-The deployment pins `gpt-4o` version `2024-11-20` and `Standard` capacity 70. Before changing the version, verify the target SKU in the regional model catalog and available subscription quota, update the provisioning workflow default, provision first, run a targeted canary, and only then change the repository model variable.
+The deployment pins `o4-mini` version `2025-04-16` and `GlobalStandard` capacity 100. Before changing the version, verify the target SKU in the regional model catalog and available subscription quota, update the provisioning workflow default, provision first, run a targeted canary, and only then change the repository model variable.
 
 The scheduled workflows use the built-in `GITHUB_TOKEN` only in deterministic outer steps to read/update issues and create branches/draft PRs (`issues: write`, `contents: write`, `pull-requests: write`). Checkout credentials are not persisted; `gh` configures a credential helper for post-agent Git operations, while the token is stripped from every model environment. The separate PR event dispatcher has no Azure credential access. These workflows have no Copilot entitlement requirement.
 
@@ -137,7 +137,7 @@ The scheduled workflows use the built-in `GITHUB_TOKEN` only in deterministic ou
 - Azure OpenAI is the scheduled provider for Aider issue work and Copilot documentation/report work.
 - The 07:00 UTC backlog run starts one issue-agent session by default; manual dispatch may choose one to three. Public documentation alignment runs at 09:00 UTC. The private companion repository starts security and hygiene sessions at 10:00 UTC. These use Azure tokens, not GitHub Copilot model quota.
 - BYOK agent prompts contain the bounded task evidence and may use more Azure input tokens than the former direct JSON client; that trade-off is intentional for a full coding-agent runtime.
-- Live issue tasks wait 30 seconds between sessions; the dedicated full `gpt-4o` deployment has 70K TPM.
+- Live issue tasks wait 30 seconds between sessions; the dedicated `o4-mini` deployment has 100K TPM.
 - The backlog job has a 70-minute hard timeout so an explicitly requested three-issue manual run can accommodate three 15-minute outer budgets plus validation and cooldowns; scheduled runs still default to one issue and create at most one draft PR. Public documentation alignment can create at most one draft PR. Private analysis can replace at most two stable private report issues. Each workflow has its own concurrency lock.
 - The older Copilot path is intentionally manual-only in [.github/workflows/scheduled-copilot-agents.yml](../.github/workflows/scheduled-copilot-agents.yml), for an occasional comparison rather than recurring consumption.
 

@@ -10,7 +10,7 @@ on:
       location:
         description: "Azure region for the OpenAI resource and model deployment"
         required: false
-        default: "uksouth"
+        default: "eastus2"
       account_name:
         description: "OpenAI account name; leave blank to generate a unique name"
         required: false
@@ -18,23 +18,23 @@ on:
       deployment_name:
         description: "Azure OpenAI deployment name used by Aider"
         required: false
-        default: "gpt-4o"
+        default: "o4-mini"
       model_name:
         description: "Azure OpenAI model name to deploy"
         required: false
-        default: "gpt-4o"
+        default: "o4-mini"
       model_version:
         description: "Azure OpenAI model version to deploy"
         required: false
-        default: "2024-11-20"
+        default: "2025-04-16"
       sku_name:
         description: "Deployment SKU name"
         required: false
-        default: "Standard"
+        default: "GlobalStandard"
       sku_capacity:
         description: "Deployment capacity"
         required: false
-        default: "70"
+        default: "100"
       configure_repo_settings:
         description: "Set AZURE_CODING_* repo variables/secrets after provisioning"
         required: false
@@ -74,7 +74,7 @@ jobs:
 
           account_name="$ACCOUNT_NAME_INPUT"
           if [ -z "$account_name" ]; then
-            account_name="azrm-code-uks-${GITHUB_RUN_ID}"
+            account_name="azrm-code-eus2-${GITHUB_RUN_ID}"
           fi
           account_name="$(echo "$account_name" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9-')"
 

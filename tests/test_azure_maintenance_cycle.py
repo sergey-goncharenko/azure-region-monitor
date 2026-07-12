@@ -316,17 +316,17 @@ def test_issue_backlog_workflow_no_longer_runs_documentation_lane():
     assert "timeout-minutes: 70" in workflow
 
 
-def test_aider_provisioning_workflow_uses_dedicated_gpt4_model():
+def test_aider_provisioning_workflow_uses_dedicated_o4_model():
     workflow = (
         REPO_ROOT / ".github/workflows/provision-azure-codex-openai.yml"
     ).read_text(encoding="utf-8")
 
     assert "name: Provision Azure Aider model" in workflow
-    assert 'default: "uksouth"' in workflow
-    assert workflow.count('default: "gpt-4o"') == 2
-    assert 'default: "2024-11-20"' in workflow
-    assert 'default: "Standard"' in workflow
-    assert 'default: "70"' in workflow
+    assert 'default: "eastus2"' in workflow
+    assert workflow.count('default: "o4-mini"') == 2
+    assert 'default: "2025-04-16"' in workflow
+    assert 'default: "GlobalStandard"' in workflow
+    assert 'default: "100"' in workflow
     assert "--kind OpenAI" in workflow
     assert "--custom-domain \"$ACCOUNT_NAME\"" in workflow
     assert "AZURE_CODING_RESOURCE_NAME" in workflow
