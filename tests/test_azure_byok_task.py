@@ -211,7 +211,8 @@ def test_agent_prompt_includes_scope_and_untrusted_context_rules():
     assert "approved backlog task" in prompt
     assert "complete at most one coherent implementation slice" in prompt
     assert "2-4 item decomposition proposal" in prompt
-    assert "Use any line-numbered `source_excerpts`" in prompt
+    assert "full repository" in prompt
+    assert "Use line-numbered `source_excerpts` as starting hints" in prompt
     assert '"issue_number": 42' in prompt
 
 
@@ -325,7 +326,7 @@ def test_agent_invocation_enables_internal_autopilot_but_denies_shell(monkeypatc
     assert "--autopilot" in captured["args"]
     assert "--max-autopilot-continues" in captured["args"]
     continuation_index = captured["args"].index("--max-autopilot-continues")
-    assert captured["args"][continuation_index + 1] == "1"
+    assert captured["args"][continuation_index + 1] == "3"
     assert "--deny-tool=powershell" in captured["args"]
     assert "--deny-tool=shell" in captured["args"]
     assert "--no-ask-user" in captured["args"]
