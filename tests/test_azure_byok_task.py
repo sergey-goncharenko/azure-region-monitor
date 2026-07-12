@@ -490,10 +490,7 @@ def test_issue_agent_invocation_uses_one_shot_aider(monkeypatch, tmp_path):
     assert captured["args"][0] == "aider"
     assert "--model" in captured["args"]
     assert "azure/gpt-4o" in captured["args"]
-    assert "--architect" in captured["args"]
-    assert "--auto-accept-architect" in captured["args"]
-    assert "--editor-model" in captured["args"]
-    assert "--editor-edit-format" in captured["args"]
+    assert "--architect" not in captured["args"]
     assert "--message-file" in captured["args"]
     assert "--no-auto-commits" in captured["args"]
     assert "--no-suggest-shell-commands" in captured["args"]
