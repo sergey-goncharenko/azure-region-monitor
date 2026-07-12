@@ -1,4 +1,4 @@
-name: Provision Azure OpenCode model
+name: Provision Azure Aider model
 
 on:
   workflow_dispatch:
@@ -10,31 +10,31 @@ on:
       location:
         description: "Azure region for the OpenAI resource and model deployment"
         required: false
-        default: "eastus2"
+        default: "uksouth"
       account_name:
         description: "OpenAI account name; leave blank to generate a unique name"
         required: false
         default: ""
       deployment_name:
-        description: "Azure OpenAI deployment name used by OpenCode"
+        description: "Azure OpenAI deployment name used by Aider"
         required: false
-        default: "o4-mini"
+        default: "gpt-4o"
       model_name:
         description: "Azure OpenAI model name to deploy"
         required: false
-        default: "o4-mini"
+        default: "gpt-4o"
       model_version:
         description: "Azure OpenAI model version to deploy"
         required: false
-        default: "2025-04-16"
+        default: "2024-11-20"
       sku_name:
         description: "Deployment SKU name"
         required: false
-        default: "GlobalStandard"
+        default: "Standard"
       sku_capacity:
         description: "Deployment capacity"
         required: false
-        default: "100"
+        default: "70"
       configure_repo_settings:
         description: "Set AZURE_CODING_* repo variables/secrets after provisioning"
         required: false
@@ -47,7 +47,7 @@ permissions:
 
 jobs:
   provision:
-    name: Provision Azure OpenAI for OpenCode
+    name: Provision Azure OpenAI for Aider
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -74,7 +74,7 @@ jobs:
 
           account_name="$ACCOUNT_NAME_INPUT"
           if [ -z "$account_name" ]; then
-            account_name="azrm-code-eus2-${GITHUB_RUN_ID}"
+            account_name="azrm-code-uks-${GITHUB_RUN_ID}"
           fi
           account_name="$(echo "$account_name" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9-')"
 
@@ -181,9 +181,9 @@ jobs:
           CONFIGURED_REPO_SETTINGS: ${{ inputs.configure_repo_settings }}
         run: |
           {
-            echo "## Azure OpenCode model provisioning"
+            echo "## Azure Aider model provisioning"
             echo
-            echo "Provisioned or verified a dedicated Azure OpenAI resource and model deployment for scheduled OpenCode issue work."
+            echo "Provisioned or verified a dedicated Azure OpenAI resource and model deployment for scheduled Aider issue work."
             echo
             echo "- Resource group: \`$RESOURCE_GROUP\`"
             echo "- Location: \`$LOCATION\`"

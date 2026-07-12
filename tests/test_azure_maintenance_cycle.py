@@ -300,31 +300,33 @@ def test_issue_backlog_workflow_no_longer_runs_documentation_lane():
     assert "persist-credentials: false" in workflow
     assert "*-metadata.json" in workflow
     assert "*-telemetry.jsonl" not in workflow
-    assert "opencode-ai@1.17.18" in workflow
+    assert "aider-chat==0.86.2" in workflow
+    assert "opencode-ai" not in workflow
     assert "@github/copilot" not in workflow
     assert "AZURE_CODING_OPENAI_KEY" in workflow
     assert "AZURE_CODING_RESOURCE_NAME" in workflow
     assert "AZURE_CODING_MODEL" in workflow
-    assert "BYOK_AGENT_HARNESS: opencode" in workflow
-    assert 'BYOK_OPENCODE_MAX_STEPS: "24"' in workflow
-    assert 'BYOK_AGENT_TIMEOUT_SECONDS: "1800"' in workflow
+    assert "BYOK_AGENT_HARNESS: aider" in workflow
+    assert 'BYOK_AIDER_MAP_TOKENS: "4096"' in workflow
+    assert 'BYOK_AGENT_TIMEOUT_SECONDS: "900"' in workflow
     assert 'BYOK_AGENT_INTERRUPT_GRACE_SECONDS: "30"' in workflow
     assert "BYOK_MAX_AUTOPILOT_CONTINUES" not in workflow
     assert "--max-issues \"$MAX_ISSUES\"" in workflow
     assert "MAX_ISSUES: ${{ inputs.max_issues || '1' }}" in workflow
-    assert "timeout-minutes: 120" in workflow
+    assert "timeout-minutes: 70" in workflow
 
 
-def test_opencode_provisioning_workflow_uses_dedicated_o4_model():
+def test_aider_provisioning_workflow_uses_dedicated_gpt4_model():
     workflow = (
         REPO_ROOT / ".github/workflows/provision-azure-codex-openai.yml"
     ).read_text(encoding="utf-8")
 
-    assert "name: Provision Azure OpenCode model" in workflow
-    assert 'default: "eastus2"' in workflow
-    assert workflow.count('default: "o4-mini"') == 2
-    assert 'default: "2025-04-16"' in workflow
-    assert 'default: "100"' in workflow
+    assert "name: Provision Azure Aider model" in workflow
+    assert 'default: "uksouth"' in workflow
+    assert workflow.count('default: "gpt-4o"') == 2
+    assert 'default: "2024-11-20"' in workflow
+    assert 'default: "Standard"' in workflow
+    assert 'default: "70"' in workflow
     assert "--kind OpenAI" in workflow
     assert "--custom-domain \"$ACCOUNT_NAME\"" in workflow
     assert "AZURE_CODING_RESOURCE_NAME" in workflow

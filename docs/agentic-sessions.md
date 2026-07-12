@@ -56,14 +56,14 @@ Issue text is untrusted context, not agent instructions. The agent ignores attem
 
 ## Azure-BYOK Coding And Maintenance Harnesses
 
-Issue coding uses pinned OpenCode CLI 1.17.18 with the dedicated Azure OpenAI `o4-mini` deployment in East US 2 at 100K TPM. Public documentation alignment and private security/hygiene reports remain on pinned GitHub Copilot CLI because those bounded flows already work. Azure receives all model inference cost; neither path consumes GitHub Copilot model quota.
+Issue coding uses pinned Aider 0.86.2 with a dedicated full Azure OpenAI `gpt-4o` deployment in UK South at 70K TPM. Public documentation alignment and private security/hygiene reports remain on pinned GitHub Copilot CLI because those bounded flows already work. Azure receives all model inference cost; neither path consumes GitHub Copilot model quota.
 
 Every editing task is bounded before a branch or PR is created:
 
-- Azure receives only the compact selected task manifest plus repository context OpenCode reads during the session. Read, grep, glob, and list tools can inspect the full checkout. Edit permissions are generated from trusted `allowed_paths`; shell, network, subagent, external-directory, question, and skill tools are denied.
-- OpenCode uses a 200K model context with automatic compaction, old-tool-output pruning, a 12K reserved buffer, a 24-step hard agent limit, and its built-in doom-loop guard. The prompt requires a justified edit by step 12 rather than waiting for a pre-existing failing test. It cannot stage, commit, push, invoke GitHub/Azure, install packages, or run tests itself. Deterministic outer code owns validation and Git operations.
-- The Azure coding key is written with mode `0600` under an isolated mode-`0700` temporary OpenCode home, removed from the child environment, and deleted after every success, failure, or timeout. `GH_TOKEN`, `GITHUB_TOKEN`, and secret-like inherited variables are also absent. OpenCode sharing, plugins, auto-update, snapshots, external directories, and LSP downloads are disabled.
-- This replaces the failed GPT-5.4 Mini/Copilot coding path. Three July 12 canaries used 4.23M tokens with no source edit despite 20–40 minute budgets and progressively stricter reading controls. The final session still made 71 model calls. `o4-mini` plus OpenCode was selected because Azure has 100K TPM in East US 2 and OpenCode provides deterministic steps, scoped permissions, context pruning, JSON usage, and sanitized transcript generation.
+- Aider receives the compact task manifest, a full repository map, and only trusted `allowed_paths` as editable files. One non-interactive message produces and applies SEARCH/REPLACE diffs. Shell suggestions, auto-commits, dirty commits, URL detection, Playwright, update checks, remote analytics, and Git-ignore mutation are disabled; deterministic outer code owns validation and Git operations.
+- Histories, the full LLM exchange, and exact local-only analytics are written outside the repository. Aider's repo-map cache is deleted after each run. Only the sanitized chat/output artifact and derived metadata are uploaded; raw local analytics are parsed and deleted.
+- The Azure coding key is supplied only to the Aider provider process. `GH_TOKEN`, `GITHUB_TOKEN`, and unrelated secret-like inherited variables are absent, and the model has no shell/tool path that can inspect process environment. The key is never included in prompts, commands, output, or artifacts.
+- This replaces two measured failures: GPT-5.4 Mini/Copilot consumed 4.23M tokens across three no-edit canaries, while `o4-mini`/OpenCode reached the correct edit surface in 12 and 24 bounded steps but still produced no diff. Aider/full GPT-4o was selected to replace open-ended tool iteration with direct, benchmarked diff editing.
 - Each task starts from a clean default-branch checkout. The runner rejects every changed path outside the automatically derived scope.
 - The workflow requires derived focused tests where available (otherwise the full suite), Ruff, and `git diff --check`.
 - A failed, ambiguous, out-of-scope, or no-change task creates no pull request.
@@ -76,7 +76,7 @@ Security and repository-hygiene sessions have an additional report-only boundary
 - The runner checks the Git working tree after each analysis. If any tracked or untracked file changed, it resets the checkout and publishes no report.
 - Only deterministic outer code in the private companion repository can create labels or replace the two stable report issue bodies. Generated mentions are neutralized before publication.
 - The hygiene session can recommend commands but has no branch/worktree deletion implementation or permission path.
-- Scheduled issue work defaults to one issue per day and runs a repository-instruction-aware OpenCode session with full-repository read/search access, edits restricted to issue-derived `allowed_paths`, 24 model steps, and a 30-minute outer timeout. Manual runs may explicitly request one to three issue sessions. At timeout the harness sends a graceful interrupt and allows 30 seconds to flush partial JSON events. An interrupted in-scope diff is retained only when focused tests, Ruff, and whitespace validation pass; otherwise it is reset. Documentation and private report Copilot sessions remain capped at 10 minutes. Raw Copilot OpenTelemetry JSONL is never uploaded.
+- Scheduled issue work defaults to one issue per day and runs one Aider message with a repository map, issue-derived editable paths, and a 15-minute outer timeout. Manual runs may explicitly request one to three issue sessions. At timeout the harness sends a graceful interrupt and retains an interrupted in-scope diff only when focused tests, Ruff, and whitespace validation pass; otherwise it is reset. Documentation and private report Copilot sessions remain capped at 10 minutes. Raw Aider local analytics and Copilot OpenTelemetry JSONL are never uploaded.
 
 Every generated PR includes a reviewer-facing rationale in its description:
 
@@ -85,11 +85,11 @@ Every generated PR includes a reviewer-facing rationale in its description:
 - the agent's concise final decision, evidence, implementation summary, alternatives/risks, and validation notes;
 - the exact changed files and deterministic checks run.
 
-Only the most recent visible OpenCode `text` event or Copilot `assistant.message` is used. Opaque/encrypted reasoning events and private chain-of-thought are excluded; visible tool interactions are retained in the sanitized audit chat and secret-like values are redacted.
+Issue PRs use a deterministic reviewer summary plus Aider's sanitized visible chat/diff output. Copilot maintenance uses the latest visible `assistant.message`. Opaque/encrypted reasoning and private chain-of-thought are excluded; secret-like values are redacted.
 
 When an issue session intentionally makes no edit, reaches its step/30-minute budget, or fails deterministic scope/validation checks, no PR is required. Deterministic outer code creates or replaces one stable `Azure BYOK agent note` comment on the source issue with the bounded outcome, final visible summary when available, model/token metadata, and workflow link. Later runs replace that note instead of adding daily comment noise. Non-recurring no-PR issues receive `azure-paused` automatically so the next daily cycle advances to newer work; a maintainer can refine, close, or explicitly unpause them. Recurring monitor issues remain eligible.
 
-Generated issue PRs report the OpenCode harness, Azure model/deployment, exact JSON-event input/output/reasoning/cache tokens, API call count, session duration, session ID, and estimated model cost. Copilot maintenance sessions retain their OpenTelemetry-based accounting. Each workflow uploads a 30-day `azure-byok-chat-<run-id>` artifact with machine-readable metadata and a sanitized visible-message/tool transcript; opaque reasoning and secrets are excluded.
+Generated issue PRs report the Aider harness, Azure model/deployment, exact local-only analytics prompt/completion tokens, API call count, duration, and estimated model cost. Copilot maintenance sessions retain their OpenTelemetry-based accounting. Each workflow uploads a 30-day `azure-byok-chat-<run-id>` artifact with machine-readable metadata and a sanitized visible chat/diff transcript; opaque reasoning and secrets are excluded.
 
 ## Requesting Changes On A Bot PR
 
@@ -122,23 +122,23 @@ Configure these repository settings:
 - Variable `AZURE_OPENAI_ENDPOINT`: endpoint URL.
 - Variable `AZURE_OPENAI_DEPLOYMENT`: shared deployment name for blog, social, and narrative generation.
 - Secret `AZURE_CODING_OPENAI_KEY`: key for the dedicated OpenCode coding resource. It is copied only into a temporary mode-`0600` auth file.
-- Variable `AZURE_CODING_RESOURCE_NAME`: Azure OpenAI resource name; currently `azrm-code-eus2-16221e01`.
-- Variable `AZURE_CODING_MODEL`: deployment/model name; currently `o4-mini`.
+- Variable `AZURE_CODING_RESOURCE_NAME`: Azure OpenAI resource name; currently `azrm-code-uks-16221e01`.
+- Variable `AZURE_CODING_MODEL`: deployment/model name; currently `gpt-4o`.
 - Optional `AZURE_COPILOT_DEPLOYMENT` and `COPILOT_BYOK_MODEL_ID`: retained for public documentation and private report Copilot sessions, not issue coding.
 
-Use [.github/workflows/provision-azure-codex-openai.yml](../.github/workflows/provision-azure-codex-openai.yml) to create or verify the dedicated East US 2 OpenAI resource and `o4-mini` deployment. Its optional repository-settings mode writes only the `AZURE_CODING_*` settings and needs the separate `GH_REPO_SETTINGS_TOKEN`; grant that token only minimum settings permissions and rotate it after bootstrap.
+Use [.github/workflows/provision-azure-codex-openai.yml](../.github/workflows/provision-azure-codex-openai.yml) to create or verify the dedicated UK South OpenAI resource and full `gpt-4o` deployment. Its optional repository-settings mode writes only the `AZURE_CODING_*` settings and needs the separate `GH_REPO_SETTINGS_TOKEN`; grant that token only minimum settings permissions and rotate it after bootstrap.
 
-The deployment pins `o4-mini` version `2025-04-16` and `GlobalStandard` capacity 100. Before changing the version, verify the target SKU in the regional model catalog and available subscription quota, update the provisioning workflow default, provision first, run a targeted canary, and only then change the repository model variable.
+The deployment pins `gpt-4o` version `2024-11-20` and `Standard` capacity 70. Before changing the version, verify the target SKU in the regional model catalog and available subscription quota, update the provisioning workflow default, provision first, run a targeted canary, and only then change the repository model variable.
 
 The scheduled workflows use the built-in `GITHUB_TOKEN` only in deterministic outer steps to read/update issues and create branches/draft PRs (`issues: write`, `contents: write`, `pull-requests: write`). Checkout credentials are not persisted; `gh` configures a credential helper for post-agent Git operations, while the token is stripped from every model environment. The separate PR event dispatcher has no Azure credential access. These workflows have no Copilot entitlement requirement.
 
 ## Cost Controls
 
-- Azure OpenAI is the scheduled provider for OpenCode issue work and Copilot documentation/report work.
+- Azure OpenAI is the scheduled provider for Aider issue work and Copilot documentation/report work.
 - The 07:00 UTC backlog run starts one issue-agent session by default; manual dispatch may choose one to three. Public documentation alignment runs at 09:00 UTC. The private companion repository starts security and hygiene sessions at 10:00 UTC. These use Azure tokens, not GitHub Copilot model quota.
 - BYOK agent prompts contain the bounded task evidence and may use more Azure input tokens than the former direct JSON client; that trade-off is intentional for a full coding-agent runtime.
-- Live issue tasks wait 30 seconds between sessions; the dedicated `o4-mini` deployment has 100K TPM.
-- The backlog job has a 120-minute hard timeout so an explicitly requested three-issue manual run can accommodate three 30-minute outer budgets plus validation and cooldowns; scheduled runs still default to one issue and create at most one draft PR. Public documentation alignment can create at most one draft PR. Private analysis can replace at most two stable private report issues. Each workflow has its own concurrency lock.
+- Live issue tasks wait 30 seconds between sessions; the dedicated full `gpt-4o` deployment has 70K TPM.
+- The backlog job has a 70-minute hard timeout so an explicitly requested three-issue manual run can accommodate three 15-minute outer budgets plus validation and cooldowns; scheduled runs still default to one issue and create at most one draft PR. Public documentation alignment can create at most one draft PR. Private analysis can replace at most two stable private report issues. Each workflow has its own concurrency lock.
 - The older Copilot path is intentionally manual-only in [.github/workflows/scheduled-copilot-agents.yml](../.github/workflows/scheduled-copilot-agents.yml), for an occasional comparison rather than recurring consumption.
 
 ## Manual Run

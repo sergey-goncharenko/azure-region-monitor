@@ -46,7 +46,7 @@ jobs:
   process-backlog:
     name: Process Azure-funded backlog
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 70
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -67,10 +67,10 @@ jobs:
       - name: Install project dependencies
         run: python -m pip install ".[dev]"
 
-      - name: Install pinned OpenCode CLI
+      - name: Install pinned Aider
         run: |
-          npm install --global opencode-ai@1.17.18
-          opencode --version
+          python -m pip install aider-chat==0.86.2
+          aider --version
 
       - name: Fetch eligible GitHub backlog issues
         env:
@@ -134,7 +134,7 @@ jobs:
           REWORK_ACTOR: ${{ github.event.client_payload.rework_actor || '' }}
           MAX_ISSUES: ${{ inputs.max_issues || '1' }}
 
-      - name: Run Azure BYOK OpenCode tasks and open bounded draft PRs
+      - name: Run Azure BYOK Aider tasks and open bounded draft PRs
         env:
           DRY_RUN: ${{ inputs.dry_run || false }}
           FORCE: ${{ github.event_name == 'repository_dispatch' || inputs.force }}
@@ -144,9 +144,9 @@ jobs:
           AZURE_CODING_API_KEY: ${{ secrets.AZURE_CODING_OPENAI_KEY }}
           AZURE_CODING_RESOURCE_NAME: ${{ vars.AZURE_CODING_RESOURCE_NAME }}
           AZURE_CODING_MODEL: ${{ vars.AZURE_CODING_MODEL || 'o4-mini' }}
-          BYOK_AGENT_HARNESS: opencode
-          BYOK_OPENCODE_MAX_STEPS: "24"
-          BYOK_AGENT_TIMEOUT_SECONDS: "1800"
+          BYOK_AGENT_HARNESS: aider
+          BYOK_AIDER_MAP_TOKENS: "4096"
+          BYOK_AGENT_TIMEOUT_SECONDS: "900"
           BYOK_AGENT_INTERRUPT_GRACE_SECONDS: "30"
           BYOK_TASK_COOLDOWN_SECONDS: "30"
           BYOK_AUDIT_DIR: ${{ runner.temp }}/byok-audit
@@ -154,7 +154,7 @@ jobs:
           set -euo pipefail
 
           if [ "$DRY_RUN" != "true" ] && { [ -z "${AZURE_CODING_API_KEY:-}" ] || [ -z "${AZURE_CODING_RESOURCE_NAME:-}" ] || [ -z "${AZURE_CODING_MODEL:-}" ]; }; then
-            echo "Missing Azure OpenCode configuration. Set AZURE_CODING_OPENAI_KEY plus AZURE_CODING_RESOURCE_NAME and AZURE_CODING_MODEL." >&2
+            echo "Missing Azure Aider configuration. Set AZURE_CODING_OPENAI_KEY plus AZURE_CODING_RESOURCE_NAME and AZURE_CODING_MODEL." >&2
             exit 2
           fi
 

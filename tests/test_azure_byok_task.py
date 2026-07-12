@@ -197,6 +197,21 @@ def test_opencode_environment_isolates_key_and_enforces_scope(monkeypatch, tmp_p
     assert agent["permission"]["external_directory"] == "deny"
 
 
+def test_aider_environment_uses_dedicated_azure_resource(monkeypatch):
+    monkeypatch.setenv("AZURE_CODING_API_KEY", "azure-coding-key")
+    monkeypatch.setenv("AZURE_CODING_RESOURCE_NAME", "coding-resource")
+    monkeypatch.setenv("AZURE_CODING_MODEL", "gpt-4o")
+    monkeypatch.setenv("GH_TOKEN", "github-token")
+
+    environment = byok_task._aider_environment()
+
+    assert environment["AZURE_API_KEY"] == "azure-coding-key"
+    assert environment["AZURE_API_BASE"] == "https://coding-resource.openai.azure.com"
+    assert environment["AZURE_API_VERSION"] == "2024-12-01-preview"
+    assert environment["AIDER_ANALYTICS"] == "false"
+    assert "GH_TOKEN" not in environment
+
+
 def test_pull_request_body_closes_source_issue():
     body_path = byok_task._write_pr_body(
         _task(
@@ -267,6 +282,15 @@ def test_opencode_prompt_treats_objective_as_acceptance_target():
     assert "Treat concrete behavior named by the Objective" in prompt
     assert "Begin the smallest justified edit by step 12" in prompt
     assert "Modify only trusted `allowed_paths`" in prompt
+    assert '"issue_number": 42' in prompt
+
+
+def test_aider_prompt_requires_direct_scoped_edit():
+    prompt = byok_task._aider_prompt(_task())
+
+    assert "Make the edit now" in prompt
+    assert "allowed_paths" in prompt
+    assert "Do not create, delete, rename, stage, commit, push" in prompt
     assert '"issue_number": 42' in prompt
 
 
@@ -442,6 +466,39 @@ def test_issue_agent_invocation_uses_bounded_opencode(monkeypatch, tmp_path):
     }
     assert captured["transcript"] == transcript
     assert not private_home.exists()
+
+
+def test_issue_agent_invocation_uses_one_shot_aider(monkeypatch, tmp_path):
+    captured = {}
+    transcript = tmp_path / "issue-42-chat.md"
+    telemetry = tmp_path / "issue-42-usage.jsonl"
+    monkeypatch.setenv("BYOK_AGENT_HARNESS", "aider")
+    monkeypatch.setenv("AZURE_CODING_MODEL", "gpt-4o")
+    monkeypatch.setattr(byok_task, "_aider_command", lambda: ["aider"])
+    monkeypatch.setattr(byok_task, "_aider_environment", lambda: {"SAFE": "1"})
+    monkeypatch.setattr(
+        byok_task,
+        "_run_with_graceful_timeout",
+        lambda *args, **kwargs: captured.update(args=args, kwargs=kwargs)
+        or subprocess.CompletedProcess(args, 0, "Applied edit", ""),
+    )
+
+    result = byok_task._run_agent(_task(), transcript, telemetry)
+
+    assert captured["args"][0] == "aider"
+    assert "--model" in captured["args"]
+    assert "azure/gpt-4o" in captured["args"]
+    assert "--message-file" in captured["args"]
+    assert "--no-auto-commits" in captured["args"]
+    assert "--no-suggest-shell-commands" in captured["args"]
+    assert "--analytics-log" in captured["args"]
+    assert "--no-analytics" in captured["args"]
+    assert "README.md" in captured["args"]
+    assert "tests/test_static_site.py" in captured["args"]
+    assert captured["kwargs"]["env"] == {"SAFE": "1"}
+    assert transcript.is_file()
+    assert "Aider execution output" in transcript.read_text(encoding="utf-8")
+    assert "### Decision" in byok_task._extract_agent_rationale(result.stdout)
 
 
 def test_report_only_agent_invocation_denies_file_mutation_tools(monkeypatch):
@@ -881,6 +938,49 @@ def test_opencode_metadata_parses_exact_json_token_usage(monkeypatch):
     assert metadata["session_duration_ms"] == 2000
     assert metadata["session_id"] == "session-open"
     assert metadata["cost_usd"] == 0.003056
+
+
+def test_aider_metadata_parses_local_only_analytics(tmp_path, monkeypatch):
+    monkeypatch.setenv("AZURE_CODING_MODEL", "gpt-4o")
+    telemetry = tmp_path / "usage.jsonl"
+    telemetry.write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "event": "message_send_starting",
+                        "properties": {},
+                        "time": 100.0,
+                    }
+                ),
+                json.dumps(
+                    {
+                        "event": "message_send",
+                        "properties": {
+                            "main_model": "azure/gpt-4o",
+                            "prompt_tokens": 2480,
+                            "completion_tokens": 28,
+                            "total_tokens": 2508,
+                            "cost": 0.004632,
+                        },
+                        "time": 102.0,
+                    }
+                ),
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    metadata = byok_task._aider_metadata(telemetry, _task())
+
+    assert metadata["harness"] == "aider"
+    assert metadata["response_model"] == "gpt-4o"
+    assert metadata["input_tokens"] == 2480
+    assert metadata["output_tokens"] == 28
+    assert metadata["total_tokens"] == 2508
+    assert metadata["api_calls"] == 1
+    assert metadata["session_duration_ms"] == 2000
+    assert metadata["cost_usd"] == 0.004632
 
 
 def test_opencode_transcript_keeps_visible_events_and_redacts(tmp_path):
