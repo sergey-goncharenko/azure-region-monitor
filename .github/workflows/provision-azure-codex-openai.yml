@@ -1,32 +1,32 @@
-name: Provision Azure Codex OpenAI
+name: Provision Azure OpenCode model
 
 on:
   workflow_dispatch:
     inputs:
       resource_group:
-        description: "Azure resource group for the AI Services resource"
+        description: "Azure resource group for the dedicated OpenAI resource"
         required: false
         default: "azure-region-monitor-codex"
       location:
-        description: "Azure region for the AI Services resource and model deployment"
+        description: "Azure region for the OpenAI resource and model deployment"
         required: false
-        default: "eastus"
+        default: "eastus2"
       account_name:
-        description: "AI Services account name; leave blank to generate a unique name"
+        description: "OpenAI account name; leave blank to generate a unique name"
         required: false
         default: ""
       deployment_name:
-        description: "Azure OpenAI deployment name used by Codex"
+        description: "Azure OpenAI deployment name used by OpenCode"
         required: false
-        default: "gpt-5.4-mini"
+        default: "o4-mini"
       model_name:
         description: "Azure OpenAI model name to deploy"
         required: false
-        default: "gpt-5.4-mini"
+        default: "o4-mini"
       model_version:
         description: "Azure OpenAI model version to deploy"
         required: false
-        default: "2026-03-17"
+        default: "2025-04-16"
       sku_name:
         description: "Deployment SKU name"
         required: false
@@ -34,13 +34,9 @@ on:
       sku_capacity:
         description: "Deployment capacity"
         required: false
-        default: "10"
-      api_version:
-        description: "Azure OpenAI API version for the scheduled Codex workflow"
-        required: false
-        default: "2025-04-01-preview"
+        default: "100"
       configure_repo_settings:
-        description: "Set AZURE_OPENAI_* repo variables/secrets after provisioning"
+        description: "Set AZURE_CODING_* repo variables/secrets after provisioning"
         required: false
         type: boolean
         default: false
@@ -51,7 +47,7 @@ permissions:
 
 jobs:
   provision:
-    name: Provision Azure OpenAI for Codex
+    name: Provision Azure OpenAI for OpenCode
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -73,13 +69,12 @@ jobs:
           LOCATION: ${{ inputs.location }}
           SKU_NAME: ${{ inputs.sku_name }}
           SKU_CAPACITY: ${{ inputs.sku_capacity }}
-          API_VERSION: ${{ inputs.api_version }}
         run: |
           set -euo pipefail
 
           account_name="$ACCOUNT_NAME_INPUT"
           if [ -z "$account_name" ]; then
-            account_name="azrm-codex-${GITHUB_RUN_ID}"
+            account_name="azrm-code-eus2-${GITHUB_RUN_ID}"
           fi
           account_name="$(echo "$account_name" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9-')"
 
@@ -91,9 +86,8 @@ jobs:
           echo "location=$LOCATION" >> "$GITHUB_OUTPUT"
           echo "sku_name=$SKU_NAME" >> "$GITHUB_OUTPUT"
           echo "sku_capacity=$SKU_CAPACITY" >> "$GITHUB_OUTPUT"
-          echo "api_version=$API_VERSION" >> "$GITHUB_OUTPUT"
 
-      - name: Create AI Services account and model deployment
+      - name: Create OpenAI account and model deployment
         id: provision
         env:
           ACCOUNT_NAME: ${{ steps.inputs.outputs.account_name }}
@@ -114,9 +108,10 @@ jobs:
             az cognitiveservices account create \
               --name "$ACCOUNT_NAME" \
               --resource-group "$RESOURCE_GROUP" \
-              --kind AIServices \
+              --kind OpenAI \
               --sku S0 \
               --location "$LOCATION" \
+              --custom-domain "$ACCOUNT_NAME" \
               --yes \
               --output none
           fi
@@ -158,9 +153,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GH_REPO_SETTINGS_TOKEN }}
           ACCOUNT_NAME: ${{ steps.inputs.outputs.account_name }}
           RESOURCE_GROUP: ${{ steps.inputs.outputs.resource_group }}
-          ENDPOINT: ${{ steps.provision.outputs.endpoint }}
           DEPLOYMENT_NAME: ${{ steps.inputs.outputs.deployment_name }}
-          API_VERSION: ${{ steps.inputs.outputs.api_version }}
         run: |
           set -euo pipefail
 
@@ -169,13 +162,12 @@ jobs:
             exit 2
           fi
 
-          azure_openai_key="$(az cognitiveservices account keys list --name "$ACCOUNT_NAME" --resource-group "$RESOURCE_GROUP" --query key1 -o tsv)"
-          echo "::add-mask::$azure_openai_key"
+          azure_coding_key="$(az cognitiveservices account keys list --name "$ACCOUNT_NAME" --resource-group "$RESOURCE_GROUP" --query key1 -o tsv)"
+          echo "::add-mask::$azure_coding_key"
 
-          gh variable set AZURE_OPENAI_ENDPOINT --body "$ENDPOINT"
-          gh variable set AZURE_OPENAI_DEPLOYMENT --body "$DEPLOYMENT_NAME"
-          gh variable set AZURE_OPENAI_API_VERSION --body "$API_VERSION"
-          gh secret set AZURE_OPENAI_KEY --body "$azure_openai_key"
+          gh variable set AZURE_CODING_RESOURCE_NAME --body "$ACCOUNT_NAME"
+          gh variable set AZURE_CODING_MODEL --body "$DEPLOYMENT_NAME"
+          gh secret set AZURE_CODING_OPENAI_KEY --body "$azure_coding_key"
 
       - name: Summary
         env:
@@ -189,9 +181,9 @@ jobs:
           CONFIGURED_REPO_SETTINGS: ${{ inputs.configure_repo_settings }}
         run: |
           {
-            echo "## Azure Codex OpenAI provisioning"
+            echo "## Azure OpenCode model provisioning"
             echo
-            echo "Provisioned or verified Azure AI Services account and model deployment for the Azure Codex documentation task."
+            echo "Provisioned or verified a dedicated Azure OpenAI resource and model deployment for scheduled OpenCode issue work."
             echo
             echo "- Resource group: \`$RESOURCE_GROUP\`"
             echo "- Location: \`$LOCATION\`"
@@ -201,5 +193,5 @@ jobs:
             echo "- Endpoint: \`$ENDPOINT\`"
             echo "- Repository settings configured: \`$CONFIGURED_REPO_SETTINGS\`"
             echo
-            echo "Next check: run \`Scheduled agent sessions\` with \`session=docs\` and \`dry_run=true\`, then with \`dry_run=false\`."
+            echo "Next check: run \`Scheduled Azure backlog\` with \`dry_run=true\`, then target one unpaused issue with \`dry_run=false\`."
           } >> "$GITHUB_STEP_SUMMARY"

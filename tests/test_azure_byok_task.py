@@ -32,6 +32,7 @@ def _task(**overrides):
 
 def _metadata(**overrides):
     metadata = {
+        "harness": "copilot",
         "model_id": "gpt-5.4-nano",
         "response_model": "copilot-gpt-5-4-nano",
         "deployment": "copilot-gpt-5-4-nano",
@@ -153,6 +154,47 @@ def test_copilot_command_requires_installed_cli(monkeypatch):
 
     with pytest.raises(FileNotFoundError):
         byok_task._copilot_command()
+
+
+def test_opencode_command_requires_installed_cli(monkeypatch):
+    monkeypatch.setattr(byok_task.shutil, "which", lambda command: None)
+
+    import pytest
+
+    with pytest.raises(FileNotFoundError):
+        byok_task._opencode_command()
+
+
+def test_opencode_environment_isolates_key_and_enforces_scope(monkeypatch, tmp_path):
+    home = tmp_path / "opencode-home"
+    monkeypatch.setenv("AZURE_CODING_API_KEY", "azure-coding-key")
+    monkeypatch.setenv("AZURE_CODING_RESOURCE_NAME", "coding-resource")
+    monkeypatch.setenv("AZURE_CODING_MODEL", "o4-mini")
+    monkeypatch.setenv("GH_TOKEN", "github-token")
+    monkeypatch.setattr(byok_task.tempfile, "mkdtemp", lambda prefix: str(home))
+
+    environment = byok_task._opencode_environment(_task())
+    config = json.loads(environment["OPENCODE_CONFIG_CONTENT"])
+    auth = json.loads(
+        (home / "data" / "opencode" / "auth.json").read_text(encoding="utf-8")
+    )
+
+    assert environment["AZURE_RESOURCE_NAME"] == "coding-resource"
+    assert "AZURE_CODING_API_KEY" not in environment
+    assert "GH_TOKEN" not in environment
+    assert all("azure-coding-key" not in value for value in environment.values())
+    assert auth == {"azure": {"type": "api", "key": "azure-coding-key"}}
+    assert config["model"] == "azure/o4-mini"
+    assert config["compaction"]["prune"] is True
+    agent = config["agent"]["azure-issue"]
+    assert agent["steps"] == 12
+    assert agent["permission"]["read"]["*"] == "allow"
+    assert agent["permission"]["edit"]["*"] == "deny"
+    assert agent["permission"]["edit"]["README.md"] == "allow"
+    assert agent["permission"]["edit"]["**/README.md"] == "allow"
+    assert agent["permission"]["bash"] == "deny"
+    assert agent["permission"]["webfetch"] == "deny"
+    assert agent["permission"]["external_directory"] == "deny"
 
 
 def test_pull_request_body_closes_source_issue():
@@ -349,8 +391,53 @@ def test_agent_invocation_enables_local_shell_but_denies_remote_operations(monke
     assert captured["args"][output_index + 1] == "json"
 
 
+def test_issue_agent_invocation_uses_bounded_opencode(monkeypatch, tmp_path):
+    captured = {}
+    transcript = tmp_path / "issue-42-chat.md"
+    private_home = tmp_path / "opencode-home"
+    (private_home / "data").mkdir(parents=True)
+    monkeypatch.setenv("BYOK_AGENT_HARNESS", "opencode")
+    monkeypatch.setenv("AZURE_CODING_MODEL", "o4-mini")
+    monkeypatch.setattr(byok_task, "_opencode_command", lambda: ["opencode"])
+    monkeypatch.setattr(
+        byok_task,
+        "_opencode_environment",
+        lambda task: {"SAFE": "1", "XDG_DATA_HOME": str(private_home / "data")},
+    )
+    monkeypatch.setattr(
+        byok_task,
+        "_run_with_graceful_timeout",
+        lambda *args, **kwargs: captured.update(args=args, kwargs=kwargs)
+        or subprocess.CompletedProcess(args, 0, "", ""),
+    )
+    monkeypatch.setattr(
+        byok_task,
+        "_write_opencode_transcript",
+        lambda stdout, path: captured.update(transcript=path),
+    )
+
+    byok_task._run_agent(_task(), transcript)
+
+    assert captured["args"][:3] == ("opencode", "run", "--pure")
+    assert "--auto" in captured["args"]
+    assert "--model" in captured["args"]
+    assert "azure/o4-mini" in captured["args"]
+    assert "--agent" in captured["args"]
+    assert "azure-issue" in captured["args"]
+    assert "--format" in captured["args"]
+    assert "json" in captured["args"]
+    assert "--variant" not in captured["args"]
+    assert captured["kwargs"]["env"] == {
+        "SAFE": "1",
+        "XDG_DATA_HOME": str(private_home / "data"),
+    }
+    assert captured["transcript"] == transcript
+    assert not private_home.exists()
+
+
 def test_report_only_agent_invocation_denies_file_mutation_tools(monkeypatch):
     captured = {}
+    monkeypatch.setenv("BYOK_AGENT_HARNESS", "opencode")
     monkeypatch.setattr(byok_task, "_copilot_command", lambda: ["copilot"])
     monkeypatch.setattr(
         byok_task,
@@ -704,6 +791,137 @@ def test_extract_final_agent_message_honors_report_limit():
     assert byok_task._extract_final_agent_message(output, 5) == "12345"
 
 
+def test_extract_agent_rationale_uses_latest_opencode_text_event():
+    output = "\n".join(
+        [
+            json.dumps(
+                {"type": "text", "part": {"text": "### Decision\nOld draft"}}
+            ),
+            json.dumps(
+                {
+                    "type": "text",
+                    "part": {"text": "### Decision\nImplemented the focused change."},
+                }
+            ),
+        ]
+    )
+
+    rationale = byok_task._extract_agent_rationale(output)
+
+    assert "Implemented the focused change" in rationale
+    assert "Old draft" not in rationale
+
+
+def test_opencode_metadata_parses_exact_json_token_usage(monkeypatch):
+    monkeypatch.setenv("AZURE_CODING_MODEL", "o4-mini")
+    stdout = "\n".join(
+        [
+            json.dumps(
+                {
+                    "type": "step_finish",
+                    "timestamp": 1000,
+                    "sessionID": "session-open",
+                    "part": {
+                        "tokens": {
+                            "input": 1423,
+                            "output": 24,
+                            "reasoning": 128,
+                            "cache": {"read": 0, "write": 0},
+                        },
+                        "cost": 0.0022341,
+                    },
+                }
+            ),
+            json.dumps(
+                {
+                    "type": "step_finish",
+                    "timestamp": 2000,
+                    "sessionID": "session-open",
+                    "part": {
+                        "tokens": {
+                            "input": 71,
+                            "output": 73,
+                            "reasoning": 0,
+                            "cache": {"read": 1536, "write": 0},
+                        },
+                        "cost": 0.0008217,
+                    },
+                }
+            ),
+            json.dumps(
+                {
+                    "type": "text",
+                    "timestamp": 3000,
+                    "sessionID": "session-open",
+                    "part": {"text": "Done."},
+                }
+            ),
+        ]
+    )
+
+    metadata = byok_task._opencode_metadata(stdout, _task())
+
+    assert metadata["harness"] == "opencode"
+    assert metadata["model_id"] == "o4-mini"
+    assert metadata["input_tokens"] == 3030
+    assert metadata["cached_input_tokens"] == 1536
+    assert metadata["output_tokens"] == 225
+    assert metadata["reasoning_output_tokens"] == 128
+    assert metadata["total_tokens"] == 3255
+    assert metadata["api_calls"] == 2
+    assert metadata["session_duration_ms"] == 2000
+    assert metadata["session_id"] == "session-open"
+    assert metadata["cost_usd"] == 0.003056
+
+
+def test_opencode_transcript_keeps_visible_events_and_redacts(tmp_path):
+    transcript = tmp_path / "chat.md"
+    stdout = "\n".join(
+        [
+            json.dumps(
+                {
+                    "type": "tool_use",
+                    "sessionID": "session-open",
+                    "part": {
+                        "tool": "edit",
+                        "state": {
+                            "status": "completed",
+                            "input": {"filePath": "README.md"},
+                            "output": "API_KEY=secret-value",
+                        },
+                    },
+                }
+            ),
+            json.dumps(
+                {
+                    "type": "reasoning",
+                    "sessionID": "session-open",
+                    "part": {"text": "private reasoning"},
+                }
+            ),
+            json.dumps(
+                {
+                    "type": "text",
+                    "sessionID": "session-open",
+                    "part": {"text": "### Decision\nDone."},
+                }
+            ),
+        ]
+    )
+
+    byok_task._write_opencode_transcript(stdout, transcript)
+    rendered = transcript.read_text(encoding="utf-8")
+
+    assert "OpenCode CLI Session" in rendered
+    assert "session-open" in rendered
+    assert "Tool: `edit`" in rendered
+    assert "README.md" in rendered
+    assert "secret-value" not in rendered
+    assert "[REDACTED]" in rendered
+    assert "### Decision" in rendered
+    assert "private reasoning" not in rendered
+
+
 def test_agent_metadata_parses_exact_otel_token_usage(tmp_path, monkeypatch):
     monkeypatch.setenv("COPILOT_BYOK_MODEL_ID", "gpt-5.4-nano")
     monkeypatch.setenv("AZURE_OPENAI_DEPLOYMENT", "copilot-gpt-5-4-nano")
@@ -836,6 +1054,26 @@ def test_failure_detail_filters_noise_and_redacts_secrets():
     assert "invalid provider" in detail
     assert "secret-value" not in detail
     assert "ghp_abcdefghijklmnop" not in detail
+    assert "[REDACTED]" in detail
+
+
+def test_agent_failure_detail_includes_opencode_json_error():
+    completed = subprocess.CompletedProcess(
+        ["opencode", "run"],
+        1,
+        json.dumps(
+            {
+                "type": "error",
+                "error": {"message": "Invalid model configuration api_key=secret-value"},
+            }
+        ),
+        "",
+    )
+
+    detail = byok_task._agent_failure_detail(completed)
+
+    assert "Invalid model configuration" in detail
+    assert "secret-value" not in detail
     assert "[REDACTED]" in detail
 
 

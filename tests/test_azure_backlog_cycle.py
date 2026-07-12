@@ -37,7 +37,7 @@ def test_cycle_markdown_identifies_docs_as_the_final_alignment_lane():
     )
 
     assert "### Documentation alignment: `documentation-alignment`" in rendered
-    assert "Copilot CLI edits are validated locally" in rendered
+    assert "Coding-agent edits are validated locally" in rendered
 
 
 def test_issue_backlog_excludes_documentation_alignment_by_default(monkeypatch, tmp_path):

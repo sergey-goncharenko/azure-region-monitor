@@ -46,7 +46,7 @@ jobs:
   process-backlog:
     name: Process Azure-funded backlog
     runs-on: ubuntu-latest
-    timeout-minutes: 160
+    timeout-minutes: 120
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -67,10 +67,10 @@ jobs:
       - name: Install project dependencies
         run: python -m pip install ".[dev]"
 
-      - name: Install pinned GitHub Copilot CLI
+      - name: Install pinned OpenCode CLI
         run: |
-          npm install --global @github/copilot@1.0.70
-          copilot --version
+          npm install --global opencode-ai@1.17.18
+          opencode --version
 
       - name: Fetch eligible GitHub backlog issues
         env:
@@ -134,27 +134,27 @@ jobs:
           REWORK_ACTOR: ${{ github.event.client_payload.rework_actor || '' }}
           MAX_ISSUES: ${{ inputs.max_issues || '1' }}
 
-      - name: Run Azure BYOK Copilot tasks and open bounded draft PRs
+      - name: Run Azure BYOK OpenCode tasks and open bounded draft PRs
         env:
           DRY_RUN: ${{ inputs.dry_run || false }}
           FORCE: ${{ github.event_name == 'repository_dispatch' || inputs.force }}
           BASE_BRANCH: ${{ github.event.repository.default_branch || 'main' }}
           GH_TOKEN: ${{ github.token }}
           REWORK_PR: ${{ github.event.client_payload.rework_pr || '' }}
-          AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_KEY }}
-          AZURE_OPENAI_ENDPOINT: ${{ vars.AZURE_OPENAI_ENDPOINT }}
-          AZURE_OPENAI_DEPLOYMENT: ${{ vars.AZURE_COPILOT_DEPLOYMENT || vars.AZURE_OPENAI_DEPLOYMENT }}
-          COPILOT_BYOK_MODEL_ID: ${{ vars.COPILOT_BYOK_MODEL_ID || 'gpt-5.4-mini' }}
-          BYOK_AGENT_TIMEOUT_SECONDS: "2400"
+          AZURE_CODING_API_KEY: ${{ secrets.AZURE_CODING_OPENAI_KEY }}
+          AZURE_CODING_RESOURCE_NAME: ${{ vars.AZURE_CODING_RESOURCE_NAME }}
+          AZURE_CODING_MODEL: ${{ vars.AZURE_CODING_MODEL || 'o4-mini' }}
+          BYOK_AGENT_HARNESS: opencode
+          BYOK_OPENCODE_MAX_STEPS: "12"
+          BYOK_AGENT_TIMEOUT_SECONDS: "1800"
           BYOK_AGENT_INTERRUPT_GRACE_SECONDS: "30"
-          BYOK_MAX_AUTOPILOT_CONTINUES: "3"
-          BYOK_TASK_COOLDOWN_SECONDS: "65"
+          BYOK_TASK_COOLDOWN_SECONDS: "30"
           BYOK_AUDIT_DIR: ${{ runner.temp }}/byok-audit
         run: |
           set -euo pipefail
 
-          if [ "$DRY_RUN" != "true" ] && { [ -z "${AZURE_OPENAI_API_KEY:-}" ] || [ -z "${AZURE_OPENAI_ENDPOINT:-}" ] || [ -z "${AZURE_OPENAI_DEPLOYMENT:-}" ]; }; then
-            echo "Missing Azure OpenAI BYOK configuration. Set AZURE_OPENAI_KEY plus AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_DEPLOYMENT." >&2
+          if [ "$DRY_RUN" != "true" ] && { [ -z "${AZURE_CODING_API_KEY:-}" ] || [ -z "${AZURE_CODING_RESOURCE_NAME:-}" ] || [ -z "${AZURE_CODING_MODEL:-}" ]; }; then
+            echo "Missing Azure OpenCode configuration. Set AZURE_CODING_OPENAI_KEY plus AZURE_CODING_RESOURCE_NAME and AZURE_CODING_MODEL." >&2
             exit 2
           fi
 

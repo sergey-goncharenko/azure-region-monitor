@@ -300,9 +300,34 @@ def test_issue_backlog_workflow_no_longer_runs_documentation_lane():
     assert "persist-credentials: false" in workflow
     assert "*-metadata.json" in workflow
     assert "*-telemetry.jsonl" not in workflow
-    assert 'BYOK_AGENT_TIMEOUT_SECONDS: "2400"' in workflow
+    assert "opencode-ai@1.17.18" in workflow
+    assert "@github/copilot" not in workflow
+    assert "AZURE_CODING_OPENAI_KEY" in workflow
+    assert "AZURE_CODING_RESOURCE_NAME" in workflow
+    assert "AZURE_CODING_MODEL" in workflow
+    assert "BYOK_AGENT_HARNESS: opencode" in workflow
+    assert 'BYOK_OPENCODE_MAX_STEPS: "12"' in workflow
+    assert 'BYOK_AGENT_TIMEOUT_SECONDS: "1800"' in workflow
     assert 'BYOK_AGENT_INTERRUPT_GRACE_SECONDS: "30"' in workflow
-    assert 'BYOK_MAX_AUTOPILOT_CONTINUES: "3"' in workflow
+    assert "BYOK_MAX_AUTOPILOT_CONTINUES" not in workflow
     assert "--max-issues \"$MAX_ISSUES\"" in workflow
     assert "MAX_ISSUES: ${{ inputs.max_issues || '1' }}" in workflow
-    assert "timeout-minutes: 160" in workflow
+    assert "timeout-minutes: 120" in workflow
+
+
+def test_opencode_provisioning_workflow_uses_dedicated_o4_model():
+    workflow = (
+        REPO_ROOT / ".github/workflows/provision-azure-codex-openai.yml"
+    ).read_text(encoding="utf-8")
+
+    assert "name: Provision Azure OpenCode model" in workflow
+    assert 'default: "eastus2"' in workflow
+    assert workflow.count('default: "o4-mini"') == 2
+    assert 'default: "2025-04-16"' in workflow
+    assert 'default: "100"' in workflow
+    assert "--kind OpenAI" in workflow
+    assert "--custom-domain \"$ACCOUNT_NAME\"" in workflow
+    assert "AZURE_CODING_RESOURCE_NAME" in workflow
+    assert "AZURE_CODING_MODEL" in workflow
+    assert "AZURE_CODING_OPENAI_KEY" in workflow
+    assert "gh secret set AZURE_OPENAI_KEY" not in workflow

@@ -696,7 +696,7 @@ def render_issue_task_markdown(task: dict[str, Any]) -> str:
             f"- Allowed paths: {', '.join(f'`{path}`' for path in task['allowed_paths'])}",
             f"- Focused tests: {', '.join(f'`{path}`' for path in task['tests']) or 'full suite'}",
             "",
-            "Copilot CLI edits are validated locally before any branch or draft PR is created.",
+            "Coding-agent edits are validated locally before any branch or draft PR is created.",
         ]
     )
     return "\n".join(lines) + "\n"

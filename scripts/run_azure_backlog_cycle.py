@@ -243,7 +243,7 @@ def render_cycle_markdown(cycle: dict[str, Any]) -> str:
                 "",
                 task["summary"],
                 "",
-                "Copilot CLI edits are validated locally before any branch or draft PR is created.",
+                "Coding-agent edits are validated locally before any branch or draft PR is created.",
                 "",
             ]
         )
