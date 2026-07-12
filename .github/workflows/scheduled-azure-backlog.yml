@@ -31,7 +31,7 @@ on:
           - "1"
           - "2"
           - "3"
-        default: "2"
+        default: "1"
 
 permissions:
   contents: write
@@ -46,7 +46,7 @@ jobs:
   process-backlog:
     name: Process Azure-funded backlog
     runs-on: ubuntu-latest
-    timeout-minutes: 70
+    timeout-minutes: 160
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -132,7 +132,7 @@ jobs:
           REWORK_REQUEST_ID: ${{ github.event.client_payload.rework_request_id || '' }}
           REWORK_TRIGGER: ${{ github.event.client_payload.rework_trigger || '' }}
           REWORK_ACTOR: ${{ github.event.client_payload.rework_actor || '' }}
-          MAX_ISSUES: ${{ inputs.max_issues || '2' }}
+          MAX_ISSUES: ${{ inputs.max_issues || '1' }}
 
       - name: Run Azure BYOK Copilot tasks and open bounded draft PRs
         env:
@@ -145,7 +145,8 @@ jobs:
           AZURE_OPENAI_ENDPOINT: ${{ vars.AZURE_OPENAI_ENDPOINT }}
           AZURE_OPENAI_DEPLOYMENT: ${{ vars.AZURE_COPILOT_DEPLOYMENT || vars.AZURE_OPENAI_DEPLOYMENT }}
           COPILOT_BYOK_MODEL_ID: ${{ vars.COPILOT_BYOK_MODEL_ID || 'gpt-5.4-mini' }}
-          BYOK_AGENT_TIMEOUT_SECONDS: "1200"
+          BYOK_AGENT_TIMEOUT_SECONDS: "2400"
+          BYOK_AGENT_INTERRUPT_GRACE_SECONDS: "30"
           BYOK_MAX_AUTOPILOT_CONTINUES: "3"
           BYOK_TASK_COOLDOWN_SECONDS: "65"
           BYOK_AUDIT_DIR: ${{ runner.temp }}/byok-audit

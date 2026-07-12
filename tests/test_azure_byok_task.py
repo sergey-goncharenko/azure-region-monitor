@@ -210,6 +210,7 @@ def test_agent_prompt_includes_scope_and_untrusted_context_rules():
     assert "untrusted product context" in prompt
     assert "approved backlog task" in prompt
     assert "complete at most one coherent implementation slice" in prompt
+    assert "Bias toward action" in prompt
     assert "2-4 item decomposition proposal" in prompt
     assert "full repository" in prompt
     assert "Use line-numbered `source_excerpts` as starting hints" in prompt
@@ -316,7 +317,7 @@ def test_agent_invocation_enables_local_shell_but_denies_remote_operations(monke
     )
     monkeypatch.setattr(
         byok_task,
-        "_run",
+        "_run_with_graceful_timeout",
         lambda *args, **kwargs: captured.update(args=args, kwargs=kwargs)
         or subprocess.CompletedProcess(args, 0, "", ""),
     )
@@ -329,11 +330,12 @@ def test_agent_invocation_enables_local_shell_but_denies_remote_operations(monke
     assert captured["args"][continuation_index + 1] == "3"
     assert "--deny-tool=powershell" in captured["args"]
     assert "--deny-tool=shell" not in captured["args"]
-    assert "--deny-tool=shell(git push*)" in captured["args"]
-    assert "--deny-tool=shell(gh *)" in captured["args"]
-    assert "--deny-tool=shell(az *)" in captured["args"]
-    assert "--deny-tool=shell(*pip install*)" in captured["args"]
+    assert "--deny-tool=shell(git push)" in captured["args"]
+    assert "--deny-tool=shell(gh:*)" in captured["args"]
+    assert "--deny-tool=shell(az:*)" in captured["args"]
+    assert "--deny-tool=shell(pip)" in captured["args"]
     assert "--no-ask-user" in captured["args"]
+    assert "--no-custom-instructions" not in captured["args"]
     assert not any(argument.startswith("--available-tools=") for argument in captured["args"])
     output_index = captured["args"].index("--output-format")
     assert captured["args"][output_index + 1] == "json"
@@ -349,7 +351,7 @@ def test_report_only_agent_invocation_denies_file_mutation_tools(monkeypatch):
     )
     monkeypatch.setattr(
         byok_task,
-        "_run",
+        "_run_with_graceful_timeout",
         lambda *args, **kwargs: captured.update(args=args)
         or subprocess.CompletedProcess(args, 0, "", ""),
     )
@@ -364,9 +366,10 @@ def test_report_only_agent_invocation_denies_file_mutation_tools(monkeypatch):
     assert "--excluded-tools=rg" in captured["args"]
 
 
-def test_agent_invocation_has_hard_session_timeout(monkeypatch):
+def test_agent_invocation_has_graceful_session_timeout(monkeypatch):
     captured = {}
     monkeypatch.setenv("BYOK_AGENT_TIMEOUT_SECONDS", "123")
+    monkeypatch.setenv("BYOK_AGENT_INTERRUPT_GRACE_SECONDS", "17")
     monkeypatch.setattr(byok_task, "_copilot_command", lambda: ["copilot"])
     monkeypatch.setattr(
         byok_task,
@@ -375,7 +378,7 @@ def test_agent_invocation_has_hard_session_timeout(monkeypatch):
     )
     monkeypatch.setattr(
         byok_task,
-        "_run",
+        "_run_with_graceful_timeout",
         lambda *args, **kwargs: captured.update(kwargs=kwargs)
         or subprocess.CompletedProcess(args, 0, "", ""),
     )
@@ -383,6 +386,44 @@ def test_agent_invocation_has_hard_session_timeout(monkeypatch):
     byok_task._run_agent(_task())
 
     assert captured["kwargs"]["timeout"] == 123
+    assert captured["kwargs"]["grace_seconds"] == 17
+
+
+def test_graceful_timeout_interrupts_before_raising(monkeypatch):
+    import pytest
+
+    calls = []
+    interrupted = []
+
+    class FakeProcess:
+        returncode = 130
+
+        def communicate(self, timeout=None):
+            calls.append(timeout)
+            if len(calls) == 1:
+                raise subprocess.TimeoutExpired("copilot", timeout, output="partial")
+            return "complete partial output", "interrupted"
+
+    process = FakeProcess()
+    monkeypatch.setattr(byok_task.subprocess, "Popen", lambda *args, **kwargs: process)
+    monkeypatch.setattr(
+        byok_task,
+        "_interrupt_process",
+        lambda value: interrupted.append(value),
+    )
+
+    with pytest.raises(subprocess.TimeoutExpired) as captured:
+        byok_task._run_with_graceful_timeout(
+            "copilot",
+            env={},
+            timeout=123,
+            grace_seconds=17,
+        )
+
+    assert calls == [123, 17]
+    assert interrupted == [process]
+    assert captured.value.output == "complete partial output"
+    assert captured.value.stderr == "interrupted"
 
 
 def test_timed_out_coding_session_fails_and_records_sanitized_metadata(
@@ -436,6 +477,93 @@ def test_timed_out_coding_session_fails_and_records_sanitized_metadata(
     assert recorded["sanitized"] == transcript
     assert recorded["metadata"]["outcome"] == "timeout"
     assert "timed out after 1200 seconds" in capsys.readouterr().out
+
+
+def test_timed_out_session_keeps_validated_in_scope_changes(monkeypatch, tmp_path):
+    transcript = tmp_path / "issue-42-chat.md"
+    telemetry = tmp_path / "issue-42-telemetry.jsonl"
+    metadata_path = tmp_path / "issue-42-metadata.json"
+    body_path = tmp_path / "pr-body.md"
+    calls = []
+    resets = []
+    recorded = {}
+    monkeypatch.setattr(byok_task, "_existing_pr", lambda branch: "")
+    monkeypatch.setattr(
+        byok_task,
+        "_audit_paths",
+        lambda task: (transcript, telemetry, metadata_path),
+    )
+    monkeypatch.setattr(
+        byok_task,
+        "_run_agent",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            subprocess.TimeoutExpired(
+                "copilot",
+                2400,
+                output=json.dumps(
+                    {
+                        "type": "assistant.message",
+                        "data": {"content": "Implemented the focused helper."},
+                    }
+                ),
+            )
+        ),
+    )
+    monkeypatch.setattr(byok_task, "_reset", lambda: resets.append(True))
+    monkeypatch.setattr(byok_task, "_changed_paths", lambda: {"README.md"})
+    monkeypatch.setattr(byok_task, "_sanitize_transcript", lambda path: None)
+    monkeypatch.setattr(
+        byok_task,
+        "_agent_metadata",
+        lambda stdout, telemetry_path, task: _metadata(),
+    )
+    monkeypatch.setattr(byok_task, "_artifact_metadata", lambda path: {})
+    monkeypatch.setattr(
+        byok_task,
+        "_write_metadata",
+        lambda path, metadata: recorded.update(metadata=dict(metadata)),
+    )
+    monkeypatch.setattr(
+        byok_task,
+        "_write_pr_body",
+        lambda task, rationale, changed, metadata: (
+            recorded.update(rationale=rationale),
+            body_path.write_text("body", encoding="utf-8"),
+            body_path,
+        )[-1],
+    )
+    monkeypatch.setattr(
+        byok_task,
+        "_upsert_issue_note",
+        lambda task, **kwargs: recorded.update(note=kwargs),
+    )
+
+    def run(*args, **kwargs):
+        calls.append(args)
+        if args[:3] == ("git", "diff", "--name-only"):
+            return subprocess.CompletedProcess(args, 0, "README.md\n", "")
+        if args[:3] == ("gh", "pr", "create"):
+            return subprocess.CompletedProcess(args, 0, "https://example/pr/1", "")
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    monkeypatch.setattr(byok_task, "_run", run)
+
+    result = byok_task.run_task(
+        _task(tests=[]),
+        base_branch="main",
+        dry_run=False,
+        force=False,
+    )
+
+    assert result == 0
+    assert len(resets) == 1
+    assert recorded["metadata"]["outcome"] == "timeout"
+    assert recorded["metadata"]["validated_partial_changes"] is True
+    assert "2400-second limit" in recorded["rationale"]
+    assert recorded["note"]["outcome"] == "draft PR created"
+    assert any(args[:3] == ("git", "commit", "-m") for args in calls)
+    assert any(args[:2] == ("git", "push") for args in calls)
+    assert any(args[:3] == ("gh", "pr", "create") for args in calls)
 
 
 def test_issue_note_is_created_with_bounded_outcome(monkeypatch):

@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 import re
+import signal
 import shutil
 import subprocess
 import tempfile
@@ -34,6 +35,54 @@ def _run(
         env=env,
         timeout=timeout,
     )
+
+
+def _interrupt_process(process: subprocess.Popen[str]) -> None:
+    if process.poll() is not None:
+        return
+    try:
+        if os.name == "nt" and hasattr(signal, "CTRL_BREAK_EVENT"):
+            process.send_signal(signal.CTRL_BREAK_EVENT)
+        else:
+            os.killpg(process.pid, signal.SIGINT)
+    except (OSError, ProcessLookupError):
+        process.terminate()
+
+
+def _run_with_graceful_timeout(
+    *args: str,
+    env: dict[str, str],
+    timeout: int,
+    grace_seconds: int,
+) -> subprocess.CompletedProcess[str]:
+    popen_options: dict[str, Any] = {
+        "cwd": REPO_ROOT,
+        "stdout": subprocess.PIPE,
+        "stderr": subprocess.PIPE,
+        "text": True,
+        "env": env,
+    }
+    if os.name == "nt":
+        popen_options["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+    else:
+        popen_options["start_new_session"] = True
+    process = subprocess.Popen(args, **popen_options)
+    try:
+        stdout, stderr = process.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired as initial_timeout:
+        _interrupt_process(process)
+        try:
+            stdout, stderr = process.communicate(timeout=grace_seconds)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            stdout, stderr = process.communicate()
+        raise subprocess.TimeoutExpired(
+            args,
+            timeout,
+            output=stdout or initial_timeout.output,
+            stderr=stderr or initial_timeout.stderr,
+        ) from None
+    return subprocess.CompletedProcess(args, process.returncode, stdout, stderr)
 
 
 def _summary(message: str) -> None:
@@ -181,7 +230,7 @@ Perform exactly one small, evidence-backed task using only the supplied task man
 
 This is an approved backlog task. You may inspect any file in the repository with the available file tools to understand architecture, conventions, and dependencies. Implement the smallest change that satisfies the Objective, but modify only the trusted `allowed_paths`. When the Objective asks to add or extend coverage, treat it as unsatisfied until repository evidence proves otherwise. Make no edits only when the Objective is already completely satisfied; in that case, explain the specific existing coverage or implementation that proves it.
 
-Atomic-work rule: complete at most one coherent implementation slice that can be reviewed independently. Do not attempt an exhaustive redesign or solve every future improvement implied by a broad Objective. Start with the highest-leverage foundational slice. If no safe slice is clear within the session budget, make no edits and return a concise 2-4 item decomposition proposal for future backlog issues.
+Atomic-work rule: complete at most one coherent implementation slice that can be reviewed independently. Do not attempt an exhaustive redesign or solve every future improvement implied by a broad Objective. Start with the highest-leverage foundational slice. Bias toward action: after repository orientation and one focused inspection of the likely edit area, either make the smallest safe edit or stop with a decomposition; do not spend the session seeking exhaustive certainty or inspecting every caller. If no safe slice is clear within the session budget, make no edits and return a concise 2-4 item decomposition proposal for future backlog issues.
 
 Use line-numbered `source_excerpts` as starting hints, not as a read boundary. Inspect any repository file that is genuinely relevant, while avoiding redundant overlapping reads.
 
@@ -294,20 +343,21 @@ def _run_agent(
         os.environ.get("BYOK_MAX_AUTOPILOT_CONTINUES", "3"),
         "--allow-all-tools",
         "--deny-tool=powershell",
-        "--deny-tool=shell(git push*)",
-        "--deny-tool=shell(gh *)",
-        "--deny-tool=shell(az *)",
-        "--deny-tool=shell(curl *)",
-        "--deny-tool=shell(wget *)",
-        "--deny-tool=shell(*pip install*)",
-        "--deny-tool=shell(*npm install*)",
+        "--deny-tool=shell(git push)",
+        "--deny-tool=shell(gh:*)",
+        "--deny-tool=shell(az:*)",
+        "--deny-tool=shell(curl)",
+        "--deny-tool=shell(wget)",
+        "--deny-tool=shell(pip)",
+        "--deny-tool=shell(pip3)",
+        "--deny-tool=shell(python -m pip)",
+        "--deny-tool=shell(npm install)",
         "--no-ask-user",
         "--disallow-temp-dir",
         "--disable-builtin-mcps",
         "--no-remote",
         "--no-remote-export",
         "--no-auto-update",
-        "--no-custom-instructions",
         "--no-color",
         "--plain-diff",
         "--secret-env-vars=AZURE_OPENAI_API_KEY,COPILOT_PROVIDER_API_KEY,GH_TOKEN,GITHUB_TOKEN",
@@ -333,7 +383,13 @@ def _run_agent(
         transcript_path.unlink(missing_ok=True)
         command.append(f"--share={transcript_path}")
     timeout_seconds = int(os.environ.get("BYOK_AGENT_TIMEOUT_SECONDS", "600"))
-    return _run(*command, env=environment, timeout=timeout_seconds)
+    grace_seconds = int(os.environ.get("BYOK_AGENT_INTERRUPT_GRACE_SECONDS", "30"))
+    return _run_with_graceful_timeout(
+        *command,
+        env=environment,
+        timeout=timeout_seconds,
+        grace_seconds=grace_seconds,
+    )
 
 
 def _audit_paths(task: dict[str, Any]) -> tuple[Path, Path, Path]:
@@ -500,20 +556,25 @@ def _write_pr_body(
 
 def _usage_summary(metadata: dict[str, Any]) -> str:
     duration_seconds = round(int(metadata.get("session_duration_ms", 0)) / 1000, 2)
-    return "\n".join(
-        [
-            f"- Model ID: `{metadata.get('model_id') or 'not reported'}`",
-            f"- Azure deployment / response model: `{metadata.get('response_model') or metadata.get('deployment') or 'not reported'}`",
-            f"- Input tokens: {int(metadata.get('input_tokens', 0)):,}",
-            f"- Cached input tokens (subset of input): {int(metadata.get('cached_input_tokens', 0)):,}",
-            f"- Output tokens: {int(metadata.get('output_tokens', 0)):,}",
-            f"- Reasoning output tokens (included in output): {int(metadata.get('reasoning_output_tokens', 0)):,}",
-            f"- Total tokens (input + output; cached input is not added twice): {int(metadata.get('total_tokens', 0)):,}",
-            f"- Model API calls: {int(metadata.get('api_calls', 0))}",
-            f"- Session duration: {duration_seconds}s",
-            f"- Copilot session ID: `{metadata.get('session_id') or 'not reported'}`",
-        ]
-    )
+    lines = [
+        f"- Model ID: `{metadata.get('model_id') or 'not reported'}`",
+        f"- Azure deployment / response model: `{metadata.get('response_model') or metadata.get('deployment') or 'not reported'}`",
+        f"- Input tokens: {int(metadata.get('input_tokens', 0)):,}",
+        f"- Cached input tokens (subset of input): {int(metadata.get('cached_input_tokens', 0)):,}",
+        f"- Output tokens: {int(metadata.get('output_tokens', 0)):,}",
+        f"- Reasoning output tokens (included in output): {int(metadata.get('reasoning_output_tokens', 0)):,}",
+        f"- Total tokens (input + output; cached input is not added twice): {int(metadata.get('total_tokens', 0)):,}",
+        f"- Model API calls: {int(metadata.get('api_calls', 0))}",
+        f"- Session duration: {duration_seconds}s",
+        f"- Copilot session ID: `{metadata.get('session_id') or 'not reported'}`",
+    ]
+    if metadata.get("outcome") == "timeout":
+        retained = "yes" if metadata.get("validated_partial_changes") else "no"
+        lines.append(
+            f"- Outer timeout: {int(metadata.get('timeout_seconds', 0))}s; "
+            f"validated partial changes retained: {retained}"
+        )
+    return "\n".join(lines)
 
 
 def _chat_summary(metadata: dict[str, Any]) -> str:
@@ -800,41 +861,50 @@ def run_task(
     _reset()
 
     transcript_path, telemetry_path, metadata_path = _audit_paths(task)
+    timed_out_after: int | None = None
     try:
         agent = _run_agent(task, transcript_path, telemetry_path)
-    except (OSError, subprocess.TimeoutExpired) as error:
-        _reset()
-        _sanitize_transcript(transcript_path)
-        partial_stdout = error.stdout if isinstance(error, subprocess.TimeoutExpired) else ""
+    except subprocess.TimeoutExpired as error:
+        partial_stdout = error.stdout or ""
+        partial_stderr = error.stderr or ""
         if isinstance(partial_stdout, bytes):
             partial_stdout = partial_stdout.decode("utf-8", errors="replace")
-        metadata = _agent_metadata(partial_stdout or "", telemetry_path, task)
-        metadata.update(_artifact_metadata(transcript_path))
-        metadata["outcome"] = (
-            "timeout" if isinstance(error, subprocess.TimeoutExpired) else "launcher-error"
+        if isinstance(partial_stderr, bytes):
+            partial_stderr = partial_stderr.decode("utf-8", errors="replace")
+        timed_out_after = int(error.timeout)
+        agent = subprocess.CompletedProcess(
+            error.cmd,
+            0,
+            partial_stdout,
+            partial_stderr,
         )
+    except OSError as error:
+        _reset()
+        _sanitize_transcript(transcript_path)
+        metadata = _agent_metadata("", telemetry_path, task)
+        metadata.update(_artifact_metadata(transcript_path))
+        metadata["outcome"] = "launcher-error"
         _write_metadata(metadata_path, metadata)
         telemetry_path.unlink(missing_ok=True)
-        detail = (
-            f"Copilot CLI timed out after {error.timeout} seconds."
-            if isinstance(error, subprocess.TimeoutExpired)
-            else _safe_failure_detail(str(error))
-        )
+        detail = _safe_failure_detail(str(error))
         message = "Azure BYOK Copilot task did not complete; no PR was created."
         if detail:
             message += "\nSanitized launcher diagnostic:\n" + detail
         _summary(message)
         _upsert_issue_note(
             task,
-            outcome="timed out" if isinstance(error, subprocess.TimeoutExpired) else "launcher failed",
+            outcome="launcher failed",
             detail=message,
             metadata=metadata,
-            rationale=_extract_agent_rationale(partial_stdout or ""),
+            rationale="",
         )
-        return 0 if isinstance(error, subprocess.TimeoutExpired) else 1
+        return 1
     _sanitize_transcript(transcript_path)
     metadata = _agent_metadata(agent.stdout, telemetry_path, task)
     metadata.update(_artifact_metadata(transcript_path))
+    if timed_out_after is not None:
+        metadata["outcome"] = "timeout"
+        metadata["timeout_seconds"] = timed_out_after
     _write_metadata(metadata_path, metadata)
     telemetry_path.unlink(missing_ok=True)
     if agent.returncode != 0:
@@ -856,11 +926,19 @@ def run_task(
     changed = _changed_paths()
     allowed = set(task["allowed_paths"])
     if not changed:
-        message = "Azure BYOK Copilot task made no repository changes; no PR was created."
+        if timed_out_after is not None:
+            message = (
+                f"Copilot CLI timed out after {timed_out_after} seconds and left no "
+                "repository changes; no PR was created."
+            )
+            outcome = "timed out"
+        else:
+            message = "Azure BYOK Copilot task made no repository changes; no PR was created."
+            outcome = "no PR needed"
         _summary(message)
         _upsert_issue_note(
             task,
-            outcome="no PR needed",
+            outcome=outcome,
             detail=message,
             metadata=metadata,
             rationale=_extract_agent_rationale(agent.stdout),
@@ -905,6 +983,10 @@ def run_task(
         )
         return 0
 
+    if timed_out_after is not None:
+        metadata["validated_partial_changes"] = True
+        _write_metadata(metadata_path, metadata)
+
     _run("git", "config", "user.name", "github-actions[bot]")
     _run("git", "config", "user.email", "41898282+github-actions[bot]@users.noreply.github.com")
     _run("git", "add", "-A")
@@ -925,6 +1007,13 @@ def run_task(
         return 0
 
     rationale = _extract_agent_rationale(agent.stdout)
+    if timed_out_after is not None:
+        timeout_note = (
+            f"The Copilot session reached its {timed_out_after}-second limit after leaving "
+            "this diff. Deterministic scope, focused tests, Ruff, and whitespace validation "
+            "all passed before the draft PR was created."
+        )
+        rationale = timeout_note + ("\n\n" + rationale if rationale else "")
     body = _write_pr_body(task, rationale, cumulative_changed, metadata)
     try:
         if existing:

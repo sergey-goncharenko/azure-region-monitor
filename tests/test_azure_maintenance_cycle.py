@@ -300,8 +300,9 @@ def test_issue_backlog_workflow_no_longer_runs_documentation_lane():
     assert "persist-credentials: false" in workflow
     assert "*-metadata.json" in workflow
     assert "*-telemetry.jsonl" not in workflow
-    assert 'BYOK_AGENT_TIMEOUT_SECONDS: "1200"' in workflow
+    assert 'BYOK_AGENT_TIMEOUT_SECONDS: "2400"' in workflow
+    assert 'BYOK_AGENT_INTERRUPT_GRACE_SECONDS: "30"' in workflow
     assert 'BYOK_MAX_AUTOPILOT_CONTINUES: "3"' in workflow
     assert "--max-issues \"$MAX_ISSUES\"" in workflow
-    assert "MAX_ISSUES: ${{ inputs.max_issues || '2' }}" in workflow
-    assert "timeout-minutes: 70" in workflow
+    assert "MAX_ISSUES: ${{ inputs.max_issues || '1' }}" in workflow
+    assert "timeout-minutes: 160" in workflow

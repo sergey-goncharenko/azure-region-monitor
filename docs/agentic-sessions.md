@@ -4,7 +4,7 @@ This repository runs bounded Azure-funded schedules. The issue backlog runs dail
 
 ## Issue Backlog Order
 
-The 07:00 UTC run selects up to two eligible open issues by default, highest priority first. Manual dispatch can choose one, two, or three sessions. It does not run documentation alignment or invent other coding tasks from local JSON, snapshot data, or repository files. If an `unknown` status or another maintenance concern deserves work, create an Azure backlog issue for it.
+The 07:00 UTC run selects one eligible open issue by default, highest priority first. Manual dispatch can choose one, two, or three sessions. It does not run documentation alignment or invent other coding tasks from local JSON, snapshot data, or repository files. If an `unknown` status or another maintenance concern deserves work, create an Azure backlog issue for it.
 
 ## Three Separate Maintenance Sessions
 
@@ -38,7 +38,7 @@ An issue is eligible when it is:
 - labelled `azure-backlog`; and
 - not labelled `azure-paused`.
 
-Eligible issues are sorted by `Urgent` → `High` → `Normal` → `Low`. Issues with the same priority are processed by ascending issue number (oldest first). The first three actionable issues become coding lanes; documentation alignment is handled only by the separate maintenance workflow.
+Eligible issues are sorted by `Urgent` → `High` → `Normal` → `Low`. Issues with the same priority are processed by ascending issue number (oldest first). The first one to three actionable issues, according to the scheduled or manual run limit, become coding lanes; documentation alignment is handled only by the separate maintenance workflow.
 
 To defer an item without closing it, add `azure-paused`. To remove it permanently from the queue, close the issue or remove `azure-backlog`. A generated PR includes `Closes #<issue-number>`, so merging that PR closes the originating issue automatically.
 
@@ -60,7 +60,7 @@ Both schedules install a pinned GitHub Copilot CLI and use its custom-model-prov
 
 Every editing task is bounded before a branch or PR is created:
 
-- Azure receives only the compact selected task manifest; the agent uses its file-only tools to inspect allowed source files when more implementation detail is needed.
+- Azure receives only the compact selected task manifest plus repository context Copilot reads during the session; the agent may inspect the full checkout with local file and shell tools when more implementation detail is needed.
 - The CLI runs in offline mode with built-in MCP servers and remote control disabled. Issue coding uses standard local shell-assisted autopilot for repository search, diffs, and tests, while explicit tool denials block PowerShell, `git push`, GitHub/Azure CLI, downloads, and package installation. Provider/GitHub secrets are filtered from tool subprocesses. Private report sessions still exclude shell entirely. Deterministic scope and validation gates remain outside the model.
 - `AZURE_OPENAI_API_KEY`, `COPILOT_PROVIDER_API_KEY`, `GH_TOKEN`, and `GITHUB_TOKEN` are stripped from the agent's shell and MCP environments.
 - Each task starts from a clean default-branch checkout. The runner rejects every changed path outside the automatically derived scope.
@@ -75,7 +75,7 @@ Security and repository-hygiene sessions have an additional report-only boundary
 - The runner checks the Git working tree after each analysis. If any tracked or untracked file changed, it resets the checkout and publishes no report.
 - Only deterministic outer code in the private companion repository can create labels or replace the two stable report issue bodies. Generated mentions are neutralized before publication.
 - The hygiene session can recommend commands but has no branch/worktree deletion implementation or permission path.
-- Issue-based coding sessions run as full-repository read sessions with a ten-minute hard timeout and three Copilot autopilot continuations. Agents may inspect any repository file, while deterministic outer code still rejects writes outside the issue-derived `allowed_paths`. Each session may implement only one independently reviewable slice; broad objectives produce a short decomposition note instead of an exhaustive edit attempt. Documentation and private report sessions remain capped at 10 minutes. Interrupted sessions fail visibly and retain only sanitized chat/derived metadata. Raw OpenTelemetry JSONL is never selected for upload, including after cancellation.
+- Scheduled issue work defaults to one issue per day and runs as a standard, repository-instruction-aware Copilot prompt session with full-repository access, a 40-minute outer timeout, and three autopilot continuations. Agents may inspect any repository file, while deterministic outer code still rejects writes outside the issue-derived `allowed_paths`. Each session may implement only one independently reviewable slice and is instructed to edit or stop after focused inspection rather than seek exhaustive certainty. Manual runs may explicitly request one to three issue sessions. At the outer timeout the harness first sends a graceful interrupt and allows 30 seconds for Copilot to exit and flush its native shared transcript when supported. If an interrupted agent left an in-scope diff, outer code retains it only when focused tests, Ruff, and whitespace validation all pass; otherwise it is reset. Documentation and private report sessions remain capped at 10 minutes. Interrupted sessions retain only sanitized chat/derived metadata. Raw OpenTelemetry JSONL is never selected for upload, including after cancellation.
 
 Every generated PR includes a reviewer-facing rationale in its description:
 
@@ -84,11 +84,11 @@ Every generated PR includes a reviewer-facing rationale in its description:
 - the agent's concise final decision, evidence, implementation summary, alternatives/risks, and validation notes;
 - the exact changed files and deterministic checks run.
 
-Only the final `assistant.message` is used. Opaque/encrypted reasoning events, private chain-of-thought, tool traces, and secret-like values are excluded or redacted.
+Only the most recent visible `assistant.message` is used; for a normally completed session this is the final response, while an interrupted session may expose only its latest progress summary. Opaque/encrypted reasoning events, private chain-of-thought, tool traces, and secret-like values are excluded or redacted.
 
-When an issue session intentionally makes no edit, times out at the ten-minute session budget, or fails deterministic scope/validation checks, no PR is required. Deterministic outer code creates or replaces one stable `Azure BYOK agent note` comment on the source issue with the bounded outcome, final visible summary when available, model/token metadata, and workflow link. Later runs replace that note instead of adding daily comment noise. Non-recurring no-PR issues receive `azure-paused` automatically so the next daily cycle advances to newer work; a maintainer can refine, close, or explicitly unpause them. Recurring monitor issues remain eligible. A timeout with a published note is an acceptable completed lane, not a failed daily cycle.
+When an issue session intentionally makes no edit, times out at the 40-minute session budget, or fails deterministic scope/validation checks, no PR is required. Deterministic outer code creates or replaces one stable `Azure BYOK agent note` comment on the source issue with the bounded outcome, final visible summary when available, model/token metadata, and workflow link. Later runs replace that note instead of adding daily comment noise. Non-recurring no-PR issues receive `azure-paused` automatically so the next daily cycle advances to newer work; a maintainer can refine, close, or explicitly unpause them. Recurring monitor issues remain eligible. A timeout with a published note is an acceptable completed lane, not a failed daily cycle.
 
-Generated PRs also report the Azure model ID/deployment, exact OpenTelemetry input and output token counts, reasoning-output tokens, API call count, session duration, and Copilot session ID. Cached input tokens are shown as a subset of input tokens and are not added twice to the total. Each workflow uploads a 30-day `azure-byok-chat-<run-id>` artifact containing a sanitized native Copilot chat export and machine-readable metadata for each executed task. The PR links to the workflow run's artifact section. The exported chat includes visible user/assistant messages and tool interactions, but not opaque/encrypted reasoning or secrets.
+Generated PRs also report the Azure model ID/deployment, exact OpenTelemetry input and output token counts, reasoning-output tokens, API call count, session duration, and Copilot session ID. Cached input tokens are shown as a subset of input tokens and are not added twice to the total. Each workflow uploads a 30-day `azure-byok-chat-<run-id>` artifact containing machine-readable metadata for each executed task and a sanitized native Copilot chat export when the CLI completed or flushed it during interruption. The PR links to the workflow run's artifact section. An available exported chat includes visible user/assistant messages and tool interactions, but not opaque/encrypted reasoning or secrets.
 
 ## Requesting Changes On A Bot PR
 
@@ -130,10 +130,10 @@ The scheduled workflows use the built-in `GITHUB_TOKEN` only in deterministic ou
 ## Cost Controls
 
 - Azure OpenAI is the scheduled provider for Copilot CLI issue and documentation work.
-- The 07:00 UTC backlog run starts two issue-agent sessions by default; manual dispatch may choose one to three. Public documentation alignment runs at 09:00 UTC. The private companion repository starts security and hygiene sessions at 10:00 UTC. These use Azure tokens, not GitHub Copilot model quota.
+- The 07:00 UTC backlog run starts one issue-agent session by default; manual dispatch may choose one to three. Public documentation alignment runs at 09:00 UTC. The private companion repository starts security and hygiene sessions at 10:00 UTC. These use Azure tokens, not GitHub Copilot model quota.
 - BYOK agent prompts contain the bounded task evidence and may use more Azure input tokens than the former direct JSON client; that trade-off is intentional for a full coding-agent runtime.
 - Live tasks wait 65 seconds between sessions to respect the current Azure OpenAI TPM allocation.
-- The backlog workflow has a 70-minute hard timeout so an explicitly requested three-issue manual run can finish; scheduled runs still default to two issues and create at most two draft PRs. Public documentation alignment can create at most one draft PR. Private analysis can replace at most two stable private report issues. Each workflow has its own concurrency lock.
+- The backlog job has a 160-minute hard timeout so an explicitly requested three-issue manual run can accommodate three 40-minute agent budgets plus validation and cooldowns; scheduled runs still default to one issue and create at most one draft PR. Public documentation alignment can create at most one draft PR. Private analysis can replace at most two stable private report issues. Each workflow has its own concurrency lock.
 - The older Copilot path is intentionally manual-only in [.github/workflows/scheduled-copilot-agents.yml](../.github/workflows/scheduled-copilot-agents.yml), for an occasional comparison rather than recurring consumption.
 
 ## Manual Run
