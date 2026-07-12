@@ -470,7 +470,8 @@ def _page(
   {style_block}
 </head>
 <body>
-  <main class="content-page">
+  <a href="#main-content" class="skip-link">Skip to main content</a>
+  <main id="main-content" class="content-page">
 {body}
   </main>
 </body>
