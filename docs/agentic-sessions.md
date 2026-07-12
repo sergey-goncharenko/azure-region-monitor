@@ -61,7 +61,7 @@ Both schedules install a pinned GitHub Copilot CLI and use its custom-model-prov
 Every editing task is bounded before a branch or PR is created:
 
 - Azure receives only the compact selected task manifest; the agent uses its file-only tools to inspect allowed source files when more implementation detail is needed.
-- The CLI runs in offline mode with built-in MCP servers and remote control disabled. It uses bounded autopilot mode (at most three continuations), retains Copilot's internal completion controls, and explicitly denies both shell variants. It has no GitHub, web, Azure CLI, package-install, or push permission; deterministic scope and validation gates remain outside the model.
+- The CLI runs in offline mode with built-in MCP servers and remote control disabled. Issue coding uses standard local shell-assisted autopilot for repository search, diffs, and tests, while explicit tool denials block PowerShell, `git push`, GitHub/Azure CLI, downloads, and package installation. Provider/GitHub secrets are filtered from tool subprocesses. Private report sessions still exclude shell entirely. Deterministic scope and validation gates remain outside the model.
 - `AZURE_OPENAI_API_KEY`, `COPILOT_PROVIDER_API_KEY`, `GH_TOKEN`, and `GITHUB_TOKEN` are stripped from the agent's shell and MCP environments.
 - Each task starts from a clean default-branch checkout. The runner rejects every changed path outside the automatically derived scope.
 - The workflow requires derived focused tests where available (otherwise the full suite), Ruff, and `git diff --check`.

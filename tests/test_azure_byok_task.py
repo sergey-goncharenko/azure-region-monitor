@@ -306,7 +306,7 @@ def test_agent_environment_uses_nano_token_limits(monkeypatch):
     assert environment["COPILOT_PROVIDER_MAX_OUTPUT_TOKENS"] == "4000"
 
 
-def test_agent_invocation_enables_internal_autopilot_but_denies_shell(monkeypatch):
+def test_agent_invocation_enables_local_shell_but_denies_remote_operations(monkeypatch):
     captured = {}
     monkeypatch.setattr(byok_task, "_copilot_command", lambda: ["copilot"])
     monkeypatch.setattr(
@@ -328,7 +328,11 @@ def test_agent_invocation_enables_internal_autopilot_but_denies_shell(monkeypatc
     continuation_index = captured["args"].index("--max-autopilot-continues")
     assert captured["args"][continuation_index + 1] == "3"
     assert "--deny-tool=powershell" in captured["args"]
-    assert "--deny-tool=shell" in captured["args"]
+    assert "--deny-tool=shell" not in captured["args"]
+    assert "--deny-tool=shell(git push*)" in captured["args"]
+    assert "--deny-tool=shell(gh *)" in captured["args"]
+    assert "--deny-tool=shell(az *)" in captured["args"]
+    assert "--deny-tool=shell(*pip install*)" in captured["args"]
     assert "--no-ask-user" in captured["args"]
     assert not any(argument.startswith("--available-tools=") for argument in captured["args"])
     output_index = captured["args"].index("--output-format")
@@ -353,6 +357,7 @@ def test_report_only_agent_invocation_denies_file_mutation_tools(monkeypatch):
     byok_task._run_agent(_task(), prompt="Analyze only.", report_only=True)
 
     assert "--excluded-tools=write" in captured["args"]
+    assert "--excluded-tools=shell" in captured["args"]
     assert "--excluded-tools=edit" in captured["args"]
     assert "--excluded-tools=create" in captured["args"]
     assert "--excluded-tools=view" in captured["args"]

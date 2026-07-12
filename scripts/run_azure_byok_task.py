@@ -294,7 +294,13 @@ def _run_agent(
         os.environ.get("BYOK_MAX_AUTOPILOT_CONTINUES", "3"),
         "--allow-all-tools",
         "--deny-tool=powershell",
-        "--deny-tool=shell",
+        "--deny-tool=shell(git push*)",
+        "--deny-tool=shell(gh *)",
+        "--deny-tool=shell(az *)",
+        "--deny-tool=shell(curl *)",
+        "--deny-tool=shell(wget *)",
+        "--deny-tool=shell(*pip install*)",
+        "--deny-tool=shell(*npm install*)",
         "--no-ask-user",
         "--disallow-temp-dir",
         "--disable-builtin-mcps",
@@ -310,6 +316,7 @@ def _run_agent(
     ]
     if report_only:
         for tool in (
+            "shell",
             "write",
             "edit",
             "create",
