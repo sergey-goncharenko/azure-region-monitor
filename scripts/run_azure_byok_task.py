@@ -15,6 +15,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 CLI_MODEL_ID = "gpt-5.4-mini"
 MAX_FAILURE_DETAIL_CHARS = 800
 MAX_AGENT_EVIDENCE_CHARS = 1_800
+MAX_SOURCE_EXCERPT_CHARS = 6_000
 MAX_RATIONALE_CHARS = 4_000
 _SAFE_BRANCH_COMPONENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,63}")
 _SECRET_ENV_NAME = re.compile(r"token|key|secret|password|credential|connection[_-]?string", re.I)
@@ -182,6 +183,8 @@ This is an approved backlog task. Inspect the allowed paths with the available f
 
 Atomic-work rule: complete at most one coherent implementation slice that can be reviewed independently. Do not attempt an exhaustive redesign, inspect the same large file repeatedly, or solve every future improvement implied by a broad Objective. Start with the highest-leverage foundational slice. If no safe slice is clear after one focused inspection pass, make no edits and return a concise 2-4 item decomposition proposal for future backlog issues.
 
+Use any line-numbered `source_excerpts` in the manifest before requesting more file content. Perform at most one additional focused inspection per allowed file; do not repeatedly browse overlapping ranges.
+
 Rules:
 - Modify only files in `allowed_paths`.
 - Do not create, delete, rename, stage, commit, push, or upload files.
@@ -230,6 +233,11 @@ def _model_task_manifest(task: dict[str, Any]) -> dict[str, Any]:
     current_unknown_status = evidence.get("current_unknown_status")
     if current_unknown_status is not None:
         compact_evidence["current_unknown_status"] = _truncate_json(current_unknown_status)
+    file_excerpts = evidence.get("file_excerpts")
+    if file_excerpts is not None and task["kind"] == "issue":
+        compact_evidence["source_excerpts"] = _truncate_json(
+            file_excerpts, MAX_SOURCE_EXCERPT_CHARS
+        )
     if task["kind"] == "docs":
         compact_evidence["documentation_files"] = sorted(evidence.get("files", {}))
         compact_evidence["recent_git_history"] = evidence.get("recent_git_history", "")
@@ -246,11 +254,13 @@ def _model_task_manifest(task: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _truncate_json(value: object) -> object:
+def _truncate_json(value: object, max_chars: int | None = None) -> object:
+    if max_chars is None:
+        max_chars = MAX_AGENT_EVIDENCE_CHARS
     serialized = json.dumps(value, ensure_ascii=False, sort_keys=True)
-    if len(serialized) <= MAX_AGENT_EVIDENCE_CHARS:
+    if len(serialized) <= max_chars:
         return value
-    return serialized[:MAX_AGENT_EVIDENCE_CHARS] + "\n[...context truncated for model rate budget...]"
+    return serialized[:max_chars] + "\n[...context truncated for model rate budget...]"
 
 
 def _run_agent(

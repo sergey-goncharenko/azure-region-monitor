@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import sys
 import urllib.error
 from pathlib import Path
@@ -389,3 +390,31 @@ def test_github_context_client_retries_transient_failure(monkeypatch):
     assert client._request("/test") == {"ok": True}
     assert opener.calls == 2
     assert sleeps == [1]
+
+
+def test_relevant_excerpt_selects_line_numbered_matching_windows(monkeypatch, tmp_path):
+    source = tmp_path / "src" / "ui.py"
+    source.parent.mkdir()
+    source.write_text(
+        "\n".join(
+            [
+                "def unrelated():",
+                "    return None",
+                *(f"padding_{index} = {index}" for index in range(30)),
+                "def dashboard_toolbar():",
+                "    focus_visible = True",
+                "    return focus_visible",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(issue_agent, "REPO_ROOT", tmp_path)
+
+    excerpt = issue_agent._relevant_excerpt(
+        "src/ui.py", {"dashboard", "design", "focus"}
+    )
+
+    assert "# src/ui.py:L" in excerpt
+    assert "def dashboard_toolbar" in excerpt
+    assert "focus_visible" in excerpt
+    assert re.search(r"\d{4}: def dashboard_toolbar", excerpt)

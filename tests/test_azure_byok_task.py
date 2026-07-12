@@ -211,11 +211,13 @@ def test_agent_prompt_includes_scope_and_untrusted_context_rules():
     assert "approved backlog task" in prompt
     assert "complete at most one coherent implementation slice" in prompt
     assert "2-4 item decomposition proposal" in prompt
+    assert "Use any line-numbered `source_excerpts`" in prompt
     assert '"issue_number": 42' in prompt
 
 
-def test_model_task_manifest_excludes_raw_file_excerpts_and_bounds_rich_context(monkeypatch):
+def test_model_task_manifest_bounds_rich_context_and_source_excerpts(monkeypatch):
     monkeypatch.setattr(byok_task, "MAX_AGENT_EVIDENCE_CHARS", 40)
+    monkeypatch.setattr(byok_task, "MAX_SOURCE_EXCERPT_CHARS", 20)
     task = _task(
         evidence={
             "issue_title": "Improve API",
@@ -231,8 +233,9 @@ def test_model_task_manifest_excludes_raw_file_excerpts_and_bounds_rich_context(
     assert manifest["objective"] == "Add API tests."
     assert "file_excerpts" not in manifest["evidence"]
     assert isinstance(manifest["evidence"]["github_issue_context"], str)
+    assert isinstance(manifest["evidence"]["source_excerpts"], str)
     assert "context truncated for model rate budget" in manifest["evidence"]["github_issue_context"]
-    assert "sensitive implementation text" not in prompt
+    assert "source_excerpts" in prompt
 
 
 def test_model_task_manifest_includes_current_unknown_status(monkeypatch):

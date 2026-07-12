@@ -16,6 +16,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 MAX_EVIDENCE_FILES = 5
 MAX_AUTO_TESTS = 3
 MAX_FILE_CHARS = 3_600
+MAX_RELEVANT_EXCERPT_CHARS = 6_000
 BACKLOG_LABEL = "azure-backlog"
 PAUSED_LABEL = "azure-paused"
 RECURRING_LABEL = "azure-recurring"
@@ -375,6 +376,56 @@ def _read_excerpt(path: str) -> str:
     return head + "\n[...middle truncated...]\n" + tail
 
 
+def _relevant_excerpt(path: str, tokens: set[str]) -> str:
+    target = REPO_ROOT / path
+    if not target.is_file():
+        return f"[missing: {path}]"
+    lines = target.read_text(encoding="utf-8", errors="replace").splitlines()
+    terms = set(tokens)
+    if tokens & {"accessibility", "dashboard", "design", "responsive", "visual"}:
+        terms.update(
+            {
+                "focus",
+                "header",
+                "media",
+                "nav",
+                "panel",
+                "style",
+                "timestamp",
+                "toolbar",
+            }
+        )
+    scored = []
+    for index, line in enumerate(lines):
+        lowered = line.lower()
+        score = sum(1 for term in terms if term in lowered)
+        if score:
+            scored.append((score, index))
+    selected: list[int] = []
+    for _, index in sorted(scored, key=lambda item: (-item[0], item[1])):
+        if any(abs(index - existing) < 24 for existing in selected):
+            continue
+        selected.append(index)
+        if len(selected) >= 4:
+            break
+    if not selected:
+        return _read_excerpt(path)
+
+    excerpts = []
+    for index in sorted(selected):
+        start = max(0, index - 10)
+        end = min(len(lines), index + 11)
+        numbered = "\n".join(
+            f"{line_number + 1:04d}: {lines[line_number]}"
+            for line_number in range(start, end)
+        )
+        excerpts.append(f"# {path}:L{start + 1}-L{end}\n{numbered}")
+    value = "\n\n".join(excerpts)
+    if len(value) <= MAX_RELEVANT_EXCERPT_CHARS:
+        return value
+    return value[:MAX_RELEVANT_EXCERPT_CHARS] + "\n[...relevant excerpts truncated...]"
+
+
 def _git_history() -> str:
     import subprocess
 
@@ -582,6 +633,7 @@ def build_issue_context(
         }
     allowed_paths = list(dict.fromkeys([*source_paths, *tests]))
     evidence_paths = allowed_paths[:MAX_EVIDENCE_FILES]
+    issue_tokens = _issue_tokens(issue)
     github_issue_context: dict[str, Any] | None = None
     github_pull_request_feedback: dict[str, Any] | None = None
     github_context_warning = ""
@@ -608,7 +660,9 @@ def build_issue_context(
         "recent_git_history": _git_history(),
         "allowed_paths": allowed_paths,
         "tests": tests,
-        "file_excerpts": {path: _read_excerpt(path) for path in evidence_paths},
+        "file_excerpts": {
+            path: _relevant_excerpt(path, issue_tokens) for path in evidence_paths
+        },
     }
     if github_issue_context is not None:
         evidence["github_issue_context"] = github_issue_context
