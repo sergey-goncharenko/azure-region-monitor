@@ -232,7 +232,7 @@ This is an approved backlog task. You may inspect any file in the repository wit
 
 Atomic-work rule: complete at most one coherent implementation slice that can be reviewed independently. Do not attempt an exhaustive redesign or solve every future improvement implied by a broad Objective. Start with the highest-leverage foundational slice. Bias toward action: after repository orientation and one focused inspection of the likely edit area, either make the smallest safe edit or stop with a decomposition; do not spend the session seeking exhaustive certainty or inspecting every caller. If no safe slice is clear within the session budget, make no edits and return a concise 2-4 item decomposition proposal for future backlog issues.
 
-Use line-numbered `source_excerpts` as starting hints, not as a read boundary. Inspect any repository file that is genuinely relevant, while avoiding redundant overlapping reads.
+Use line-numbered `source_excerpts` as starting hints, not as a read boundary. Inspect any repository file that is genuinely relevant, while avoiding redundant overlapping reads. This provider has a deliberately bounded context window: high-volume `view`/`read` tools are unavailable because repeated large reads trigger compaction and erase progress. Use `rg` plus focused local shell commands that return at most 120 lines. Do not issue parallel file-dump commands. Before the first edit, use at most four additional repository-inspection commands beyond the supplied excerpts; then edit or stop with the decomposition.
 
 Rules:
 - Modify only files in `allowed_paths`.
@@ -378,6 +378,8 @@ def _run_agent(
             "read",
         ):
             command.append(f"--excluded-tools={tool}")
+    else:
+        command.extend(("--excluded-tools=view", "--excluded-tools=read"))
     if transcript_path is not None:
         transcript_path.parent.mkdir(parents=True, exist_ok=True)
         transcript_path.unlink(missing_ok=True)
@@ -409,6 +411,18 @@ def _sanitize_transcript(path: Path) -> None:
         return
     text = path.read_text(encoding="utf-8", errors="replace")
     path.write_text(_redact_sensitive_text(text), encoding="utf-8")
+
+
+def _transcript_diagnostics(path: Path) -> dict[str, int]:
+    if not path.is_file():
+        return {"context_compactions": 0, "transient_api_retries": 0}
+    text = path.read_text(encoding="utf-8", errors="replace")
+    return {
+        "context_compactions": text.count("Conversation Compacted"),
+        "transient_api_retries": text.count(
+            "Request failed due to a transient API error"
+        ),
+    }
 
 
 def _agent_metadata(
@@ -573,6 +587,11 @@ def _usage_summary(metadata: dict[str, Any]) -> str:
         lines.append(
             f"- Outer timeout: {int(metadata.get('timeout_seconds', 0))}s; "
             f"validated partial changes retained: {retained}"
+        )
+    if metadata.get("context_compactions") or metadata.get("transient_api_retries"):
+        lines.append(
+            f"- Context compactions: {int(metadata.get('context_compactions', 0))}; "
+            f"transient API retries: {int(metadata.get('transient_api_retries', 0))}"
         )
     return "\n".join(lines)
 
@@ -882,6 +901,7 @@ def run_task(
         _reset()
         _sanitize_transcript(transcript_path)
         metadata = _agent_metadata("", telemetry_path, task)
+        metadata.update(_transcript_diagnostics(transcript_path))
         metadata.update(_artifact_metadata(transcript_path))
         metadata["outcome"] = "launcher-error"
         _write_metadata(metadata_path, metadata)
@@ -901,6 +921,7 @@ def run_task(
         return 1
     _sanitize_transcript(transcript_path)
     metadata = _agent_metadata(agent.stdout, telemetry_path, task)
+    metadata.update(_transcript_diagnostics(transcript_path))
     metadata.update(_artifact_metadata(transcript_path))
     if timed_out_after is not None:
         metadata["outcome"] = "timeout"

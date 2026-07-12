@@ -214,6 +214,8 @@ def test_agent_prompt_includes_scope_and_untrusted_context_rules():
     assert "2-4 item decomposition proposal" in prompt
     assert "full repository" in prompt
     assert "Use line-numbered `source_excerpts` as starting hints" in prompt
+    assert "return at most 120 lines" in prompt
+    assert "use at most four additional repository-inspection commands" in prompt
     assert '"issue_number": 42' in prompt
 
 
@@ -336,6 +338,8 @@ def test_agent_invocation_enables_local_shell_but_denies_remote_operations(monke
     assert "--deny-tool=shell(pip)" in captured["args"]
     assert "--no-ask-user" in captured["args"]
     assert "--no-custom-instructions" not in captured["args"]
+    assert "--excluded-tools=view" in captured["args"]
+    assert "--excluded-tools=read" in captured["args"]
     assert not any(argument.startswith("--available-tools=") for argument in captured["args"])
     output_index = captured["args"].index("--output-format")
     assert captured["args"][output_index + 1] == "json"
@@ -768,6 +772,22 @@ def test_sanitize_transcript_redacts_secret_like_text(tmp_path):
     assert "connection-secret" not in sanitized
     assert "secret-value" not in sanitized
     assert "[REDACTED]" in sanitized
+
+
+def test_transcript_diagnostics_count_compactions_and_provider_retries(tmp_path):
+    transcript = tmp_path / "chat.md"
+    transcript.write_text(
+        "### ◌ Conversation Compacted\n"
+        "Request failed due to a transient API error. Retrying...\n"
+        "### ◌ Conversation Compacted\n",
+        encoding="utf-8",
+    )
+
+    diagnostics = byok_task._transcript_diagnostics(transcript)
+
+    assert diagnostics == {"context_compactions": 2, "transient_api_retries": 1}
+    summary = byok_task._usage_summary(_metadata(**diagnostics))
+    assert "Context compactions: 2; transient API retries: 1" in summary
 
 
 def test_selection_summary_includes_live_unknown_evidence_and_recurring_semantics():

@@ -556,6 +556,8 @@ def _derive_scope(issue: dict[str, Any]) -> tuple[list[str], list[str]]:
     preferred_stems = set(tokens)
     for token in tokens:
         preferred_stems.update(_SCOPE_STEM_ALIASES.get(token, set()))
+    if "shell" in tokens and tokens & {"dashboard", "navigation", "page", "pages"}:
+        preferred_stems.update({"blog", "static_site"})
     exact_sources = [
         (score, path)
         for score, path in ranked_sources

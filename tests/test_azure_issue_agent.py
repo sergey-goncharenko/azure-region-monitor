@@ -141,6 +141,31 @@ Improve dashboard visual design, responsive layout, navigation, and accessibilit
     assert context["tests"] == ["tests/test_static_site.py"]
 
 
+def test_generated_page_shell_issue_includes_static_site_and_blog_scope(tmp_path):
+    path = tmp_path / "issues.json"
+    issue = _issue(56, priority="Low")
+    issue["title"] = "Unify dashboard navigation and generated page shell"
+    issue["body"] = """### Priority
+
+Low
+
+### Objective
+
+Unify the dashboard page shell and navigation across all generated public HTML pages.
+"""
+    path.write_text(json.dumps([issue]), encoding="utf-8")
+
+    context = issue_agent.build_issue_context(path)
+
+    assert context["allowed_paths"] == [
+        "src/azure_region_monitor/static_site.py",
+        "src/azure_region_monitor/blog.py",
+        "tests/test_static_site.py",
+        "tests/test_blog.py",
+    ]
+    assert context["tests"] == ["tests/test_static_site.py", "tests/test_blog.py"]
+
+
 def test_missing_priority_defaults_to_normal(tmp_path):
     path = tmp_path / "issues.json"
     issue = _issue(11)
