@@ -306,7 +306,7 @@ def test_issue_backlog_workflow_no_longer_runs_documentation_lane():
     assert "AZURE_CODING_RESOURCE_NAME" in workflow
     assert "AZURE_CODING_MODEL" in workflow
     assert "BYOK_AGENT_HARNESS: opencode" in workflow
-    assert 'BYOK_OPENCODE_MAX_STEPS: "12"' in workflow
+    assert 'BYOK_OPENCODE_MAX_STEPS: "24"' in workflow
     assert 'BYOK_AGENT_TIMEOUT_SECONDS: "1800"' in workflow
     assert 'BYOK_AGENT_INTERRUPT_GRACE_SECONDS: "30"' in workflow
     assert "BYOK_MAX_AUTOPILOT_CONTINUES" not in workflow

@@ -255,10 +255,12 @@ def _opencode_config(task: dict[str, Any], model_id: str) -> dict[str, Any]:
             OPENCODE_AGENT_NAME: {
                 "description": "Bounded Azure-funded GitHub issue implementation",
                 "mode": "primary",
-                "steps": int(os.environ.get("BYOK_OPENCODE_MAX_STEPS", "12")),
+                "steps": int(os.environ.get("BYOK_OPENCODE_MAX_STEPS", "24")),
                 "prompt": (
                     "Implement the requested atomic repository change directly. "
-                    "Prefer editing over exhaustive exploration. Do not stage, commit, push, "
+                    "The Objective is the acceptance target; do not wait for a pre-existing "
+                    "failing test. Prefer editing over exhaustive exploration and begin the "
+                    "smallest justified edit by step 12. Do not stage, commit, push, "
                     "use network tools, or create files outside the trusted scope. External "
                     "code validates paths, tests, lint, and Git operations after this session."
                 ),
@@ -382,6 +384,7 @@ Requirements:
 - Modify only trusted `allowed_paths`; the harness also enforces this permission.
 - Make the smallest coherent implementation that satisfies the Objective. Do not merely plan or describe it.
 - Do not seek exhaustive certainty. Inspect the likely edit area, edit, and stop.
+- Treat concrete behavior named by the Objective as missing acceptance coverage even when current tests pass. Begin the smallest justified edit by step 12.
 - Do not create, delete, rename, stage, commit, push, upload, or edit generated snapshot data.
 - Preserve documented status semantics and existing data fidelity.
 - External code runs focused tests, Ruff, whitespace checks, commits, and GitHub operations after you stop.

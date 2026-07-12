@@ -187,7 +187,7 @@ def test_opencode_environment_isolates_key_and_enforces_scope(monkeypatch, tmp_p
     assert config["model"] == "azure/o4-mini"
     assert config["compaction"]["prune"] is True
     agent = config["agent"]["azure-issue"]
-    assert agent["steps"] == 12
+    assert agent["steps"] == 24
     assert agent["permission"]["read"]["*"] == "allow"
     assert agent["permission"]["edit"]["*"] == "deny"
     assert agent["permission"]["edit"]["README.md"] == "allow"
@@ -258,6 +258,15 @@ def test_agent_prompt_includes_scope_and_untrusted_context_rules():
     assert "Use line-numbered `source_excerpts` as starting hints" in prompt
     assert "scripts/agent_inspect.py PATH START_LINE END_LINE" in prompt
     assert "four successful calls" in prompt
+    assert '"issue_number": 42' in prompt
+
+
+def test_opencode_prompt_treats_objective_as_acceptance_target():
+    prompt = byok_task._opencode_prompt(_task())
+
+    assert "Treat concrete behavior named by the Objective" in prompt
+    assert "Begin the smallest justified edit by step 12" in prompt
+    assert "Modify only trusted `allowed_paths`" in prompt
     assert '"issue_number": 42' in prompt
 
 
