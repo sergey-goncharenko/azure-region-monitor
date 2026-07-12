@@ -461,6 +461,7 @@ def test_issue_note_is_created_with_bounded_outcome(monkeypatch):
     assert any("repos/example/repo/issues/42/comments" in args for args in calls)
     assert "azure-byok-agent-note:issue-42" in captured["body"]
     assert "Outcome: **no PR needed**" in captured["body"]
+    assert "Queue state: **azure-paused**" in captured["body"]
     assert "Split the remaining work" in captured["body"]
 
 
@@ -496,6 +497,27 @@ def test_issue_note_replaces_existing_bot_comment(monkeypatch):
         == ("gh", "api", "--method", "PATCH", "repos/example/repo/issues/comments/700")
         for args in calls
     )
+
+
+def test_recurring_no_pr_note_does_not_pause_source_issue(monkeypatch):
+    calls = []
+    monkeypatch.setenv("GH_TOKEN", "token")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "example/repo")
+
+    def run(*args, **kwargs):
+        calls.append(args)
+        stdout = "[]" if args[:2] == ("gh", "api") else ""
+        return subprocess.CompletedProcess(args, 0, stdout, "")
+
+    monkeypatch.setattr(byok_task, "_run", run)
+
+    byok_task._upsert_issue_note(
+        _task(recurring=True),
+        outcome="no PR needed",
+        detail="No trustworthy corrective slice was justified.",
+    )
+
+    assert not any(args[:3] == ("gh", "issue", "edit") for args in calls)
 
 
 def test_extract_agent_rationale_uses_only_final_assistant_message_and_redacts():

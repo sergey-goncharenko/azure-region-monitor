@@ -559,12 +559,39 @@ def _upsert_issue_note(
     safe_rationale = _redact_sensitive_text(rationale).strip()[:4_000]
     safe_rationale = re.sub(r"@(?=[A-Za-z0-9])", "@\u200b", safe_rationale)
     run_url = _artifact_metadata(Path(f"issue-{issue_number}-chat.md")).get("run_url", "")
+    pause_outcomes = {
+        "agent failed",
+        "launcher failed",
+        "no PR needed",
+        "scope rejected",
+        "timed out",
+        "validation failed",
+    }
+    paused = False
+    if outcome in pause_outcomes and not task.get("recurring"):
+        paused = (
+            _run(
+                "gh",
+                "issue",
+                "edit",
+                str(issue_number),
+                "--repo",
+                repository,
+                "--add-label",
+                "azure-paused",
+            ).returncode
+            == 0
+        )
     lines = [
         marker,
         "## Azure BYOK agent note",
         "",
         f"- Outcome: **{outcome}**",
     ]
+    if paused:
+        lines.append(
+            "- Queue state: **azure-paused** — refine, close, or explicitly unpause before retrying"
+        )
     if run_url:
         lines.append(f"- [Workflow run]({run_url})")
     lines.extend(["", safe_detail or "No additional diagnostic was reported."])
