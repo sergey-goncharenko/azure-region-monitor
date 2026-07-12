@@ -214,8 +214,8 @@ def test_agent_prompt_includes_scope_and_untrusted_context_rules():
     assert "2-4 item decomposition proposal" in prompt
     assert "full repository" in prompt
     assert "Use line-numbered `source_excerpts` as starting hints" in prompt
-    assert "return at most 120 lines" in prompt
-    assert "use at most four additional repository-inspection commands" in prompt
+    assert "scripts/agent_inspect.py PATH START_LINE END_LINE" in prompt
+    assert "four successful calls" in prompt
     assert '"issue_number": 42' in prompt
 
 
@@ -294,6 +294,7 @@ def test_agent_environment_uses_mini_coding_token_limits(monkeypatch):
 
     assert environment["COPILOT_PROVIDER_MAX_PROMPT_TOKENS"] == "32000"
     assert environment["COPILOT_PROVIDER_MAX_OUTPUT_TOKENS"] == "4000"
+    assert environment["BYOK_AGENT_INSPECTION_BUDGET"] == "4"
 
 
 def test_agent_environment_uses_nano_token_limits(monkeypatch):
@@ -336,10 +337,13 @@ def test_agent_invocation_enables_local_shell_but_denies_remote_operations(monke
     assert "--deny-tool=shell(gh:*)" in captured["args"]
     assert "--deny-tool=shell(az:*)" in captured["args"]
     assert "--deny-tool=shell(pip)" in captured["args"]
+    assert "--deny-tool=shell(python)" in captured["args"]
+    assert "--deny-tool=shell(cat)" in captured["args"]
+    assert "--deny-tool=shell(git show)" in captured["args"]
     assert "--no-ask-user" in captured["args"]
     assert "--no-custom-instructions" not in captured["args"]
     assert "--excluded-tools=view" in captured["args"]
-    assert "--excluded-tools=read" in captured["args"]
+    assert "--excluded-tools=read" not in captured["args"]
     assert not any(argument.startswith("--available-tools=") for argument in captured["args"])
     output_index = captured["args"].index("--output-format")
     assert captured["args"][output_index + 1] == "json"

@@ -212,6 +212,7 @@ def _agent_environment() -> dict[str, str]:
             "COPILOT_PROVIDER_MAX_PROMPT_TOKENS": prompt_tokens,
             "COPILOT_PROVIDER_MAX_OUTPUT_TOKENS": output_tokens,
             "COPILOT_HOME": str(Path(tempfile.mkdtemp(prefix="copilot-byok-"))),
+            "BYOK_AGENT_INSPECTION_BUDGET": "4",
         }
     )
     return environment
@@ -232,7 +233,7 @@ This is an approved backlog task. You may inspect any file in the repository wit
 
 Atomic-work rule: complete at most one coherent implementation slice that can be reviewed independently. Do not attempt an exhaustive redesign or solve every future improvement implied by a broad Objective. Start with the highest-leverage foundational slice. Bias toward action: after repository orientation and one focused inspection of the likely edit area, either make the smallest safe edit or stop with a decomposition; do not spend the session seeking exhaustive certainty or inspecting every caller. If no safe slice is clear within the session budget, make no edits and return a concise 2-4 item decomposition proposal for future backlog issues.
 
-Use line-numbered `source_excerpts` as starting hints, not as a read boundary. Inspect any repository file that is genuinely relevant, while avoiding redundant overlapping reads. This provider has a deliberately bounded context window: high-volume `view`/`read` tools are unavailable because repeated large reads trigger compaction and erase progress. Use `rg` plus focused local shell commands that return at most 120 lines. Do not issue parallel file-dump commands. Before the first edit, use at most four additional repository-inspection commands beyond the supplied excerpts; then edit or stop with the decomposition.
+Use line-numbered `source_excerpts` as starting hints, not as a read boundary. Inspect any repository file that is genuinely relevant, while avoiding redundant overlapping reads. This provider has a deliberately bounded context window: high-volume file tools and ordinary shell file-dump commands are unavailable because repeated large reads trigger compaction and erase progress. Use built-in `rg`/`glob` for discovery. The only shell source reader is `scripts/agent_inspect.py PATH START_LINE END_LINE`; it accepts any repository file but enforces at most 120 lines, 12,000 characters, and four successful calls for the session. Do not attempt Python heredocs, `cat`, `sed`, `head`, `tail`, or substitute dump commands. After the inspection budget, edit or stop with the decomposition. Run focused tests with `pytest` and lint with `ruff`, without a `python -m` prefix.
 
 Rules:
 - Modify only files in `allowed_paths`.
@@ -348,6 +349,23 @@ def _run_agent(
         "--deny-tool=shell(az:*)",
         "--deny-tool=shell(curl)",
         "--deny-tool=shell(wget)",
+        "--deny-tool=shell(python)",
+        "--deny-tool=shell(python3)",
+        "--deny-tool=shell(node)",
+        "--deny-tool=shell(cat)",
+        "--deny-tool=shell(sed)",
+        "--deny-tool=shell(head)",
+        "--deny-tool=shell(tail)",
+        "--deny-tool=shell(awk)",
+        "--deny-tool=shell(perl)",
+        "--deny-tool=shell(grep)",
+        "--deny-tool=shell(find)",
+        "--deny-tool=shell(xargs)",
+        "--deny-tool=shell(bash)",
+        "--deny-tool=shell(sh)",
+        "--deny-tool=shell(git show)",
+        "--deny-tool=shell(git blame)",
+        "--deny-tool=shell(git grep)",
         "--deny-tool=shell(pip)",
         "--deny-tool=shell(pip3)",
         "--deny-tool=shell(python -m pip)",
@@ -375,11 +393,10 @@ def _run_agent(
             "grep",
             "glob",
             "ls",
-            "read",
         ):
             command.append(f"--excluded-tools={tool}")
     else:
-        command.extend(("--excluded-tools=view", "--excluded-tools=read"))
+        command.append("--excluded-tools=view")
     if transcript_path is not None:
         transcript_path.parent.mkdir(parents=True, exist_ok=True)
         transcript_path.unlink(missing_ok=True)
