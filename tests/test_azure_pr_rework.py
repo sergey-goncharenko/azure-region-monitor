@@ -321,6 +321,7 @@ def test_dispatcher_wires_both_review_paths_without_azure_secrets():
     assert "types: [submitted]" in workflow
     assert "azure-byok-pr-rework-${{ github.event.issue.number" in workflow
     assert "persist-credentials: false" in workflow
+    assert "pull-requests: write" in workflow
     assert 'event_type: "azure-byok-pr-rework"' in workflow
     assert "AZURE_OPENAI" not in workflow
     assert "secrets." not in workflow

@@ -9,7 +9,7 @@ on:
 permissions:
   contents: write
   issues: write
-  pull-requests: read
+  pull-requests: write
 
 concurrency:
   group: azure-byok-pr-rework-${{ github.event.issue.number || github.event.pull_request.number || github.run_id }}
