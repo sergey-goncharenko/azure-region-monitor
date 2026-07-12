@@ -291,6 +291,8 @@ def test_aider_prompt_requires_direct_scoped_edit():
     assert "Make the edit now" in prompt
     assert "allowed_paths" in prompt
     assert "Do not create, delete, rename, stage, commit, push" in prompt
+    assert "Do not reference undeclared variables" in prompt
+    assert "invent external stylesheets" in prompt
     assert '"issue_number": 42' in prompt
 
 
@@ -488,6 +490,10 @@ def test_issue_agent_invocation_uses_one_shot_aider(monkeypatch, tmp_path):
     assert captured["args"][0] == "aider"
     assert "--model" in captured["args"]
     assert "azure/gpt-4o" in captured["args"]
+    assert "--architect" in captured["args"]
+    assert "--auto-accept-architect" in captured["args"]
+    assert "--editor-model" in captured["args"]
+    assert "--editor-edit-format" in captured["args"]
     assert "--message-file" in captured["args"]
     assert "--no-auto-commits" in captured["args"]
     assert "--no-suggest-shell-commands" in captured["args"]
