@@ -180,6 +180,8 @@ Perform exactly one small, evidence-backed task using only the supplied task man
 
 This is an approved backlog task. Inspect the allowed paths with the available file tools and implement the smallest change that satisfies its Objective. When the Objective asks to add or extend coverage, treat it as unsatisfied until the allowed files prove otherwise. Make no edits only when the Objective is already completely satisfied by the allowed files; in that case, explain the specific existing coverage or implementation that proves it.
 
+Atomic-work rule: complete at most one coherent implementation slice that can be reviewed independently. Do not attempt an exhaustive redesign, inspect the same large file repeatedly, or solve every future improvement implied by a broad Objective. Start with the highest-leverage foundational slice. If no safe slice is clear after one focused inspection pass, make no edits and return a concise 2-4 item decomposition proposal for future backlog issues.
+
 Rules:
 - Modify only files in `allowed_paths`.
 - Do not create, delete, rename, stage, commit, push, or upload files.
@@ -278,7 +280,7 @@ def _run_agent(
         prompt or _agent_prompt(task),
         "--autopilot",
         "--max-autopilot-continues",
-        "3",
+        os.environ.get("BYOK_MAX_AUTOPILOT_CONTINUES", "1"),
         "--allow-all-tools",
         "--deny-tool=powershell",
         "--deny-tool=shell",
@@ -524,6 +526,85 @@ def _artifact_metadata(transcript_path: Path) -> dict[str, str]:
     }
 
 
+def _upsert_issue_note(
+    task: dict[str, Any],
+    *,
+    outcome: str,
+    detail: str,
+    metadata: dict[str, Any] | None = None,
+    rationale: str = "",
+) -> None:
+    issue_number = task.get("issue_number")
+    repository = os.environ.get("GITHUB_REPOSITORY", "")
+    if (
+        task.get("kind") != "issue"
+        or type(issue_number) is not int
+        or not repository
+        or not os.environ.get("GH_TOKEN")
+    ):
+        return
+
+    marker = f"<!-- azure-byok-agent-note:issue-{issue_number} -->"
+    safe_detail = _redact_sensitive_text(detail).strip()[:1_500]
+    safe_rationale = _redact_sensitive_text(rationale).strip()[:4_000]
+    safe_rationale = re.sub(r"@(?=[A-Za-z0-9])", "@\u200b", safe_rationale)
+    run_url = _artifact_metadata(Path(f"issue-{issue_number}-chat.md")).get("run_url", "")
+    lines = [
+        marker,
+        "## Azure BYOK agent note",
+        "",
+        f"- Outcome: **{outcome}**",
+    ]
+    if run_url:
+        lines.append(f"- [Workflow run]({run_url})")
+    lines.extend(["", safe_detail or "No additional diagnostic was reported."])
+    if safe_rationale:
+        lines.extend(["", "### Agent summary", "", safe_rationale])
+    if metadata:
+        lines.extend(["", "### Model and token usage", "", _usage_summary(metadata)])
+    lines.extend(
+        [
+            "",
+            "This stable note is replaced by later runs for the same issue. A no-PR outcome is "
+            "acceptable; use the summary to refine or split the backlog item.",
+        ]
+    )
+    payload = tempfile.NamedTemporaryFile(
+        "w", suffix=".json", encoding="utf-8", delete=False
+    )
+    json.dump({"body": "\n".join(lines)}, payload, ensure_ascii=False)
+    payload.close()
+    payload_path = Path(payload.name)
+    try:
+        comments = _run(
+            "gh",
+            "api",
+            f"repos/{repository}/issues/{issue_number}/comments?per_page=100",
+        )
+        existing_id = None
+        if comments.returncode == 0:
+            try:
+                values = json.loads(comments.stdout)
+            except json.JSONDecodeError:
+                values = []
+            for comment in values if isinstance(values, list) else []:
+                user = comment.get("user") if isinstance(comment, dict) else None
+                body = comment.get("body") if isinstance(comment, dict) else None
+                login = user.get("login") if isinstance(user, dict) else ""
+                if login == "github-actions[bot]" and isinstance(body, str) and marker in body:
+                    existing_id = comment.get("id")
+                    break
+        endpoint = (
+            f"repos/{repository}/issues/comments/{existing_id}"
+            if isinstance(existing_id, int)
+            else f"repos/{repository}/issues/{issue_number}/comments"
+        )
+        method = "PATCH" if isinstance(existing_id, int) else "POST"
+        _run("gh", "api", "--method", method, endpoint, "--input", str(payload_path))
+    finally:
+        payload_path.unlink(missing_ok=True)
+
+
 def _selection_summary(task: dict[str, Any]) -> str:
     evidence = task["evidence"]
     priority_names = {400: "Urgent", 300: "High", 200: "Normal", 100: "Low"}
@@ -698,7 +779,14 @@ def run_task(
         if detail:
             message += "\nSanitized launcher diagnostic:\n" + detail
         _summary(message)
-        return 1
+        _upsert_issue_note(
+            task,
+            outcome="timed out" if isinstance(error, subprocess.TimeoutExpired) else "launcher failed",
+            detail=message,
+            metadata=metadata,
+            rationale=_extract_agent_rationale(partial_stdout or ""),
+        )
+        return 0 if isinstance(error, subprocess.TimeoutExpired) else 1
     _sanitize_transcript(transcript_path)
     metadata = _agent_metadata(agent.stdout, telemetry_path, task)
     metadata.update(_artifact_metadata(transcript_path))
@@ -711,26 +799,65 @@ def run_task(
         if detail:
             message += "\nSanitized CLI diagnostic:\n" + detail
         _summary(message)
+        _upsert_issue_note(
+            task,
+            outcome="agent failed",
+            detail=message,
+            metadata=metadata,
+            rationale=_extract_agent_rationale(agent.stdout),
+        )
         return 0
 
     changed = _changed_paths()
     allowed = set(task["allowed_paths"])
     if not changed:
-        _summary("Azure BYOK Copilot task made no repository changes; no PR was created.")
+        message = "Azure BYOK Copilot task made no repository changes; no PR was created."
+        _summary(message)
+        _upsert_issue_note(
+            task,
+            outcome="no PR needed",
+            detail=message,
+            metadata=metadata,
+            rationale=_extract_agent_rationale(agent.stdout),
+        )
         return 0
     if not changed.issubset(allowed):
         _reset()
-        _summary("Task changed paths outside the derived safe scope; no PR was created.")
+        message = "Task changed paths outside the derived safe scope; no PR was created."
+        _summary(message)
+        _upsert_issue_note(
+            task,
+            outcome="scope rejected",
+            detail=message,
+            metadata=metadata,
+            rationale=_extract_agent_rationale(agent.stdout),
+        )
         return 0
     if _run("python", "-m", "pytest", *task["tests"]).returncode != 0:
         _reset()
-        _summary("Focused task tests failed; no PR was created.")
+        message = "Focused task tests failed; no PR was created."
+        _summary(message)
+        _upsert_issue_note(
+            task,
+            outcome="validation failed",
+            detail=message,
+            metadata=metadata,
+            rationale=_extract_agent_rationale(agent.stdout),
+        )
         return 0
     if _run("python", "-m", "ruff", "check", ".").returncode != 0 or _run(
         "git", "diff", "--check"
     ).returncode != 0:
         _reset()
-        _summary("Task lint or whitespace validation failed; no PR was created.")
+        message = "Task lint or whitespace validation failed; no PR was created."
+        _summary(message)
+        _upsert_issue_note(
+            task,
+            outcome="validation failed",
+            detail=message,
+            metadata=metadata,
+            rationale=_extract_agent_rationale(agent.stdout),
+        )
         return 0
 
     _run("git", "config", "user.name", "github-actions[bot]")
@@ -775,6 +902,13 @@ def run_task(
                 "--body",
                 "Azure BYOK bot applied the latest review feedback, reran validation, and refreshed the PR rationale and usage metadata.",
             )
+            _upsert_issue_note(
+                task,
+                outcome="draft PR updated",
+                detail=f"Updated existing draft PR #{existing} on `{branch}`.",
+                metadata=metadata,
+                rationale=rationale,
+            )
             _summary(f"Updated existing draft PR #{existing}: {branch}.")
             return 0
         created = _run(
@@ -796,6 +930,13 @@ def run_task(
     if created.returncode != 0:
         _summary("Task branch was pushed but draft PR creation failed.")
         return 1
+    _upsert_issue_note(
+        task,
+        outcome="draft PR created",
+        detail=created.stdout.strip(),
+        metadata=metadata,
+        rationale=rationale,
+    )
     _summary(f"Created draft PR: {created.stdout.strip()}")
     return 0
 

@@ -300,4 +300,5 @@ def test_issue_backlog_workflow_no_longer_runs_documentation_lane():
     assert "persist-credentials: false" in workflow
     assert "*-metadata.json" in workflow
     assert "*-telemetry.jsonl" not in workflow
-    assert 'BYOK_AGENT_TIMEOUT_SECONDS: "1200"' in workflow
+    assert 'BYOK_AGENT_TIMEOUT_SECONDS: "300"' in workflow
+    assert 'BYOK_MAX_AUTOPILOT_CONTINUES: "1"' in workflow

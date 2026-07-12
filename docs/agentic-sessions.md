@@ -75,7 +75,7 @@ Security and repository-hygiene sessions have an additional report-only boundary
 - The runner checks the Git working tree after each analysis. If any tracked or untracked file changed, it resets the checkout and publishes no report.
 - Only deterministic outer code in the private companion repository can create labels or replace the two stable report issue bodies. Generated mentions are neutralized before publication.
 - The hygiene session can recommend commands but has no branch/worktree deletion implementation or permission path.
-- Issue-based coding sessions have a 20-minute hard timeout; documentation and private report sessions remain capped at 10 minutes. Interrupted sessions fail visibly and retain only sanitized chat/derived metadata. Raw OpenTelemetry JSONL is never selected for upload, including after cancellation.
+- Issue-based coding sessions have a five-minute hard timeout and one Copilot autopilot continuation. Each session may implement only one independently reviewable slice; broad objectives produce a short decomposition note instead of an exhaustive edit attempt. Documentation and private report sessions remain capped at 10 minutes. Interrupted sessions fail visibly and retain only sanitized chat/derived metadata. Raw OpenTelemetry JSONL is never selected for upload, including after cancellation.
 
 Every generated PR includes a reviewer-facing rationale in its description:
 
@@ -85,6 +85,8 @@ Every generated PR includes a reviewer-facing rationale in its description:
 - the exact changed files and deterministic checks run.
 
 Only the final `assistant.message` is used. Opaque/encrypted reasoning events, private chain-of-thought, tool traces, and secret-like values are excluded or redacted.
+
+When an issue session intentionally makes no edit, times out at the five-minute atomic budget, or fails deterministic scope/validation checks, no PR is required. Deterministic outer code creates or replaces one stable `Azure BYOK agent note` comment on the source issue with the bounded outcome, final visible summary when available, model/token metadata, and workflow link. Later runs replace that note instead of adding daily comment noise. A timeout with a published note is an acceptable completed lane, not a failed daily cycle.
 
 Generated PRs also report the Azure model ID/deployment, exact OpenTelemetry input and output token counts, reasoning-output tokens, API call count, session duration, and Copilot session ID. Cached input tokens are shown as a subset of input tokens and are not added twice to the total. Each workflow uploads a 30-day `azure-byok-chat-<run-id>` artifact containing a sanitized native Copilot chat export and machine-readable metadata for each executed task. The PR links to the workflow run's artifact section. The exported chat includes visible user/assistant messages and tool interactions, but not opaque/encrypted reasoning or secrets.
 

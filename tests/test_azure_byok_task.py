@@ -209,6 +209,8 @@ def test_agent_prompt_includes_scope_and_untrusted_context_rules():
     assert "Modify only files in `allowed_paths`" in prompt
     assert "untrusted product context" in prompt
     assert "approved backlog task" in prompt
+    assert "complete at most one coherent implementation slice" in prompt
+    assert "2-4 item decomposition proposal" in prompt
     assert '"issue_number": 42' in prompt
 
 
@@ -319,6 +321,8 @@ def test_agent_invocation_enables_internal_autopilot_but_denies_shell(monkeypatc
 
     assert "--autopilot" in captured["args"]
     assert "--max-autopilot-continues" in captured["args"]
+    continuation_index = captured["args"].index("--max-autopilot-continues")
+    assert captured["args"][continuation_index + 1] == "1"
     assert "--deny-tool=powershell" in captured["args"]
     assert "--deny-tool=shell" in captured["args"]
     assert "--no-ask-user" in captured["args"]
@@ -419,10 +423,76 @@ def test_timed_out_coding_session_fails_and_records_sanitized_metadata(
         force=False,
     )
 
-    assert result == 1
+    assert result == 0
     assert recorded["sanitized"] == transcript
     assert recorded["metadata"]["outcome"] == "timeout"
     assert "timed out after 1200 seconds" in capsys.readouterr().out
+
+
+def test_issue_note_is_created_with_bounded_outcome(monkeypatch):
+    calls = []
+    captured = {}
+    monkeypatch.setenv("GH_TOKEN", "token")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "example/repo")
+    monkeypatch.setenv("GITHUB_RUN_ID", "42")
+
+    def run(*args, **kwargs):
+        calls.append(args)
+        if args[:2] == ("gh", "api") and "comments?per_page=100" in args[2]:
+            return subprocess.CompletedProcess(args, 0, "[]", "")
+        if "--input" in args:
+            path = Path(args[args.index("--input") + 1])
+            captured.update(json.loads(path.read_text(encoding="utf-8")))
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    monkeypatch.setattr(byok_task, "_run", run)
+
+    byok_task._upsert_issue_note(
+        _task(),
+        outcome="no PR needed",
+        detail="One small slice was already satisfied.",
+        metadata=_metadata(),
+        rationale="### Decision\nSplit the remaining work.",
+    )
+
+    assert any("repos/example/repo/issues/42/comments" in args for args in calls)
+    assert "azure-byok-agent-note:issue-42" in captured["body"]
+    assert "Outcome: **no PR needed**" in captured["body"]
+    assert "Split the remaining work" in captured["body"]
+
+
+def test_issue_note_replaces_existing_bot_comment(monkeypatch):
+    calls = []
+    monkeypatch.setenv("GH_TOKEN", "token")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "example/repo")
+    comments = json.dumps(
+        [
+            {
+                "id": 700,
+                "user": {"login": "github-actions[bot]"},
+                "body": "<!-- azure-byok-agent-note:issue-42 -->",
+            }
+        ]
+    )
+
+    def run(*args, **kwargs):
+        calls.append(args)
+        stdout = comments if "comments?per_page=100" in args[2] else ""
+        return subprocess.CompletedProcess(args, 0, stdout, "")
+
+    monkeypatch.setattr(byok_task, "_run", run)
+
+    byok_task._upsert_issue_note(
+        _task(),
+        outcome="timed out",
+        detail="Stopped at the atomic time budget.",
+    )
+
+    assert any(
+        args[:5]
+        == ("gh", "api", "--method", "PATCH", "repos/example/repo/issues/comments/700")
+        for args in calls
+    )
 
 
 def test_extract_agent_rationale_uses_only_final_assistant_message_and_redacts():
