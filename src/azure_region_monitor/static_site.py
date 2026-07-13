@@ -501,7 +501,8 @@ def _content_page(
   {style}
 </head>
 <body>
-  <main class="content-page">
+  <a href="#main-content" class="skip-link">Skip to main content</a>
+  <main id="main-content" class="content-page">
 {body}
   </main>
 </body>
@@ -760,7 +761,8 @@ def _render_index(snapshot: Snapshot, recent_changes: dict[str, Any] | None = No
   {_style_block()}
 </head>
 <body>
-  <main>
+  <a href="#main-content" class="skip-link">Skip to main content</a>
+  <main id="main-content">
     <header>
       <div>
         <h1>Azure Regional Feature Availability Monitor</h1>
@@ -883,7 +885,8 @@ def _render_heatmap_page(snapshot: Snapshot) -> str:
   {_style_block()}
 </head>
 <body>
-  <main>
+  <a href="#main-content" class="skip-link">Skip to main content</a>
+  <main id="main-content">
     <header>
       <div>
         <h1>Azure Regional Feature Heatmap</h1>
@@ -985,7 +988,8 @@ def _render_methodology_page(snapshot: Snapshot) -> str:
   {_style_block()}
 </head>
 <body>
-  <main class="content-page">
+  <a href="#main-content" class="skip-link">Skip to main content</a>
+  <main id="main-content" class="content-page">
     <header>
       <div>
         <h1>Status Meanings</h1>
@@ -1105,7 +1109,8 @@ def _render_latency_page(
   {_style_block()}
 </head>
 <body>
-  <main class="content-page">
+  <a href="#main-content" class="skip-link">Skip to main content</a>
+  <main id="main-content" class="content-page">
     <header>
       <div>
         <h1>LLM Model Latency via GitHub Models</h1>
