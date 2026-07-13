@@ -200,6 +200,23 @@ jobs:
           done
           exit "$failures"
 
+      - name: Publish stable backlog status
+        if: ${{ always() && !(inputs.dry_run || false) }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          manifest_path="$RUNNER_TEMP/azure-byok-task-manifest.json"
+          if [ ! -f "$manifest_path" ]; then
+            echo '{"tasks": [], "status": {}}' > "$manifest_path"
+          fi
+          python scripts/publish_azure_backlog_status.py \
+            --manifest "$manifest_path" \
+            --repository "$GITHUB_REPOSITORY" \
+            --run-url "$RUN_URL" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+
       - name: Upload sanitized BYOK chats and usage
         if: ${{ always() }}
         uses: actions/upload-artifact@v4

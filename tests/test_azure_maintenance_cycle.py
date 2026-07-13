@@ -314,6 +314,22 @@ def test_issue_backlog_workflow_no_longer_runs_documentation_lane():
     assert "--max-issues \"$MAX_ISSUES\"" in workflow
     assert "MAX_ISSUES: ${{ inputs.max_issues || '1' }}" in workflow
     assert "timeout-minutes: 70" in workflow
+    assert "Publish stable backlog status" in workflow
+    assert "publish_azure_backlog_status.py" in workflow
+    assert "inputs.dry_run || false" in workflow
+
+
+def test_daily_scan_runs_github_model_latency_on_schedule():
+    workflow = (REPO_ROOT / ".github/workflows/daily-scan.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert (
+        "github.event_name == 'schedule' || "
+        "(github.event_name == 'workflow_dispatch' && inputs.include_github_model_latency)"
+    ) in workflow
+    assert 'probes: "model-latency-cli"' in workflow
+    assert 'regions: "github-global"' in workflow
 
 
 def test_aider_provisioning_workflow_uses_dedicated_o4_model():

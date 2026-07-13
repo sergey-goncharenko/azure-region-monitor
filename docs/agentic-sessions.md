@@ -46,6 +46,8 @@ Issues labelled `azure-recurring` are different: their generated PRs do not clos
 
 The planned PR branch is stable per issue: `azure-issues/issue-<number>`. If a draft PR for that issue is already open, the workflow leaves it alone unless a manual run explicitly enables `force`.
 
+Every non-dry-run backlog workflow updates one stable `[agent-status] Scheduled Azure backlog` issue labelled `azure-agent-status` with the latest workflow link and open/eligible/paused/selected counts. When zero issues are eligible, no model is started and the status issue receives one concise no-session comment. Selected runs continue to use source-issue notes and draft PRs for detailed outcomes.
+
 ## Comments, Parent Issues, And Sub-Issues
 
 The task builder retrieves the selected issue metadata and body, all available issue comments, the parent issue when one exists, and all direct sub-issues with their bodies and comments. This means comments are the right place for follow-up thoughts, corrections, acceptance details, and recommendations. Do not include secrets, tokens, subscription IDs, private resource names, customer data, or other sensitive information in any forwarded issue text.

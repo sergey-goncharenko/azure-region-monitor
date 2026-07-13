@@ -79,6 +79,44 @@ def test_documentation_task_can_still_be_built_explicitly(monkeypatch, tmp_path)
     assert [task["kind"] for task in cycle["tasks"]] == ["docs"]
 
 
+def test_empty_cycle_reports_all_paused_backlog_issues(monkeypatch, tmp_path):
+    issues_path = tmp_path / "issues.json"
+    issues_path.write_text(
+        json.dumps(
+            [
+                {
+                    "number": 48,
+                    "title": "Investigate unknowns",
+                    "labels": [
+                        {"name": "azure-backlog"},
+                        {"name": "azure-paused"},
+                    ],
+                },
+                {
+                    "number": 55,
+                    "title": "Improve filters",
+                    "labels": [
+                        {"name": "azure-backlog"},
+                        {"name": "azure-paused"},
+                    ],
+                },
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(backlog_cycle, "_build_issue_tasks", lambda *args: [])
+
+    cycle = backlog_cycle.build_cycle(issues_path, 1, "example/repo")
+    rendered = backlog_cycle.render_cycle_markdown(cycle)
+
+    assert cycle["status"]["backlog_count"] == 2
+    assert cycle["status"]["eligible_count"] == 0
+    assert cycle["status"]["paused_count"] == 2
+    assert cycle["status"]["selected_count"] == 0
+    assert "No agent session started" in rendered
+    assert "Paused issues: 2" in rendered
+
+
 def test_targeted_rework_selects_one_issue_and_skips_docs(monkeypatch, tmp_path):
     captured = {}
 

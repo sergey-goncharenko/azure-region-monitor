@@ -96,7 +96,7 @@ jobs:
     secrets: inherit
 
   model-latency:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.include_github_model_latency }}
+    if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.include_github_model_latency) }}
     uses: ./.github/workflows/regional-probe-run.yml
     with:
       probes: "model-latency-cli"

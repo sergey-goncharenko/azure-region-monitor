@@ -51,6 +51,43 @@ def _max_issue_items(value: object) -> int:
         return 3
 
 
+def _backlog_status(issues_path: Path, tasks: list[dict[str, Any]]) -> dict[str, Any]:
+    try:
+        payload = json.loads(issues_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        payload = []
+    issues = payload if isinstance(payload, list) else []
+    backlog = []
+    paused = []
+    eligible = []
+    for issue in issues:
+        if not isinstance(issue, dict):
+            continue
+        labels = issue.get("labels")
+        names = {
+            str(label.get("name", "")).lower()
+            for label in labels if isinstance(label, dict)
+        } if isinstance(labels, list) else set()
+        if "azure-backlog" not in names:
+            continue
+        number = issue.get("number")
+        title = issue.get("title")
+        if not isinstance(number, int) or not isinstance(title, str):
+            continue
+        item = {"number": number, "title": title}
+        backlog.append(item)
+        (paused if "azure-paused" in names else eligible).append(item)
+    return {
+        "backlog_count": len(backlog),
+        "paused_count": len(paused),
+        "eligible_count": len(eligible),
+        "selected_count": len(tasks),
+        "paused_issues": paused,
+        "eligible_issues": eligible,
+        "selected_categories": [str(task.get("category", "")) for task in tasks],
+    }
+
+
 def _current_unknown_context(snapshot_url: str) -> dict[str, Any]:
     sessions = _load_module("azure_backlog_sessions", "start_copilot_agent_sessions.py")
     snapshot_result = sessions.load_snapshot(snapshot_url, None)
@@ -217,7 +254,7 @@ def build_cycle(
     snapshot_url: str = DEFAULT_SNAPSHOT_URL,
     target_issue: int | None = None,
     include_docs: bool = False,
-) -> dict[str, list[dict[str, Any]]]:
+) -> dict[str, Any]:
     tasks = _build_issue_tasks(
         issues_path,
         _max_issue_items(max_issues),
@@ -227,11 +264,31 @@ def build_cycle(
     )
     if include_docs:
         tasks.append(_build_docs_task())
-    return {"tasks": tasks}
+    return {"tasks": tasks, "status": _backlog_status(issues_path, tasks)}
 
 
 def render_cycle_markdown(cycle: dict[str, Any]) -> str:
     lines = ["## Azure BYOK coding backlog", ""]
+    status = cycle.get("status")
+    if isinstance(status, dict):
+        lines.extend(
+            [
+                f"- Open backlog issues: {int(status.get('backlog_count', 0))}",
+                f"- Eligible issues: {int(status.get('eligible_count', 0))}",
+                f"- Paused issues: {int(status.get('paused_count', 0))}",
+                f"- Selected sessions: {int(status.get('selected_count', 0))}",
+                "",
+            ]
+        )
+    if not cycle["tasks"]:
+        lines.extend(
+            [
+                "### No agent session started",
+                "",
+                "No eligible issue was selected. Review `azure-paused` labels or add a new eligible `azure-backlog` issue.",
+                "",
+            ]
+        )
     for task in cycle["tasks"]:
         prefix = {
             "issue": "GitHub backlog issue",
