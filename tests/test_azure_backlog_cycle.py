@@ -23,6 +23,34 @@ def test_max_issue_items_uses_safe_default_for_invalid_input():
     assert backlog_cycle._max_issue_items("not-a-number") == 3
 
 
+def test_load_rework_context_validates_bounded_requirements(tmp_path):
+    path = tmp_path / "rework.json"
+    path.write_text(
+        json.dumps(
+            {
+                "pull_request": 60,
+                "trigger": "request-changes",
+                "requested_by": "maintainer-user",
+                "requirements": "Keep provider-specific behavior isolated.",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert backlog_cycle._load_rework_context(path) == {
+        "pull_request": 60,
+        "trigger": "request-changes",
+        "requested_by": "maintainer-user",
+        "requirements": "Keep provider-specific behavior isolated.",
+    }
+
+    path.write_text(json.dumps({"pull_request": 60}), encoding="utf-8")
+    import pytest
+
+    with pytest.raises(ValueError, match="rework context"):
+        backlog_cycle._load_rework_context(path)
+
+
 def test_cycle_markdown_identifies_docs_as_the_final_alignment_lane():
     rendered = backlog_cycle.render_cycle_markdown(
         {
@@ -180,6 +208,43 @@ def test_targeted_issue_context_uses_selected_issue_not_full_queue_index(tmp_pat
     assert [task["category"] for task in tasks] == ["issue-49"]
     assert tasks[0]["evidence"]["issue_number"] == 49
     assert tasks[0]["evidence"]["objective"].startswith("Improve dashboard")
+
+
+def test_targeted_issue_task_carries_trusted_rework_requirements(tmp_path):
+    issues_path = tmp_path / "issues.json"
+    issues_path.write_text(
+        json.dumps(
+            [
+                {
+                    "number": 49,
+                    "title": "[azure-backlog] Improve dashboard visual design",
+                    "body": (
+                        "### Priority\nNormal\n\n### Objective\n"
+                        "Improve dashboard design and responsive usability."
+                    ),
+                    "labels": [{"name": "azure-backlog"}],
+                    "url": "https://example.test/issues/49",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    rework = {
+        "pull_request": 60,
+        "trigger": "request-changes",
+        "requested_by": "maintainer-user",
+        "requirements": "Retain existing navigation semantics.",
+    }
+
+    tasks = backlog_cycle._build_issue_tasks(
+        issues_path,
+        1,
+        "",
+        target_issue=49,
+        rework_context=rework,
+    )
+
+    assert tasks[0]["rework"] == rework
 
 
 def test_current_unknown_context_selects_top_group_scope(monkeypatch):

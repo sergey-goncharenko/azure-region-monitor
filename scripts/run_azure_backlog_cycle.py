@@ -4,6 +4,7 @@ import argparse
 import importlib.util
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -11,7 +12,9 @@ from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 MAX_DOCS_FILE_CHARS = 2_400
+MAX_REWORK_REQUIREMENTS_CHARS = 4_000
 DEFAULT_SNAPSHOT_URL = "https://azwatch.operator.lat/api/latest.json"
+REWORK_ACTOR_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{0,38}$")
 UNKNOWN_CATEGORY_SOURCE_HINTS = {
     "aksExtensions": (
         "src/azure_region_monitor/probes/aks_extension_catalog.py",
@@ -49,6 +52,38 @@ def _max_issue_items(value: object) -> int:
         return max(0, min(3, int(value)))
     except (TypeError, ValueError):
         return 3
+
+
+def _load_rework_context(path: Path | None) -> dict[str, Any] | None:
+    if path is None:
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValueError("The automated PR rework context is invalid.") from error
+    if not isinstance(payload, dict):
+        raise ValueError("The automated PR rework context is invalid.")
+    pull_request = payload.get("pull_request")
+    trigger = payload.get("trigger")
+    requested_by = payload.get("requested_by")
+    requirements = payload.get("requirements")
+    if (
+        type(pull_request) is not int
+        or pull_request <= 0
+        or trigger not in {"slash-command", "request-changes"}
+        or not isinstance(requested_by, str)
+        or REWORK_ACTOR_PATTERN.fullmatch(requested_by) is None
+        or not isinstance(requirements, str)
+        or not requirements.strip()
+        or len(requirements) > MAX_REWORK_REQUIREMENTS_CHARS
+    ):
+        raise ValueError("The automated PR rework context is invalid.")
+    return {
+        "pull_request": pull_request,
+        "trigger": trigger,
+        "requested_by": requested_by,
+        "requirements": requirements.strip(),
+    }
 
 
 def _backlog_status(issues_path: Path, tasks: list[dict[str, Any]]) -> dict[str, Any]:
@@ -144,6 +179,7 @@ def _build_issue_tasks(
     repository: str,
     snapshot_url: str = DEFAULT_SNAPSHOT_URL,
     target_issue: int | None = None,
+    rework_context: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     issues = _load_module("azure_backlog_issues", "run_azure_issue_agent.py")
     if repository and not os.environ.get("GH_TOKEN"):
@@ -188,6 +224,8 @@ def _build_issue_tasks(
                 "Recurring current unknown-status investigation for "
                 f"{unknown_context['category']}."
             )
+        if rework_context is not None:
+            task["rework"] = dict(rework_context)
         tasks.append(task)
         if len(tasks) >= limit:
             break
@@ -254,13 +292,21 @@ def build_cycle(
     snapshot_url: str = DEFAULT_SNAPSHOT_URL,
     target_issue: int | None = None,
     include_docs: bool = False,
+    rework_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    tasks = _build_issue_tasks(
+    if rework_context is not None and target_issue is None:
+        raise ValueError("Automated PR rework requires one targeted source issue.")
+    issue_args = (
         issues_path,
         _max_issue_items(max_issues),
         repository,
         snapshot_url,
         target_issue,
+    )
+    tasks = (
+        _build_issue_tasks(*issue_args, rework_context=rework_context)
+        if rework_context is not None
+        else _build_issue_tasks(*issue_args)
     )
     if include_docs:
         tasks.append(_build_docs_task())
@@ -314,8 +360,11 @@ def main() -> None:
     parser.add_argument("--repository", default=os.environ.get("GITHUB_REPOSITORY", ""))
     parser.add_argument("--snapshot-url", default=DEFAULT_SNAPSHOT_URL)
     parser.add_argument("--target-issue", type=int)
+    parser.add_argument("--rework-context", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
+
+    rework_context = _load_rework_context(args.rework_context)
 
     cycle = build_cycle(
         args.issues,
@@ -324,6 +373,7 @@ def main() -> None:
         args.snapshot_url,
         args.target_issue,
         False,
+        rework_context,
     )
     args.output.write_text(json.dumps(cycle, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(render_cycle_markdown(cycle))

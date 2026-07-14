@@ -99,12 +99,15 @@ def _comment_event(body: str = "/agent-rework") -> dict:
     }
 
 
-def _review_event(state: str = "changes_requested") -> dict:
+def _review_event(
+    state: str = "changes_requested",
+    body: str = "Keep the provider-specific payload behavior isolated.",
+) -> dict:
     return {
         "action": "submitted",
         "sender": {"login": ACTOR, "type": "User"},
         "pull_request": {"number": 51},
-        "review": {"id": 901, "state": state},
+        "review": {"id": 901, "state": state, "body": body},
     }
 
 
@@ -134,7 +137,22 @@ def test_slash_command_dispatches_same_repo_bot_pr():
         "actor": ACTOR,
         "base_branch": "main",
         "head_ref": "azure-issues/issue-48",
+        "rework_requirements": (
+            "Address the current requested changes on this pull request within the existing "
+            "derived scope. Do not report successful rework without a validated branch change."
+        ),
     }
+
+
+def test_slash_command_captures_only_bounded_requirement_text():
+    result = _resolve(
+        _comment_event("/agent-rework\nUse a provider-specific helper and retain Azure behavior."),
+        "issue_comment",
+    )
+
+    assert result["rework_requirements"] == (
+        "Use a provider-specific helper and retain Azure behavior."
+    )
 
 
 def test_slash_command_must_be_the_first_comment_token():
@@ -153,6 +171,9 @@ def test_request_changes_review_dispatches_rework():
     assert result["eligible"] is True
     assert result["trigger"] == "request-changes"
     assert result["target_issue"] == 48
+    assert result["rework_requirements"] == (
+        "Keep the provider-specific payload behavior isolated."
+    )
 
 
 def test_non_blocking_review_does_not_dispatch_rework():
@@ -323,6 +344,8 @@ def test_dispatcher_wires_both_review_paths_without_azure_secrets():
     assert "persist-credentials: false" in workflow
     assert "pull-requests: write" in workflow
     assert 'event_type: "azure-byok-pr-rework"' in workflow
+    assert "rework_requirements" in workflow
+    assert "azure-pr-rework.json" in workflow
     assert "AZURE_OPENAI" not in workflow
     assert "secrets." not in workflow
 
@@ -338,5 +361,7 @@ def test_scheduled_workflow_accepts_only_targeted_rework_dispatch_metadata():
     assert "github.event_name == 'repository_dispatch' || inputs.force" in workflow
     assert "Malformed automated PR rework dispatch metadata." in workflow
     assert '[[ ! "$TARGET_ISSUE" =~ ^[1-9][0-9]*$ ]]' in workflow
+    assert '"${#REWORK_REQUIREMENTS}" -gt 4000' in workflow
+    assert '--rework-context "$RUNNER_TEMP/azure-pr-rework-context.json"' in workflow
     assert 'args+=(--require-pr "$REWORK_PR")' in workflow
     assert "finalize-status" in workflow

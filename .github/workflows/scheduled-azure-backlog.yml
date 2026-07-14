@@ -94,7 +94,8 @@ jobs:
                [[ ! "$REWORK_PR" =~ ^[1-9][0-9]*$ ]] || \
                [[ ! "$REWORK_STATUS_COMMENT_ID" =~ ^[1-9][0-9]*$ ]] || \
                [[ ! "$REWORK_REQUEST_ID" =~ ^[1-9][0-9]*-[1-9][0-9]*$ ]] || \
-               [[ ! "$REWORK_ACTOR" =~ ^[A-Za-z0-9][A-Za-z0-9-]{0,38}$ ]]; then
+               [[ ! "$REWORK_ACTOR" =~ ^[A-Za-z0-9][A-Za-z0-9-]{0,38}$ ]] || \
+               [ "${#REWORK_REQUIREMENTS}" -gt 4000 ]; then
               echo "Malformed automated PR rework dispatch metadata." >&2
               exit 2
             fi
@@ -105,6 +106,17 @@ jobs:
                 exit 2
                 ;;
             esac
+            jq -n \
+              --argjson pull_request "$REWORK_PR" \
+              --arg trigger "$REWORK_TRIGGER" \
+              --arg requested_by "$REWORK_ACTOR" \
+              --arg requirements "$REWORK_REQUIREMENTS" \
+              '{
+                pull_request: $pull_request,
+                trigger: $trigger,
+                requested_by: $requested_by,
+                requirements: $requirements
+              }' > "$RUNNER_TEMP/azure-pr-rework-context.json"
           fi
 
           args=(
@@ -120,6 +132,9 @@ jobs:
             fi
             args+=(--target-issue "$TARGET_ISSUE")
           fi
+          if [ "$EVENT_NAME" = "repository_dispatch" ]; then
+            args+=(--rework-context "$RUNNER_TEMP/azure-pr-rework-context.json")
+          fi
           python scripts/run_azure_backlog_cycle.py "${args[@]}" \
             >> "$GITHUB_STEP_SUMMARY"
         env:
@@ -132,6 +147,7 @@ jobs:
           REWORK_REQUEST_ID: ${{ github.event.client_payload.rework_request_id || '' }}
           REWORK_TRIGGER: ${{ github.event.client_payload.rework_trigger || '' }}
           REWORK_ACTOR: ${{ github.event.client_payload.rework_actor || '' }}
+          REWORK_REQUIREMENTS: ${{ github.event.client_payload.rework_requirements || '' }}
           MAX_ISSUES: ${{ inputs.max_issues || '1' }}
 
       - name: Run Azure BYOK Aider tasks and open bounded draft PRs

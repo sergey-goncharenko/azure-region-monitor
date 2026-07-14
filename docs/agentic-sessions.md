@@ -62,13 +62,13 @@ Issue coding uses pinned Aider 0.86.2 with the Azure OpenAI `o4-mini` reasoning 
 
 Every editing task is bounded before a branch or PR is created:
 
-- Aider receives the compact task manifest, a full repository map, and only trusted `allowed_paths` as editable files. One full GPT-4o pass applies SEARCH/REPLACE diffs directly. The prompt requires reuse of existing helpers/assets and forbids undeclared template variables. Shell suggestions, auto-commits, dirty commits, URL detection, Playwright, update checks, remote analytics, and Git-ignore mutation are disabled; deterministic outer code owns validation and Git operations.
+- Aider receives the compact task manifest, a full repository map, and only trusted `allowed_paths` as editable files. One `o4-mini` implementation pass applies SEARCH/REPLACE diffs directly. If deterministic focused or full tests fail, the runner may invoke exactly one repair pass with bounded, sanitized failure output; test output is diagnostic data and cannot alter scope or permissions. The prompt requires reuse of existing helpers/assets, reconciliation of shared helpers with editable provider contracts, and forbids undeclared template variables. Shell suggestions, auto-commits, dirty commits, URL detection, Playwright, update checks, remote analytics, and Git-ignore mutation are disabled; deterministic outer code owns validation and Git operations.
 - Histories, the full LLM exchange, and exact local-only analytics are written outside the repository. Aider's repo-map cache is deleted after each run. Only the sanitized chat/output artifact and derived metadata are uploaded; raw local analytics are parsed and deleted.
 - The Azure coding key is supplied only to the Aider provider process. `GH_TOKEN`, `GITHUB_TOKEN`, and unrelated secret-like inherited variables are absent, and the model has no shell/tool path that can inspect process environment. The key is never included in prompts, commands, output, or artifacts.
 - This replaces measured harness/model failures: GPT-5.4 Mini/Copilot consumed 4.23M tokens across three no-edit canaries, `o4-mini`/OpenCode reached the correct edit surface but produced no diff, and full GPT-4o/Aider generated invalid template edits. Aider with reasoning `o4-mini` passed a clean direct-edit smoke and combines bounded diff application with stronger reasoning.
 - Live canary run `29205903483` completed in 1m36s and created draft PR #57 in one `o4-mini` call (73,385 tokens, estimated $0.093065) after focused tests, Ruff, and whitespace validation passed. A later request for the remaining broader navigation work failed validation; deterministic reset preserved the valid skip-link slice, and the PR was marked as partial without closing issue #56.
 - Each task starts from a clean default-branch checkout. The runner rejects every changed path outside the automatically derived scope.
-- The workflow requires derived focused tests where available (otherwise the full suite), Ruff, and `git diff --check`.
+- The workflow always runs the full test suite after any derived focused tests, followed by Ruff and `git diff --check`.
 - A failed, ambiguous, out-of-scope, or no-change task creates no pull request.
 - Generated live snapshots are never included in a patch scope.
 
@@ -79,7 +79,7 @@ Security and repository-hygiene sessions have an additional report-only boundary
 - The runner checks the Git working tree after each analysis. If any tracked or untracked file changed, it resets the checkout and publishes no report.
 - Only deterministic outer code in the private companion repository can create labels or replace the two stable report issue bodies. Generated mentions are neutralized before publication.
 - The hygiene session can recommend commands but has no branch/worktree deletion implementation or permission path.
-- Scheduled issue work defaults to one issue per day and runs one Aider message with a repository map, issue-derived editable paths, and a 15-minute outer timeout. Manual runs may explicitly request one to three issue sessions. At timeout the harness sends a graceful interrupt and retains an interrupted in-scope diff only when focused tests, Ruff, and whitespace validation pass; otherwise it is reset. Documentation and private report Copilot sessions remain capped at 10 minutes. Raw Aider local analytics and Copilot OpenTelemetry JSONL are never uploaded.
+- Scheduled issue work defaults to one issue per day and runs one Aider implementation message, plus at most one deterministic test-feedback repair message, with a repository map, issue-derived editable paths, and a 15-minute per-message outer timeout. Manual runs may explicitly request one to three issue sessions. At timeout the harness sends a graceful interrupt and retains an interrupted in-scope diff only when focused tests, the full suite, Ruff, and whitespace validation pass; otherwise it is reset. Documentation and private report Copilot sessions remain capped at 10 minutes. Raw Aider local analytics and Copilot OpenTelemetry JSONL are never uploaded.
 
 Every generated PR includes a reviewer-facing rationale in its description:
 
@@ -90,16 +90,16 @@ Every generated PR includes a reviewer-facing rationale in its description:
 
 Issue PRs use a deterministic reviewer summary plus Aider's sanitized visible chat/diff output. Copilot maintenance uses the latest visible `assistant.message`. Opaque/encrypted reasoning and private chain-of-thought are excluded; secret-like values are redacted.
 
-When an issue session intentionally makes no edit, reaches its step/30-minute budget, or fails deterministic scope/validation checks, no PR is required. Deterministic outer code creates or replaces one stable `Azure BYOK agent note` comment on the source issue with the bounded outcome, final visible summary when available, model/token metadata, and workflow link. Later runs replace that note instead of adding daily comment noise. Non-recurring no-PR issues receive `azure-paused` automatically so the next daily cycle advances to newer work; a maintainer can refine, close, or explicitly unpause them. Recurring monitor issues remain eligible.
+When an initial issue session intentionally makes no edit, reaches its outer budget, or fails deterministic scope/validation checks, no PR is required. Deterministic outer code creates or replaces one stable `Azure BYOK agent note` comment on the source issue with the bounded outcome, final visible summary when available, model/token metadata, and workflow link. Later runs replace that note instead of adding daily comment noise. Non-recurring no-PR issues receive `azure-paused` automatically so the next daily cycle advances to newer work; a maintainer can refine, close, or explicitly unpause them. Recurring monitor issues remain eligible. Requested PR rework is stricter: no repository change, failed validation, or an empty cumulative PR diff fails the rework workflow and cannot be published as success.
 
-Generated issue PRs report the Aider harness, Azure model/deployment, exact local-only analytics prompt/completion tokens, API call count, duration, and estimated model cost. Copilot maintenance sessions retain their OpenTelemetry-based accounting. Each workflow uploads a 30-day `azure-byok-chat-<run-id>` artifact with machine-readable metadata and a sanitized visible chat/diff transcript; opaque reasoning and secrets are excluded.
+Generated issue PRs report the Aider harness, Azure model/deployment, exact local-only analytics prompt/completion tokens, API call count, duration, estimated model cost, and whether the single repair pass was used. Usage is aggregated across implementation and repair calls. Copilot maintenance sessions retain their OpenTelemetry-based accounting. Each workflow uploads a 30-day `azure-byok-chat-<run-id>` artifact with machine-readable metadata and a sanitized visible chat/diff transcript; opaque reasoning and secrets are excluded.
 
 ## Requesting Changes On A Bot PR
 
 Repository collaborators can request another Azure-funded coding pass without opening the Actions page:
 
-1. Leave normal PR conversation comments and/or inline review comments describing the required changes.
-2. Either submit a **Request changes** review or add a new PR conversation comment whose first token is `/agent-rework`.
+1. Describe the required bounded correction in the **Request changes** review body, or after `/agent-rework` in a new PR conversation comment.
+2. Submit the review or comment. The triggering text is capped and carried as trusted acceptance criteria only after write-level permission and PR/source-issue validation; it cannot expand editable paths or override safety controls.
 3. The dispatcher reacts to the slash command when applicable, posts a visible queued-status comment, and starts a targeted run of **Scheduled Azure backlog**.
 4. The status comment is updated with the final workflow result and link. A successful code update also refreshes the same PR description and adds the normal completion comment.
 
@@ -107,7 +107,7 @@ The dispatcher accepts only an open, same-repository PR authored by `github-acti
 
 An active status marker deduplicates repeated review events and commands for the same PR. A marker is considered stale after two hours so a cancelled run cannot block recovery indefinitely. The dispatcher has no Azure secret: it sends a bounded `repository_dispatch` payload to the existing workflow, where Azure credentials remain isolated.
 
-The targeted run selects only the source issue and skips documentation alignment. It fetches all current PR conversation comments, submitted reviews, and inline comments; checks out the existing PR branch; applies bounded amendments; reruns tests/Ruff/whitespace validation; pushes another bot commit; and refreshes the same PR rationale, model, token, and chat-artifact metadata. It does not create a second PR.
+The targeted run selects only the source issue and skips documentation alignment. It fetches all current PR conversation comments, submitted reviews, and inline comments as untrusted supporting context, while the exact validated triggering text is a separate trusted top-level requirement. It checks out the existing PR branch; applies bounded amendments; runs focused and full tests plus Ruff/whitespace validation; pushes another bot commit; and refreshes the same PR rationale, model, token, and chat-artifact metadata. It does not create a second PR, and it fails visibly if no cumulative PR delta survives validation.
 
 If the event dispatcher is unavailable, use the manual fallback:
 

@@ -23,6 +23,7 @@ ACTIVE_MARKER = "<!-- azure-byok-rework:running"
 COMPLETED_MARKER = "<!-- azure-byok-rework:completed"
 ACTIVE_REQUEST_TTL = timedelta(hours=2)
 MAX_GITHUB_REQUEST_ATTEMPTS = 3
+MAX_REWORK_REQUIREMENTS_CHARS = 4_000
 
 
 class GitHubReworkClient(Protocol):
@@ -189,6 +190,22 @@ def _labels(value: object) -> set[str]:
     return labels
 
 
+def _bounded_rework_requirements(value: object, trigger: str) -> str:
+    text = value if isinstance(value, str) else ""
+    if trigger == "slash-command":
+        text = COMMAND_PATTERN.sub("", text, count=1)
+    text = "".join(
+        character for character in text.replace("\r\n", "\n")
+        if character in "\n\t" or ord(character) >= 32
+    ).strip()
+    if not text:
+        text = (
+            "Address the current requested changes on this pull request within the existing "
+            "derived scope. Do not report successful rework without a validated branch change."
+        )
+    return text[:MAX_REWORK_REQUIREMENTS_CHARS]
+
+
 def _parse_timestamp(value: object) -> datetime | None:
     if not isinstance(value, str) or not value:
         return None
@@ -247,7 +264,8 @@ def _trigger_details(
         number = pull.get("number") if isinstance(pull, dict) else None
         if not isinstance(number, int) or number <= 0:
             return _result("The pull request number is invalid.")
-        return "request-changes", number, ""
+        body = review.get("body", "") if isinstance(review, dict) else ""
+        return "request-changes", number, body if isinstance(body, str) else ""
 
     return _result("This GitHub event is not supported for PR rework.")
 
@@ -266,7 +284,7 @@ def resolve_rework_event(
     trigger = _trigger_details(payload, event_name)
     if isinstance(trigger, dict):
         return trigger
-    trigger_kind, pr_number, _ = trigger
+    trigger_kind, pr_number, feedback = trigger
 
     sender = payload.get("sender")
     sender_login = _login(sender)
@@ -331,6 +349,7 @@ def resolve_rework_event(
         actor=actor,
         base_branch=default_branch,
         head_ref=head_ref,
+        rework_requirements=_bounded_rework_requirements(feedback, trigger_kind),
     )
 
 
@@ -471,6 +490,7 @@ def render_resolution_markdown(result: dict[str, Any]) -> str:
                 f"- Pull request: `#{result['pr_number']}`",
                 f"- Source issue: `#{result['target_issue']}`",
                 f"- Trigger: `{result['trigger']}`",
+                "- Bounded review requirements: captured",
             ]
         )
     return "\n".join(lines) + "\n"

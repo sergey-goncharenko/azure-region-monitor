@@ -83,6 +83,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          rework_requirements="$(jq -r '.rework_requirements // ""' "$RUNNER_TEMP/azure-pr-rework.json")"
           jq -n \
             --arg target_issue "$TARGET_ISSUE" \
             --arg pr_number "$PR_NUMBER" \
@@ -90,6 +91,7 @@ jobs:
             --arg request_id "$REQUEST_ID" \
             --arg trigger "$TRIGGER_KIND" \
             --arg actor "$REQUESTED_BY" \
+            --arg rework_requirements "$rework_requirements" \
             '{
               event_type: "azure-byok-pr-rework",
               client_payload: {
@@ -98,7 +100,8 @@ jobs:
                 rework_status_comment_id: $status_comment_id,
                 rework_request_id: $request_id,
                 rework_trigger: $trigger,
-                rework_actor: $actor
+                rework_actor: $actor,
+                rework_requirements: $rework_requirements
               }
             }' > "$RUNNER_TEMP/azure-pr-rework-dispatch.json"
           gh api \
