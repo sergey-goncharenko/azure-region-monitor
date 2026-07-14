@@ -23,7 +23,12 @@ CATEGORY_TEST_HINTS = {
     "aksKubernetesVersions": ("tests/test_aks_versions_probe.py",),
     "functions": ("tests/test_functions_probe.py",),
     "aiModels": ("tests/test_ai_models_probe.py",),
-    "modelLatency": ("tests/test_model_latency.py", "tests/test_latency_client_resilience.py"),
+    "modelLatency": (
+        "tests/test_model_latency.py",
+        "tests/test_latency_client_resilience.py",
+        "tests/test_github_models_payload.py",
+        "tests/test_azure_openai_payload.py",
+    ),
     "aiLatency": ("tests/test_ai_model_latency.py",),
     "containerApps": ("tests/test_container_apps_probe.py",),
     "vmSkus": ("tests/test_vm_skus_probe.py",),

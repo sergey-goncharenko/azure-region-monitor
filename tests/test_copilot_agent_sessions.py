@@ -59,6 +59,15 @@ def test_rank_unknown_groups_selects_largest_modality():
     assert groups[1].category == "vmSkus"
 
 
+def test_model_latency_scope_includes_provider_payload_contracts():
+    assert agent_sessions.CATEGORY_TEST_HINTS["modelLatency"] == (
+        "tests/test_model_latency.py",
+        "tests/test_latency_client_resilience.py",
+        "tests/test_github_models_payload.py",
+        "tests/test_azure_openai_payload.py",
+    )
+
+
 def test_unknowns_session_includes_precomputed_candidate_context():
     snapshot_result = agent_sessions.SnapshotLoadResult(
         snapshot=None,
