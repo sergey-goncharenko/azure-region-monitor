@@ -65,6 +65,7 @@ def test_agentic_backlog_gates_prs_on_full_validation_and_safe_outputs():
     assert "python -m ruff check ." in source
     assert "git diff --check" in source
     assert "git apply \"$patch_file\"" in source
+    assert "deterministic code validation is not required for noop" in source
     assert "protected-files: request_review" in source
     assert "fallback-as-issue: false" in source
     assert "if-no-changes: error" in source

@@ -188,8 +188,8 @@ safe-outputs:
           python -m pip install httpx pytest ruff
           patch_file="$(find /tmp/gh-aw/threat-detection -maxdepth 1 -type f -name 'aw*.patch' -print -quit)"
           if [ -z "$patch_file" ]; then
-            echo "No candidate patch was produced." >&2
-            exit 1
+            echo "No candidate patch was produced; deterministic code validation is not required for noop."
+            exit 0
           fi
           git apply "$patch_file"
           python -m pytest
