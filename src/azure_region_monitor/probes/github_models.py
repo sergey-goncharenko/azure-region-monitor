@@ -147,9 +147,10 @@ class GitHubModelsClient(InferenceLatencyClient):
                 {"role": "user", "content": user},
             ],
         }
-        if _is_reasoning_model(model):
+        reasoning_effort = _github_reasoning_effort(model)
+        if reasoning_effort is not None:
             payload["max_completion_tokens"] = max(max_tokens, REASONING_MIN_COMPLETION_TOKENS)
-            payload["reasoning_effort"] = "low"
+            payload["reasoning_effort"] = reasoning_effort
         else:
             payload["max_tokens"] = max_tokens
             payload["temperature"] = temperature
@@ -260,6 +261,13 @@ def _is_reasoning_model(model: str) -> bool:
     return bool(re.match(r"o\d", name))
 
 
+def _github_reasoning_effort(model: str) -> str | None:
+    name = model.split("/")[-1].lower()
+    if "gpt-5-chat" in name:
+        return "medium"
+    return "low" if _is_reasoning_model(model) else None
+
+
 def _build_request_payload(model: str, prompt: str, max_tokens: int) -> dict:
     payload: dict = {
         "model": model,
@@ -267,12 +275,13 @@ def _build_request_payload(model: str, prompt: str, max_tokens: int) -> dict:
         "stream": True,
         "stream_options": {"include_usage": True},
     }
-    if _is_reasoning_model(model):
+    reasoning_effort = _github_reasoning_effort(model)
+    if reasoning_effort is not None:
         # Reasoning models reject 'max_tokens' and a non-default temperature, and
         # they spend part of the budget on hidden reasoning tokens, so give them a
-        # larger completion budget and the lowest reasoning effort for a quick answer.
+        # larger completion budget and the lowest supported reasoning effort.
         payload["max_completion_tokens"] = max(max_tokens, REASONING_MIN_COMPLETION_TOKENS)
-        payload["reasoning_effort"] = "low"
+        payload["reasoning_effort"] = reasoning_effort
     else:
         payload["max_tokens"] = max_tokens
         payload["temperature"] = 0
