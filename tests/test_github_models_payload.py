@@ -52,6 +52,22 @@ def test_complete_uses_reasoning_payload_for_gpt5_models():
     assert "temperature" not in opener.body
 
 
+def test_complete_uses_gpt5_chat_payload_supported_by_github_models():
+    opener = _CapturingOpener()
+    client = GitHubModelsClient(token="t", opener=opener)
+    client.complete(
+        model="openai/gpt-5-chat",
+        system="s",
+        user="u",
+        max_tokens=500,
+        temperature=0.4,
+    )
+    assert opener.body["max_completion_tokens"] == REASONING_MIN_COMPLETION_TOKENS
+    assert opener.body["reasoning_effort"] == "medium"
+    assert "max_tokens" not in opener.body
+    assert "temperature" not in opener.body
+
+
 def test_standard_models_use_max_tokens_and_temperature():
     payload = _build_request_payload("openai/gpt-4o-mini", "hi", 256)
 
@@ -70,6 +86,15 @@ def test_reasoning_models_use_max_completion_tokens_without_temperature():
         assert "temperature" not in payload, model
         assert payload["max_completion_tokens"] == REASONING_MIN_COMPLETION_TOKENS, model
         assert payload["reasoning_effort"] == "low", model
+
+
+def test_gpt5_chat_uses_github_models_specific_reasoning_payload():
+    payload = _build_request_payload("openai/gpt-5-chat", "hi", 256)
+
+    assert "max_tokens" not in payload
+    assert "temperature" not in payload
+    assert payload["max_completion_tokens"] == REASONING_MIN_COMPLETION_TOKENS
+    assert payload["reasoning_effort"] == "medium"
 
 
 def test_reasoning_budget_respects_larger_requested_max_tokens():
