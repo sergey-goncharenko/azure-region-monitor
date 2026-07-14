@@ -43,7 +43,7 @@ def render_status(manifest: dict[str, Any], run_url: str) -> str:
     status = status if isinstance(status, dict) else {}
     selected = int(status.get("selected_count", 0) or 0)
     outcome = (
-        f"Selected {selected} issue session(s); follow the source issue notes and draft PRs."
+        f"Selected {selected} issue session(s); inspect the latest run audit and any draft PRs."
         if selected
         else "No agent session started because no eligible backlog issue was available."
     )

@@ -40,6 +40,14 @@ def test_render_status_explains_no_task_run():
     assert "https://example.test/run/1" in rendered
 
 
+def test_render_status_points_selected_runs_to_audit():
+    rendered = backlog_status.render_status(
+        _manifest(selected=1), "https://example.test/run/2"
+    )
+
+    assert "inspect the latest run audit and any draft PRs" in rendered
+
+
 def test_publish_status_updates_stable_issue_and_comments_for_no_task(monkeypatch):
     calls = []
     captured_body = {}
