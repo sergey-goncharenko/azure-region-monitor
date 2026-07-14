@@ -290,13 +290,16 @@ def test_private_analysis_template_keeps_reports_out_of_public_repository():
     assert "gh api --method DELETE" not in workflow
 
 
-def test_issue_backlog_workflow_no_longer_runs_documentation_lane():
+def test_aider_issue_workflow_remains_manual_fallback_without_daily_schedule():
     workflow = (REPO_ROOT / ".github/workflows/scheduled-azure-backlog.yml").read_text(
         encoding="utf-8"
     )
 
     assert "run_azure_maintenance_cycle.py" not in workflow
     assert "--skip-docs" not in workflow
+    assert "  schedule:" not in workflow
+    assert "repository_dispatch:" in workflow
+    assert "workflow_dispatch:" in workflow
     assert "persist-credentials: false" in workflow
     assert "*-metadata.json" in workflow
     assert "*-telemetry.jsonl" not in workflow

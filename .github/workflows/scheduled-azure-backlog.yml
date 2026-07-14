@@ -1,9 +1,6 @@
 name: Scheduled Azure backlog
 
 on:
-  schedule:
-    # GitHub schedules are UTC. 07:00 UTC is fixed 09:00 EET.
-    - cron: "0 7 * * *"
   repository_dispatch:
     types: [azure-byok-pr-rework]
   workflow_dispatch:
