@@ -60,7 +60,7 @@ The first implementation slice is a Python service with:
 - A human-readable methodology page explaining what each status means
 - A diff engine that classifies new availability and regressions
 - A FastAPI read-only API matching the initial API spec
-- A GitHub Actions workflow for manual or scheduled PoC runs, plus a separate scheduled documentation-alignment maintenance workflow
+- A GitHub Actions workflow for manual or scheduled PoC runs, plus a separate scheduled public documentation-alignment maintenance workflow
 - A generated static dashboard and JSON endpoint for Azure Static Web Apps
 - Tests for the diff engine and API behavior
 
