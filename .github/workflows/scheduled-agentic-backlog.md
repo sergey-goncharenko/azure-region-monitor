@@ -179,7 +179,7 @@ safe-outputs:
   threat-detection:
     max-ai-credits: 200
     prompt: |
-      Reject unrelated bulk edits, generated snapshot edits, weakened status semantics, disabled tests, hidden network behavior, or changes that conflate provider-specific contracts.
+      Reject patches that do not directly address the trusted Objective or cited live error evidence. Also reject unrelated bulk edits, generated snapshot edits, weakened status semantics, disabled tests, hidden network behavior, or changes that conflate provider-specific contracts.
     post-steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
@@ -222,13 +222,14 @@ Implement one atomic, independently reviewable correction for that task.
 ## Quality requirements
 
 1. Inspect the relevant implementation, callers, and tests before editing.
-2. Prefer the smallest coherent fix. Avoid broad cleanup, speculative refactors, and unrelated formatting.
-3. Keep provider-specific compatibility behavior provider-specific. Reconcile any shared helper change with every affected provider contract.
-4. Add or update focused regression tests for changed behavior.
-5. Dependencies are already installed. Never run `pip`, `hatch`, or another installer. Run the task's suggested tests with `python -m pytest`, then run `python -m pytest`, `python -m ruff check .`, and `git diff --check`.
-6. Use `rg -F` for literal searches. Do not retry malformed regular expressions or out-of-range file reads.
-7. Limit orientation to the summary, relevance hints, and at most eight focused source/test reads. Do not map the whole repository or reread overlapping ranges. By tool call 16, either make the smallest justified edit or call `noop`.
-8. Review the final diff for scope, indentation, status semantics, and accidental generated-file changes.
+2. Before editing, identify the causal chain from the source issue or exact live error to a specific code path and observable corrected behavior. If current code already handles that evidence, call `noop`; do not substitute an adjacent consistency cleanup or unrelated pre-existing test concern.
+3. Prefer the smallest coherent fix. Avoid broad cleanup, speculative refactors, and unrelated formatting.
+4. Keep provider-specific compatibility behavior provider-specific. Reconcile any shared helper change with every affected provider contract.
+5. Add or update focused regression tests for changed behavior.
+6. Dependencies are already installed. Never run `pip`, `hatch`, or another installer. Run the task's suggested tests with `python -m pytest`, then run `python -m pytest`, `python -m ruff check .`, and `git diff --check`.
+7. Use `rg -F` for literal searches. Do not retry malformed regular expressions or out-of-range file reads.
+8. Limit orientation to the summary, relevance hints, and at most eight focused source/test reads. Do not map the whole repository or reread overlapping ranges. By tool call 16, either make the smallest justified edit or call `noop`.
+9. Review the final diff for scope, indentation, status semantics, and accidental generated-file changes. Use a concise single-line commit subject; never embed literal `\\n` sequences in a commit message.
 
 ## Tool and reporting rules
 
@@ -243,7 +244,7 @@ If a safe correction is implemented and all validation passes, call `create_pull
 - use branch `agentic/issue-<issue_number>`;
 - make the PR a small draft suitable for human review;
 - include `<!-- azure-agentic-source:issue-<issue_number> -->` and `Source issue: #<issue_number>` in the body;
-- explain source-issue queue selection, any live evidence enrichment, implementation, alternatives and risks, changed files, and only validation actually observed in tool output;
+- explain source-issue queue selection, the causal link from Objective/evidence to changed behavior, implementation, alternatives and risks, changed files, and only validation actually observed in tool output;
 - include a closing keyword only when `recurring` is false.
 
 If no safe change is justified, the task is already satisfied, required evidence is unavailable, or validation does not pass, call `noop` exactly once with a concise reason. Never create a placeholder PR.
