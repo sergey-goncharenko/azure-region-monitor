@@ -40,7 +40,7 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
         with:
           python-version: "3.11"
       - run: python -m pip install -e .
@@ -128,7 +128,6 @@ max-daily-ai-credits: 800
 
 tools:
   edit:
-  github: false
   bash:
     - "python:*"
     - "git diff:*"
@@ -137,6 +136,8 @@ tools:
     - "git status:*"
     - "jq:*"
     - "rg:*"
+  github:
+    toolsets: [issues, repos, pull_requests]
   timeout: 300
 
 steps:
@@ -149,7 +150,7 @@ steps:
       mkdir -p /tmp/gh-aw/agent
       printf '%s' "$TASK_B64" | base64 --decode > /tmp/gh-aw/agent/task.json
       printf '%s' "$SUMMARY_B64" | base64 --decode > /tmp/gh-aw/agent/task-summary.md
-  - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+  - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
     with:
       python-version: "3.11"
   - run: |
@@ -181,7 +182,7 @@ safe-outputs:
       Reject unrelated bulk edits, generated snapshot edits, weakened status semantics, disabled tests, hidden network behavior, or changes that conflate provider-specific contracts.
     post-steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
         with:
           python-version: "3.11"
       - name: Apply candidate patch and run deterministic validation

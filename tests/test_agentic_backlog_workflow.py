@@ -8,9 +8,12 @@ AIDER_FALLBACK = REPO_ROOT / ".github/workflows/scheduled-azure-backlog.yml"
 
 
 def test_agentic_backlog_source_and_compiled_lock_are_committed():
+    source = SOURCE.read_text(encoding="utf-8")
     assert SOURCE.is_file()
     assert LOCK.is_file()
     assert "compiler_version\":\"v0.81.6" in LOCK.read_text(encoding="utf-8")
+    assert "actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1" in source
+    assert "actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065" not in source
     assert ".github/workflows/*.lock.yml linguist-generated=true merge=ours" in (
         REPO_ROOT / ".gitattributes"
     ).read_text(encoding="utf-8")
@@ -56,9 +59,8 @@ def test_agentic_backlog_preserves_deterministic_selection_without_write_scope()
     assert "base64 --decode > /tmp/gh-aw/agent/task.json" in source
     assert "base64 --decode > /tmp/gh-aw/agent/task-summary.md" in source
     assert '"jq:*"' in source
-    assert "github: false" in source
-    assert "--allow-tool github" not in lock
-    assert "GITHUB_TOOLSETS" not in lock
+    assert "toolsets: [issues, repos, pull_requests]" in source
+    assert "--allow-tool github" in lock
     assert "You may inspect and edit the full repository" in source
     assert "allowed-files:" not in source
     assert '"allowed_files"' not in lock
