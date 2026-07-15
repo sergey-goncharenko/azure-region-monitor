@@ -34,6 +34,7 @@ jobs:
       issue_number: ${{ steps.select.outputs.issue_number }}
       category: ${{ steps.select.outputs.category }}
       task_b64: ${{ steps.select.outputs.task_b64 }}
+      summary_b64: ${{ steps.select.outputs.summary_b64 }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
@@ -121,36 +122,39 @@ network:
     - azrm-code-eus2-16221e01.openai.azure.com
 
 timeout-minutes: 30
-max-turns: 120
-max-ai-credits: 500
+max-turns: 50
+max-ai-credits: 400
+max-daily-ai-credits: 800
 
 tools:
   edit:
+  github: false
   bash:
     - "python:*"
     - "git diff:*"
     - "git log:*"
     - "git show:*"
     - "git status:*"
+    - "jq:*"
     - "rg:*"
-  github:
-    toolsets: [issues, repos, pull_requests]
   timeout: 300
 
 steps:
   - name: Restore deterministic issue task
     env:
       TASK_B64: ${{ needs.prepare.outputs.task_b64 }}
+      SUMMARY_B64: ${{ needs.prepare.outputs.summary_b64 }}
     run: |
       set -euo pipefail
       mkdir -p /tmp/gh-aw/agent
       printf '%s' "$TASK_B64" | base64 --decode > /tmp/gh-aw/agent/task.json
+      printf '%s' "$SUMMARY_B64" | base64 --decode > /tmp/gh-aw/agent/task-summary.md
   - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
     with:
       python-version: "3.11"
   - run: |
       python -m pip install -e .
-      python -m pip install httpx pytest ruff
+      python -m pip install "httpx>=0.27,<1" "pytest>=8.2,<9" "ruff>=0.6,<1"
 
 safe-outputs:
   max-patch-size: 1024
@@ -185,7 +189,7 @@ safe-outputs:
         run: |
           set -euo pipefail
           python -m pip install -e .
-          python -m pip install httpx pytest ruff
+          python -m pip install "httpx>=0.27,<1" "pytest>=8.2,<9" "ruff>=0.6,<1"
           patch_file="$(find /tmp/gh-aw/threat-detection -maxdepth 1 -type f -name 'aw*.patch' -print -quit)"
           if [ -z "$patch_file" ]; then
             echo "No candidate patch was produced; deterministic code validation is not required for noop."
@@ -194,12 +198,15 @@ safe-outputs:
           git apply "$patch_file"
           python -m pytest
           python -m ruff check .
+          python -m ruff check --preview --select E117 .
           git diff --check
 ---
 
 # Azure Regional Feature Availability Monitor issue agent
 
-Read `/tmp/gh-aw/agent/task.json`. It contains exactly one deterministically selected open `azure-backlog` issue, its trusted Objective, current live evidence when applicable, repository context, suggested source paths, and test hints.
+Start by reading `/tmp/gh-aw/agent/task-summary.md`. It identifies exactly one deterministically selected open `azure-backlog` issue and explains why it won the issue queue. If it contains live unknown evidence, that evidence enriches the selected source issue; it did not create or select a task independently.
+
+Read `/tmp/gh-aw/agent/task.json` only if the summary lacks evidence required for a decision. It is formatted JSON; use one targeted `jq` query rather than dumping or repeatedly reading the full file.
 
 Implement one atomic, independently reviewable correction for that task.
 
@@ -217,8 +224,16 @@ Implement one atomic, independently reviewable correction for that task.
 2. Prefer the smallest coherent fix. Avoid broad cleanup, speculative refactors, and unrelated formatting.
 3. Keep provider-specific compatibility behavior provider-specific. Reconcile any shared helper change with every affected provider contract.
 4. Add or update focused regression tests for changed behavior.
-5. Run the task's suggested tests when present, then run `python -m pytest`, `python -m ruff check .`, and `git diff --check`.
-6. Review the final diff for scope, status semantics, and accidental generated-file changes.
+5. Dependencies are already installed. Never run `pip`, `hatch`, or another installer. Run the task's suggested tests with `python -m pytest`, then run `python -m pytest`, `python -m ruff check .`, and `git diff --check`.
+6. Use `rg -F` for literal searches. Do not retry malformed regular expressions or out-of-range file reads.
+7. Limit orientation to the summary, relevance hints, and at most eight focused source/test reads. Do not map the whole repository or reread overlapping ranges. By tool call 16, either make the smallest justified edit or call `noop`.
+8. Review the final diff for scope, indentation, status semantics, and accidental generated-file changes.
+
+## Tool and reporting rules
+
+- If one command is denied, switch to an allowed equivalent. Call `missing_tool` only when no configured tool can complete the task, and never alongside `create_pull_request` or `noop`.
+- Do not claim that a command passed unless its tool output showed success. The independent publication gate runs full validation after the agent exits; distinguish that gate from commands you personally ran.
+- Stop immediately after the single terminal `create_pull_request` or `noop` call. Do not continue searching, explaining, or invoking completion tools.
 
 ## Required result
 
@@ -227,7 +242,7 @@ If a safe correction is implemented and all validation passes, call `create_pull
 - use branch `agentic/issue-<issue_number>`;
 - make the PR a small draft suitable for human review;
 - include `<!-- azure-agentic-source:issue-<issue_number> -->` and `Source issue: #<issue_number>` in the body;
-- explain selection/live evidence, implementation, alternatives and risks, changed files, and exact validation run;
+- explain source-issue queue selection, any live evidence enrichment, implementation, alternatives and risks, changed files, and only validation actually observed in tool output;
 - include a closing keyword only when `recurring` is false.
 
 If no safe change is justified, the task is already satisfied, required evidence is unavailable, or validation does not pass, call `noop` exactly once with a concise reason. Never create a placeholder PR.

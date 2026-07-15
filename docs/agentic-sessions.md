@@ -4,7 +4,7 @@ This repository runs bounded Azure-funded schedules. The regular issue backlog r
 
 ## Issue Backlog Order
 
-The 07:00 UTC run selects one eligible open issue, highest priority first. Manual agentic dispatch can target one issue. The Aider fallback can still choose one to three sessions manually. Neither coding workflow runs documentation alignment or invents coding tasks outside the issue queue. If an `unknown` status or another maintenance concern deserves work, create an Azure backlog issue for it.
+The 07:00 UTC run selects one eligible open issue, highest priority first. Manual agentic dispatch can target one issue. The Aider fallback can still choose one to three sessions manually. Neither coding workflow runs documentation alignment or invents coding tasks outside the issue queue. Unknown checks become work only through issue #48 (or another explicit backlog issue); live snapshot evidence never creates a standalone task.
 
 ## Three Separate Maintenance Sessions
 
@@ -42,7 +42,7 @@ Eligible issues are sorted by `Urgent` → `High` → `Normal` → `Low`. Issues
 
 To defer an item without closing it, add `azure-paused`. To remove it permanently from the queue, close the issue or remove `azure-backlog`. A generated PR includes `Closes #<issue-number>`, so merging that PR closes the originating issue automatically.
 
-Issues labelled `azure-recurring` are different: their generated PRs do not close the source issue, so they can produce another bounded maintenance PR after the previous one is merged. The recurring unknown-regression issue also carries `azure-unknowns`; before each run, the task builder reads the live snapshot, selects the largest current unknown category, and adds its counts, error evidence, and relevant probe/test/workflow hints. If no current unknowns exist, that recurring lane is skipped and another eligible issue can fill the slot.
+Issues labelled `azure-recurring` are different: their generated PRs do not close the source issue, so they can produce another bounded maintenance PR after the previous one is merged. Issue #48 is open, `azure-backlog`, `azure-recurring`, `azure-unknowns`, and Priority **Urgent**, so normal issue ordering selects it before lower-priority issues. Only after that selection does the task builder read the live snapshot, choose the largest current unknown category, and add its counts, error evidence, and relevant probe/test/workflow hints. If no current unknowns exist, that recurring lane is skipped and another eligible issue can fill the slot.
 
 Agentic PR branches start with `agentic/issue-<number>` and receive a collision-avoidance suffix. Aider fallback branches remain `azure-issues/issue-<number>`. Before starting a model, deterministic filtering skips any issue that already has an open PR from either lane.
 
@@ -68,6 +68,7 @@ Every editing task is bounded before a branch or PR is created:
 - Candidate changes are buffered as artifacts. Before a PR can be written, threat detection checks the patch and a deterministic post-step applies it to a clean checkout, runs full `pytest`, Ruff, and `git diff --check`. Generated `data/**` and `public/api/**` files are excluded; protected manifests, instructions, and `.github/**` changes create a blocking review requirement.
 - A successful run may create one draft `[agentic]` PR. A no-change run must use the framework `noop` output. Agent prompts, patches, tool/network logs, token usage, and AI-credit estimates remain available through GitHub Actions artifacts and `gh aw audit`.
 - The Aider fallback retains its narrow issue-derived editable paths, one optional test-feedback repair pass, exact local analytics, deterministic Git ownership, and same-branch rework behavior. Use it manually if the public-preview agentic lane fails or cannot produce a reviewable PR.
+- First scheduled comparison run `29397795045` created PR #61 but consumed 3.42M tokens, 67 turns, and 477.783 AIC while logging 42 transient inference retries plus avoidable denied/malformed tool calls. The follow-up configuration supplies a concise issue-selection summary, enables literal `jq` extraction, removes unused GitHub MCP schemas, forbids redundant dependency installation, caps runs at 50 turns/400 AIC, and requires truthful validation reporting.
 - This replaces measured harness/model failures: GPT-5.4 Mini/Copilot consumed 4.23M tokens across three no-edit canaries, `o4-mini`/OpenCode reached the correct edit surface but produced no diff, and full GPT-4o/Aider generated invalid template edits. Aider with reasoning `o4-mini` passed a clean direct-edit smoke and combines bounded diff application with stronger reasoning.
 - Live canary run `29205903483` completed in 1m36s and created draft PR #57 in one `o4-mini` call (73,385 tokens, estimated $0.093065) after focused tests, Ruff, and whitespace validation passed. A later request for the remaining broader navigation work failed validation; deterministic reset preserved the valid skip-link slice, and the PR was marked as partial without closing issue #56.
 - Each task starts from a clean default-branch checkout. Agentic safe outputs own commits and PR creation; the model cannot push directly.
@@ -82,7 +83,7 @@ Security and repository-hygiene sessions have an additional report-only boundary
 - The runner checks the Git working tree after each analysis. If any tracked or untracked file changed, it resets the checkout and publishes no report.
 - Only deterministic outer code in the private companion repository can create labels or replace the two stable report issue bodies. Generated mentions are neutralized before publication.
 - The hygiene session can recommend commands but has no branch/worktree deletion implementation or permission path.
-- Scheduled issue work runs one agentic issue per day with a 30-minute job timeout, 120 tool turns, three Copilot continuations, and per-run AI-credit limits. Manual Aider fallback retains its 15-minute per-message timeout and can explicitly request one to three issue sessions. Documentation and private report Copilot sessions remain capped at 10 minutes.
+- Scheduled issue work runs one agentic issue per day with a 30-minute job timeout, 50 tool turns, three Copilot continuations, and per-run/daily AI-credit limits. Manual Aider fallback retains its 15-minute per-message timeout and can explicitly request one to three issue sessions. Documentation and private report Copilot sessions remain capped at 10 minutes.
 
 Every generated PR includes a reviewer-facing rationale in its description:
 
@@ -143,7 +144,7 @@ The agentic workflow gives the model only read permissions. Deterministic prepar
 - Azure OpenAI is the scheduled provider for GitHub Agentic Workflows issue coding and Copilot documentation/report work. Aider uses the same dedicated coding deployment only when manually dispatched or invoked for existing-PR rework.
 - The 07:00 UTC agentic backlog run starts at most one issue-agent session. Manual agentic dispatch targets at most one issue; manual Aider fallback may choose one to three. Public documentation alignment runs at 09:00 UTC. The private companion repository starts security and hygiene sessions at 10:00 UTC. These use Azure tokens, not GitHub Copilot model quota.
 - BYOK agent prompts contain the bounded task evidence and may use more Azure input tokens than the former direct JSON client; that trade-off is intentional for a full coding-agent runtime.
-- The agentic lane caps the main run at 500 AI credits, threat detection at 200 AI credits, 120 tool turns, three continuations, and 30 minutes. The dedicated `o4-mini` deployment has 100K TPM.
+- The agentic lane caps the main run at 400 AI credits, a rolling daily schedule at 800 AI credits, threat detection at 200 AI credits, 50 tool turns, three continuations, and 30 minutes. The dedicated `o4-mini` deployment has 100K TPM.
 - The Aider fallback keeps its 70-minute job limit so a manually requested three-issue run can accommodate three 15-minute outer budgets plus validation and cooldowns. Each scheduled or manual agentic run creates at most one draft PR. Each workflow has its own concurrency lock.
 - The older Copilot path is intentionally manual-only in [.github/workflows/scheduled-copilot-agents.yml](../.github/workflows/scheduled-copilot-agents.yml), for an occasional comparison rather than recurring consumption.
 

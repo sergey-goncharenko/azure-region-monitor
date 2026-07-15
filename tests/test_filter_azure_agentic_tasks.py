@@ -95,3 +95,35 @@ def test_github_output_reports_selected_task(tmp_path):
     encoded = lines[3].removeprefix("task_b64=")
     decoded = json.loads(base64.b64decode(encoded).decode("utf-8"))
     assert decoded["tasks"][0]["issue_number"] == 53
+    summary = base64.b64decode(lines[4].removeprefix("summary_b64=")).decode("utf-8")
+    assert "Source issue: #53" in summary
+    assert "selected from the `azure-backlog` queue" in summary
+
+
+def test_agent_summary_explains_unknown_evidence_is_issue_enrichment():
+    manifest = _manifest(48)
+    manifest["tasks"][0].update(
+        recurring=True,
+        allowed_paths=["src/probe.py"],
+        tests=["tests/test_probe.py"],
+        evidence={
+            "issue_title": "Investigate unknowns",
+            "objective": "Investigate the current largest unknown regression.",
+            "priority": 400,
+            "issue_labels": ["azure-backlog", "azure-recurring", "azure-unknowns"],
+            "current_unknown_status": {
+                "selected_category": "modelLatency",
+                "unknown_count": 3,
+                "features": ["modelLatency.openai.o1"],
+                "error_codes": [["GitHubModelsHttp400", 2]],
+                "messages": [["unsupported parameter", 2]],
+            },
+        },
+    )
+
+    summary = agentic_filter.agent_task_summary(manifest)
+
+    assert "Queue priority: Urgent" in summary
+    assert "live unknown evidence never creates a task by itself" in summary
+    assert "evidence narrows its current investigation" in summary
+    assert "modelLatency" in summary

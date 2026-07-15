@@ -13,6 +13,7 @@ BODY_ISSUE_PATTERN = re.compile(
     re.IGNORECASE,
 )
 MAX_TASK_OUTPUT_BYTES = 750_000
+PRIORITY_NAMES = {400: "Urgent", 300: "High", 200: "Normal", 100: "Low"}
 
 
 def _load_object(path: Path, description: str) -> dict[str, Any]:
@@ -87,13 +88,84 @@ def filter_manifest(
     return result
 
 
+def agent_task_summary(manifest: dict[str, Any]) -> str:
+    tasks = manifest.get("tasks")
+    task = tasks[0] if isinstance(tasks, list) and tasks else None
+    if not isinstance(task, dict):
+        return "# Agent task summary\n\nNo issue task was selected.\n"
+
+    evidence = task.get("evidence")
+    evidence = evidence if isinstance(evidence, dict) else {}
+    issue_number = task.get("issue_number", "unknown")
+    title = str(evidence.get("issue_title") or task.get("summary") or "Untitled issue")
+    objective = str(evidence.get("objective") or "No objective was provided.")
+    priority = PRIORITY_NAMES.get(evidence.get("priority"), str(evidence.get("priority") or "Unknown"))
+    labels = evidence.get("issue_labels")
+    labels = [str(value) for value in labels] if isinstance(labels, list) else []
+    recurring = bool(task.get("recurring"))
+    unknown_status = evidence.get("current_unknown_status")
+    unknown_status = unknown_status if isinstance(unknown_status, dict) else None
+
+    lines = [
+        "# Agent task summary",
+        "",
+        "## Issue queue selection",
+        "",
+        f"- Source issue: #{issue_number}",
+        f"- Title: {title}",
+        f"- Queue priority: {priority}",
+        f"- Labels: {', '.join(labels) if labels else 'not reported'}",
+        f"- Recurring: {'yes' if recurring else 'no'}",
+        "- Selection reason: this open issue was selected from the `azure-backlog` queue; "
+        "live unknown evidence never creates a task by itself.",
+        "",
+        "## Trusted Objective",
+        "",
+        objective,
+    ]
+    if unknown_status is not None:
+        lines.extend(
+            [
+                "",
+                "## Live evidence enrichment requested by the source issue",
+                "",
+                "The source issue carries `azure-unknowns`; this evidence narrows its current "
+                "investigation but did not bypass issue selection.",
+                f"- Category: {unknown_status.get('selected_category') or 'unknown'}",
+                f"- Unknown checks: {unknown_status.get('unknown_count', 0)}",
+                "- Features: "
+                + ", ".join(str(value) for value in unknown_status.get("features", [])[:10]),
+                "- Error codes: "
+                + json.dumps(unknown_status.get("error_codes", []), ensure_ascii=False),
+                "- Representative messages: "
+                + json.dumps(unknown_status.get("messages", [])[:5], ensure_ascii=False)[:2_000],
+            ]
+        )
+
+    lines.extend(
+        [
+            "",
+            "## Relevance hints",
+            "",
+            "- Suggested paths: " + ", ".join(str(value) for value in task.get("allowed_paths", [])),
+            "- Suggested tests: " + ", ".join(str(value) for value in task.get("tests", [])),
+            "",
+            "Use `/tmp/gh-aw/agent/task.json` only when this summary lacks necessary evidence. "
+            "Do not dump or reread the entire JSON manifest.",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
 def _write_github_output(path: Path, manifest: dict[str, Any]) -> None:
     tasks = manifest.get("tasks")
     task = tasks[0] if isinstance(tasks, list) and tasks else {}
     issue_number = task.get("issue_number", "") if isinstance(task, dict) else ""
     category = task.get("category", "") if isinstance(task, dict) else ""
-    task_json = json.dumps(manifest, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    task_json = json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True).encode("utf-8")
     task_b64 = base64.b64encode(task_json).decode("ascii")
+    summary_b64 = base64.b64encode(agent_task_summary(manifest).encode("utf-8")).decode("ascii")
     if len(task_b64) > MAX_TASK_OUTPUT_BYTES:
         raise ValueError("The selected task manifest exceeds the GitHub Actions output budget.")
     with path.open("a", encoding="utf-8") as output:
@@ -101,6 +173,7 @@ def _write_github_output(path: Path, manifest: dict[str, Any]) -> None:
         output.write(f"issue_number={issue_number}\n")
         output.write(f"category={category}\n")
         output.write(f"task_b64={task_b64}\n")
+        output.write(f"summary_b64={summary_b64}\n")
 
 
 def render_summary(manifest: dict[str, Any]) -> str:
