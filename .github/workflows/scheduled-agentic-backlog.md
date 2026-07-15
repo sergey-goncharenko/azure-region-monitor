@@ -136,6 +136,9 @@ tools:
     - "git status:*"
     - "jq:*"
     - "rg:*"
+    - "python3:*"
+    - "pytest:*"
+    - "ruff:*"
   github:
     toolsets: [issues, repos, pull_requests]
   timeout: 300
@@ -196,10 +199,20 @@ safe-outputs:
             echo "No candidate patch was produced; deterministic code validation is not required for noop."
             exit 0
           fi
+          baseline_test_status=0
+          python -m pytest > /tmp/gh-aw-baseline-tests.log 2>&1 || baseline_test_status=$?
           git apply "$patch_file"
+          changed_files="$(git diff --name-only)"
+          if grep -Eq '^src/.*\.py$' <<< "$changed_files" && \
+             ! grep -Eq '^tests/test_.*\.py$' <<< "$changed_files" && \
+             [ "$baseline_test_status" -eq 0 ]; then
+            echo "A source behavior change requires a focused regression test when the baseline suite is green." >&2
+            exit 1
+          fi
           python -m pytest
           python -m ruff check .
           python -m ruff check --preview --select E117 .
+          python -m ruff check --select B018 .
           git diff --check
 ---
 
@@ -225,7 +238,7 @@ Implement one atomic, independently reviewable correction for that task.
 2. Before editing, identify the causal chain from the source issue or exact live error to a specific code path and observable corrected behavior. If current code already handles that evidence, call `noop`; do not substitute an adjacent consistency cleanup or unrelated pre-existing test concern.
 3. Prefer the smallest coherent fix. Avoid broad cleanup, speculative refactors, and unrelated formatting.
 4. Keep provider-specific compatibility behavior provider-specific. Reconcile any shared helper change with every affected provider contract.
-5. Add or update focused regression tests for changed behavior.
+5. Add or update focused regression tests for changed behavior. If the existing baseline test suite already fails for the exact bug, explain that evidence in the PR; otherwise any `src/**/*.py` behavior change must include a `tests/test_*.py` change.
 6. Dependencies are already installed. Never run `pip`, `hatch`, or another installer. Run the task's suggested tests with `python -m pytest`, then run `python -m pytest`, `python -m ruff check .`, and `git diff --check`.
 7. Use `rg -F` for literal searches. Do not retry malformed regular expressions or out-of-range file reads.
 8. Limit orientation to the summary, relevance hints, and at most eight focused source/test reads. Do not map the whole repository or reread overlapping ranges. By tool call 16, either make the smallest justified edit or call `noop`.

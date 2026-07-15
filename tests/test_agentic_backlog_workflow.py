@@ -59,6 +59,9 @@ def test_agentic_backlog_preserves_deterministic_selection_without_write_scope()
     assert "base64 --decode > /tmp/gh-aw/agent/task.json" in source
     assert "base64 --decode > /tmp/gh-aw/agent/task-summary.md" in source
     assert '"jq:*"' in source
+    assert '"python3:*"' in source
+    assert '"pytest:*"' in source
+    assert '"ruff:*"' in source
     assert "toolsets: [issues, repos, pull_requests]" in source
     assert "--allow-tool github" in lock
     assert "You may inspect and edit the full repository" in source
@@ -75,6 +78,9 @@ def test_agentic_backlog_gates_prs_on_full_validation_and_safe_outputs():
     assert "python -m pytest" in source
     assert "python -m ruff check ." in source
     assert "python -m ruff check --preview --select E117 ." in source
+    assert "python -m ruff check --select B018 ." in source
+    assert "A source behavior change requires a focused regression test" in source
+    assert "baseline_test_status" in source
     assert "causal chain from the source issue or exact live error" in source
     assert "do not substitute an adjacent consistency cleanup" in source
     assert "never embed literal `\\\\n` sequences" in source
