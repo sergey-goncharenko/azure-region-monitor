@@ -171,11 +171,13 @@ class GitHubModelsClient(InferenceLatencyClient):
             with self._opener.open(request, timeout=self._timeout_seconds) as response:
                 payload = json.loads(response.read().decode("utf-8"))
         except urllib.error.HTTPError as error:
-            detail = _read_error_body(error)
-            raise LatencyClientError(
-                f"GitHubModelsHttp{error.code}",
-                detail or f"GitHub Models returned HTTP {error.code} for '{model}'.",
-            ) from error
+                detail = _read_error_body(error)
+                retry_after = _parse_retry_after(error.headers.get("Retry-After"))
+                raise LatencyClientError(
+                    f"GitHubModelsHttp{error.code}",
+                    detail or f"GitHub Models returned HTTP {error.code} for '{model}'.",
+                    retry_after=retry_after,
+                ) from error
         except (urllib.error.URLError, http.client.HTTPException, OSError, json.JSONDecodeError) as error:
             raise LatencyClientError(
                 "GitHubModelsUnreachable",
