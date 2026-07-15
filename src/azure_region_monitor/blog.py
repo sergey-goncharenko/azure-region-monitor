@@ -341,6 +341,8 @@ def _linkedin_draft(post: dict[str, Any], url: str) -> str:
 
 
 def _short_post_draft(post: dict[str, Any], url: str) -> str:
+    """Fallback short social post including consistent evidence note and URL"""
+    """Fallback short social post including consistent evidence note and URL"""
     counts = (
         f"{post['new_availability']:,} new availability, "
         f"{post['regressions']:,} regressions, "
@@ -348,10 +350,12 @@ def _short_post_draft(post: dict[str, Any], url: str) -> str:
     )
     highlight = _top_social_highlight(post)
     context = f" {highlight}" if highlight else ""
-    return (
-        f"Azure regional availability watch ({post['date']}): {counts}{context}\n\n"
-        f"Read-only catalog/list evidence, not quota or SLA proof.\n{url}"
-    )
+    lines = [
+        f"Azure regional availability watch ({post['date']}): {counts}{context}",
+        _SOCIAL_EVIDENCE_NOTE,
+        url,
+    ]
+    return "\n\n".join(lines)
 
 
 def _social_highlight_bullets(post: dict[str, Any], limit: int = 4) -> list[str]:
