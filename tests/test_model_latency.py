@@ -328,3 +328,24 @@ def test_parse_latency_models_defaults_and_overrides():
     assert parse_latency_models(None) == DEFAULT_LATENCY_MODELS
     parsed = parse_latency_models("modelLatency.openai.gpt-4o=openai/gpt-4o")
     assert parsed == [LatencyModel(feature="modelLatency.openai.gpt-4o", model="openai/gpt-4o")]
+
+
+def test_probe_marks_unavailable_on_http400():
+    """
+    A BadRequest (HTTP 400) error should yield status 'unavailable' with the error message.
+    """
+    class _BadRequestClient:
+        def measure(self, model, *, prompt, max_tokens):
+            raise LatencyClientError("GitHubModelsHttp400", "model not enabled")
+
+    probe = ModelLatencyProbe(
+        models=[LatencyModel(feature="test.model404", model="openai/nonexistent")],
+        client=_BadRequestClient(),
+        samples=1,
+        rate_limit_retries=0,
+        sleep=lambda s: None,
+    )
+    result = list(probe.run("region-A"))[0]
+    assert result.result.status == "unavailable"
+    assert result.result.message == "model not enabled"
+    assert result.result.error_code is None

@@ -172,6 +172,16 @@ class ModelLatencyProbe:
                 measurements.append(measurement)
 
         if not measurements:
+            # Treat BadRequest (HTTP 400) as unavailable (model not enabled) rather than unknown
+            if last_error and last_error.error_code and last_error.error_code.endswith("Http400"):
+                return ProbeResult(
+                    service=SERVICE,
+                    feature=model.feature,
+                    result=FeatureResult(
+                        status="unavailable",
+                        message=last_error.message,
+                    ),
+                )
             return ProbeResult(
                 service=SERVICE,
                 feature=model.feature,
