@@ -22,7 +22,7 @@ DEFAULT_MAX_BACKOFF_SECONDS = 60.0
 # Overall wall-clock budget for the whole probe. Once exceeded, remaining models are
 # emitted as unknown without making further calls, so the job always finishes. Sized
 # to cover the full auto-discovered set (reliable models first) while staying well
-# under the 45-minute probe job timeout.
+# under the 60-minute probe job timeout.
 DEFAULT_TIME_BUDGET_SECONDS = 1500.0
 SERVICE = "model-latency"
 

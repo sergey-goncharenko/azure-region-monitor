@@ -3,6 +3,7 @@ from __future__ import annotations
 import gzip
 import json
 import shutil
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -30,6 +31,10 @@ from azure_region_monitor.summary import (
 RECENT_CHANGE_DAYS = 10
 CHANGE_HIGHLIGHTS = 10
 LATENCY_HISTORY_DAYS = 60
+# A CDN blip must not abort the deploy, but a sustained outage still has to fail loudly:
+# silently skipping the fetch would republish the history index with only today's day.
+HISTORY_FETCH_ATTEMPTS = 3
+HISTORY_RETRY_BACKOFF_SECONDS = 2.0
 _REGION_GROUPS: dict[str, str] = {
     "australiaeast": "Oceania",
     "australiacentral": "Oceania",
@@ -716,24 +721,43 @@ def _history_paths(index: dict[str, Any]) -> set[str]:
     return paths
 
 
+def _is_transient_http_status(code: int) -> bool:
+    return code == 429 or 500 <= code < 600
+
+
+def _urlopen_with_retry(url: str, timeout: int) -> bytes:
+    attempt = 1
+    while True:
+        try:
+            with urllib.request.urlopen(url, timeout=timeout) as response:
+                return response.read()
+        except urllib.error.HTTPError as error:
+            if attempt >= HISTORY_FETCH_ATTEMPTS or not _is_transient_http_status(error.code):
+                raise
+        except urllib.error.URLError:
+            if attempt >= HISTORY_FETCH_ATTEMPTS:
+                raise
+        time.sleep(HISTORY_RETRY_BACKOFF_SECONDS * attempt)
+        attempt += 1
+
+
 def _download_file(url: str, path: Path) -> bool:
     try:
-        with urllib.request.urlopen(url, timeout=120) as response:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_bytes(response.read())
-        return True
+        payload = _urlopen_with_retry(url, timeout=120)
     except urllib.error.HTTPError as error:
         if error.code == 404:
             return False
         raise
     except urllib.error.URLError:
         return False
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(payload)
+    return True
 
 
 def _fetch_json(url: str) -> dict[str, Any] | None:
     try:
-        with urllib.request.urlopen(url, timeout=60) as response:
-            return json.loads(response.read().decode("utf-8"))
+        return json.loads(_urlopen_with_retry(url, timeout=60).decode("utf-8"))
     except urllib.error.HTTPError as error:
         if error.code == 404:
             return None

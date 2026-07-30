@@ -34,9 +34,7 @@ jobs:
       probes: "aks-extension-catalog-cli"
       discover_regions: true
       install_k8s_extension: true
-      # A catalog call runs once per physical region. Keep the bounded per-region
-      # timeout below the reusable 45-minute job limit; timed-out regions remain
-      # correctly represented as unknown rather than cancelling the full scan.
+      # Ignored by the catalog probe, which enforces its own 120-second floor per region.
       azure_cli_timeout_seconds: "30"
       artifact_name: "shard-aks-extensions"
       deploy_dashboard: false

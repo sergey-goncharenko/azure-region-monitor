@@ -38,9 +38,9 @@ def test_agentic_backlog_uses_existing_azure_o4_byok_with_secret_isolation():
     assert 'version: "1.0.65"' in source
     assert "model: o4-mini" in source
     assert "max-continuations: 3" in source
-    assert "max-turns: 50" in source
-    assert "max-ai-credits: 400" in source
-    assert "max-daily-ai-credits: 800" in source
+    assert "max-turns: 80" in source
+    assert "max-ai-credits: 700" in source
+    assert "max-daily-ai-credits: 1400" in source
     assert "COPILOT_PROVIDER_WIRE_API: responses" in source
     assert "secrets.AZURE_CODING_OPENAI_KEY" in source
     assert "--exclude-env COPILOT_PROVIDER_API_KEY" in lock

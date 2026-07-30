@@ -122,9 +122,11 @@ network:
     - azrm-code-eus2-16221e01.openai.azure.com
 
 timeout-minutes: 30
-max-turns: 50
-max-ai-credits: 400
-max-daily-ai-credits: 800
+# Runs that reached turn 49-50 were cut off by the proxy mid-task, which the Copilot CLI
+# reports as a provider 403; the credit ceilings are sized to cover the wider turn budget.
+max-turns: 80
+max-ai-credits: 700
+max-daily-ai-credits: 1400
 
 tools:
   edit:
@@ -238,11 +240,11 @@ Implement one atomic, independently reviewable correction for that task.
 2. Before editing, identify the causal chain from the source issue or exact live error to a specific code path and observable corrected behavior. If current code already handles that evidence, call `noop`; do not substitute an adjacent consistency cleanup or unrelated pre-existing test concern.
 3. Prefer the smallest coherent fix. Avoid broad cleanup, speculative refactors, and unrelated formatting.
 4. Keep provider-specific compatibility behavior provider-specific. Reconcile any shared helper change with every affected provider contract.
-5. Add or update focused regression tests for changed behavior. If the existing baseline test suite already fails for the exact bug, explain that evidence in the PR; otherwise any `src/**/*.py` behavior change must include a `tests/test_*.py` change.
+5. Add or update focused regression tests for changed behavior. Any `src/**/*.py` behavior change must include a `tests/test_*.py` change, including presentation-only changes such as generated CSS or HTML. The publication gate rejects the patch and fails the run with "A source behavior change requires a focused regression test when the baseline suite is green", so write the test before committing. The only exception is a baseline suite that already fails for the exact bug; explain that evidence in the PR.
 6. Dependencies are already installed. Never run `pip`, `hatch`, or another installer. Run the task's suggested tests with `python -m pytest`, then run `python -m pytest`, `python -m ruff check .`, and `git diff --check`.
 7. Use `rg -F` for literal searches. Do not retry malformed regular expressions or out-of-range file reads.
 8. Limit orientation to the summary, relevance hints, and at most eight focused source/test reads. Do not map the whole repository or reread overlapping ranges. By tool call 16, either make the smallest justified edit or call `noop`.
-9. Review the final diff for scope, indentation, status semantics, and accidental generated-file changes. Use a concise single-line commit subject; never embed literal `\\n` sequences in a commit message.
+9. Review the final diff for scope, indentation, status semantics, and accidental generated-file changes. Stage every file you changed, source and tests together in one commit; run `git status --short` first and never `git add` a hand-picked subset of paths. Use a concise single-line commit subject; never embed literal `\\n` sequences in a commit message.
 
 ## Tool and reporting rules
 

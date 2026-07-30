@@ -1,7 +1,11 @@
 import gzip
 import json
+import urllib.error
 
-from azure_region_monitor.history import update_history
+import pytest
+
+from azure_region_monitor import history
+from azure_region_monitor.history import fetch_history, update_history
 
 
 def test_update_history_writes_daily_snapshot_and_recent_changes(tmp_path):
@@ -494,3 +498,67 @@ def test_update_history_backfills_latency_from_existing_snapshots(tmp_path):
     latency = json.loads((history_dir / "latency-history.json").read_text(encoding="utf-8"))
     dates = sorted(day["date"] for day in latency["days"])
     assert dates == ["2026-06-14", "2026-06-15", "2026-06-16"]
+
+
+class _FakeResponse:
+    def __init__(self, payload):
+        self._payload = payload
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_exc_info):
+        return False
+
+    def read(self):
+        return self._payload
+
+
+def _bad_gateway(url):
+    return urllib.error.HTTPError(url, 502, "Bad Gateway", {}, None)
+
+
+def _script_urlopen(monkeypatch, results):
+    calls = []
+
+    def fake_urlopen(url, timeout=None):
+        calls.append(url)
+        result = results.pop(0)
+        if isinstance(result, Exception):
+            raise result
+        return _FakeResponse(result)
+
+    monkeypatch.setattr(history.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(history, "HISTORY_RETRY_BACKOFF_SECONDS", 0)
+    return calls
+
+
+def test_fetch_history_retries_transient_server_error(tmp_path, monkeypatch):
+    base_url = "https://example.test/api/history"
+    index_url = f"{base_url}/index.json"
+    calls = _script_urlopen(
+        monkeypatch,
+        [
+            _bad_gateway(index_url),
+            json.dumps({"generated_at": "2026-07-29T00:00:00Z", "days": []}).encode("utf-8"),
+            b"{}",
+        ],
+    )
+
+    history_dir = tmp_path / "history"
+    assert fetch_history(history_dir, base_url) is True
+    assert calls == [index_url, index_url, f"{base_url}/recent-changes.json"]
+    assert json.loads((history_dir / "index.json").read_text(encoding="utf-8"))["days"] == []
+
+
+def test_fetch_history_raises_when_server_error_persists(tmp_path, monkeypatch):
+    base_url = "https://example.test/api/history"
+    index_url = f"{base_url}/index.json"
+    calls = _script_urlopen(
+        monkeypatch,
+        [_bad_gateway(index_url) for _ in range(history.HISTORY_FETCH_ATTEMPTS)],
+    )
+
+    with pytest.raises(urllib.error.HTTPError):
+        fetch_history(tmp_path / "history", base_url)
+    assert len(calls) == history.HISTORY_FETCH_ATTEMPTS
