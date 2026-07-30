@@ -12,6 +12,12 @@ from pathlib import Path
 from typing import Any, Protocol
 
 BRANCH_PATTERN = re.compile(r"^azure-issues/issue-([1-9][0-9]*)$")
+# gh-aw appends a uniqueness suffix to the branch the agent asks for.
+AGENTIC_BRANCH_PATTERN = re.compile(r"^agentic/issue-([1-9][0-9]*)(?:-[0-9a-f]{6,32})?$")
+LANE_BRANCH_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("aider", BRANCH_PATTERN),
+    ("agentic", AGENTIC_BRANCH_PATTERN),
+)
 COMMAND_PATTERN = re.compile(r"^\s*/agent-rework(?:\s|$)")
 LOGIN_PATTERN = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$")
 REQUEST_ID_PATTERN = re.compile(r"^[1-9][0-9]*-[1-9][0-9]*$")
@@ -235,6 +241,16 @@ def _result(reason: str, *, eligible: bool = False, **values: Any) -> dict[str, 
     return {"eligible": eligible, "reason": reason, **values}
 
 
+def _match_lane_branch(head_ref: Any) -> tuple[str, int] | None:
+    if not isinstance(head_ref, str):
+        return None
+    for lane, pattern in LANE_BRANCH_PATTERNS:
+        match = pattern.fullmatch(head_ref)
+        if match is not None:
+            return lane, int(match.group(1))
+    return None
+
+
 def _trigger_details(
     payload: dict[str, Any], event_name: str
 ) -> tuple[str, int, str] | dict[str, Any]:
@@ -318,10 +334,10 @@ def resolve_rework_event(
         return _result("Only Azure backlog pull requests created by GitHub Actions are eligible.")
 
     head_ref = head.get("ref") if isinstance(head, dict) else None
-    branch_match = BRANCH_PATTERN.fullmatch(head_ref) if isinstance(head_ref, str) else None
-    if branch_match is None:
+    lane_branch = _match_lane_branch(head_ref)
+    if lane_branch is None:
         return _result("The pull request branch is not an Azure issue branch.")
-    target_issue = int(branch_match.group(1))
+    lane, target_issue = lane_branch
 
     permission = client.get_permission(actor)
     if permission not in ALLOWED_PERMISSIONS:
@@ -347,6 +363,7 @@ def resolve_rework_event(
         pr_number=pr_number,
         target_issue=target_issue,
         actor=actor,
+        lane=lane,
         base_branch=default_branch,
         head_ref=head_ref,
         rework_requirements=_bounded_rework_requirements(feedback, trigger_kind),
@@ -467,6 +484,7 @@ def _write_github_outputs(path: Path, values: dict[str, Any]) -> None:
         "pr_number",
         "target_issue",
         "actor",
+        "lane",
         "base_branch",
         "head_ref",
         "comment_id",
@@ -490,6 +508,7 @@ def render_resolution_markdown(result: dict[str, Any]) -> str:
                 f"- Pull request: `#{result['pr_number']}`",
                 f"- Source issue: `#{result['target_issue']}`",
                 f"- Trigger: `{result['trigger']}`",
+                f"- Lane: `{result['lane']}`",
                 "- Bounded review requirements: captured",
             ]
         )

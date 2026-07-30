@@ -80,20 +80,29 @@ jobs:
           PR_NUMBER: ${{ steps.resolve.outputs.pr_number }}
           TRIGGER_KIND: ${{ steps.resolve.outputs.trigger }}
           REQUESTED_BY: ${{ steps.resolve.outputs.actor }}
+          LANE: ${{ steps.resolve.outputs.lane }}
+          HEAD_REF: ${{ steps.resolve.outputs.head_ref }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          case "$LANE" in
+            aider) event_type="azure-byok-pr-rework" ;;
+            agentic) event_type="azure-agentic-pr-rework" ;;
+            *) echo "Unsupported rework lane: $LANE" >&2; exit 1 ;;
+          esac
           rework_requirements="$(jq -r '.rework_requirements // ""' "$RUNNER_TEMP/azure-pr-rework.json")"
           jq -n \
+            --arg event_type "$event_type" \
             --arg target_issue "$TARGET_ISSUE" \
             --arg pr_number "$PR_NUMBER" \
             --arg status_comment_id "$STATUS_COMMENT_ID" \
             --arg request_id "$REQUEST_ID" \
             --arg trigger "$TRIGGER_KIND" \
             --arg actor "$REQUESTED_BY" \
+            --arg head_ref "$HEAD_REF" \
             --arg rework_requirements "$rework_requirements" \
             '{
-              event_type: "azure-byok-pr-rework",
+              event_type: $event_type,
               client_payload: {
                 target_issue: $target_issue,
                 rework_pr: $pr_number,
@@ -101,6 +110,7 @@ jobs:
                 rework_request_id: $request_id,
                 rework_trigger: $trigger,
                 rework_actor: $actor,
+                rework_head_ref: $head_ref,
                 rework_requirements: $rework_requirements
               }
             }' > "$RUNNER_TEMP/azure-pr-rework-dispatch.json"
@@ -108,7 +118,7 @@ jobs:
             --method POST \
             "repos/$GITHUB_REPOSITORY/dispatches" \
             --input "$RUNNER_TEMP/azure-pr-rework-dispatch.json"
-          echo "Dispatched source issue #$TARGET_ISSUE for PR #$PR_NUMBER." >> "$GITHUB_STEP_SUMMARY"
+          echo "Dispatched source issue #$TARGET_ISSUE for PR #$PR_NUMBER to the $LANE lane." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Mark dispatch failure
         if: ${{ failure() && steps.queue.outputs.comment_id != '' }}

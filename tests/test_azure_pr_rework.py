@@ -135,6 +135,7 @@ def test_slash_command_dispatches_same_repo_bot_pr():
         "pr_number": 51,
         "target_issue": 48,
         "actor": ACTOR,
+        "lane": "aider",
         "base_branch": "main",
         "head_ref": "azure-issues/issue-48",
         "rework_requirements": (
@@ -343,7 +344,9 @@ def test_dispatcher_wires_both_review_paths_without_azure_secrets():
     assert "azure-byok-pr-rework-${{ github.event.issue.number" in workflow
     assert "persist-credentials: false" in workflow
     assert "pull-requests: write" in workflow
-    assert 'event_type: "azure-byok-pr-rework"' in workflow
+    assert 'aider) event_type="azure-byok-pr-rework" ;;' in workflow
+    assert 'agentic) event_type="azure-agentic-pr-rework" ;;' in workflow
+    assert 'echo "Unsupported rework lane: $LANE" >&2; exit 1' in workflow
     assert "rework_requirements" in workflow
     assert "azure-pr-rework.json" in workflow
     assert "AZURE_OPENAI" not in workflow
@@ -365,3 +368,83 @@ def test_scheduled_workflow_accepts_only_targeted_rework_dispatch_metadata():
     assert '--rework-context "$RUNNER_TEMP/azure-pr-rework-context.json"' in workflow
     assert 'args+=(--require-pr "$REWORK_PR")' in workflow
     assert "finalize-status" in workflow
+
+
+@pytest.mark.parametrize(
+    "head_ref,lane",
+    [
+        ("azure-issues/issue-48", "aider"),
+        ("agentic/issue-48", "agentic"),
+        ("agentic/issue-48-b4ed6f09bc21294c", "agentic"),
+    ],
+)
+def test_both_lanes_resolve_to_their_own_runner(head_ref: str, lane: str):
+    client = FakeClient()
+    client.pull["head"]["ref"] = head_ref
+
+    result = _resolve(_comment_event(), "issue_comment", client)
+
+    assert result["eligible"] is True
+    assert result["lane"] == lane
+    assert result["target_issue"] == 48
+    assert result["head_ref"] == head_ref
+
+
+@pytest.mark.parametrize(
+    "head_ref",
+    [
+        "agentic/issue-48-NOTHEX",
+        "agentic/issue-0",
+        "agentic/issue-48/extra",
+        "agentic/main",
+        "azure-issues/issue-48-b4ed6f09bc21294c",
+        "feature/issue-48",
+    ],
+)
+def test_branches_outside_either_lane_are_rejected(head_ref: str):
+    client = FakeClient()
+    client.pull["head"]["ref"] = head_ref
+
+    result = _resolve(_comment_event(), "issue_comment", client)
+
+    assert result["eligible"] is False
+    assert result["reason"] == "The pull request branch is not an Azure issue branch."
+
+
+def test_agentic_rework_workflow_bounds_pushes_to_the_reviewed_pull_request():
+    source = (REPO_ROOT / ".github/workflows/agentic-pr-rework.md").read_text(
+        encoding="utf-8"
+    )
+    lock = (REPO_ROOT / ".github/workflows/agentic-pr-rework.lock.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "types: [azure-agentic-pr-rework]" in source
+    assert "Malformed agentic PR rework dispatch metadata." in source
+    assert '"${#REWORK_REQUIREMENTS}" -gt 4000' in source
+    assert '^agentic/issue-[1-9][0-9]*(-[0-9a-f]{6,32})?$' in source
+    assert "push-to-pull-request-branch:" in source
+    assert 'required-title-prefix: "[agentic] "' in source
+    assert "required-labels: [scheduled-agent]" in source
+    assert "if-no-changes: error" in source
+    assert "protected-files: fallback-to-issue" in source
+    assert "create-pull-request" not in source
+    assert "allowed-files:" not in source
+    assert "A rework that changes nothing is a failure, not a success." in source
+    assert "A source behavior change requires a focused regression test" in source
+    assert "secrets.AZURE_CODING_OPENAI_KEY" in source
+    assert "model: o4-mini" in source
+    assert '"protected_files_policy":"fallback-to-issue"' in lock
+
+
+def test_agentic_rework_status_follower_closes_the_dispatcher_comment():
+    follower = (REPO_ROOT / ".github/workflows/agentic-pr-rework-status.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'workflows: ["Agentic PR rework"]' in follower
+    assert "persist-credentials: false" in follower
+    assert "agentic-rework-status" in follower
+    assert "Malformed agentic rework status identifiers." in follower
+    assert "finalize-status" in follower
+    assert "secrets." not in follower
