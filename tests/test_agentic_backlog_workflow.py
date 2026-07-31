@@ -95,3 +95,12 @@ def test_agentic_backlog_gates_prs_on_full_validation_and_safe_outputs():
     assert "public/*.html" in source
     assert '"protected_files_policy":"request_review"' in lock
     assert "GH_AW_SAFE_OUTPUTS_HANDLER_CONFIG" in lock
+
+
+def test_ruff_rule_selection_is_pinned_against_tool_version_drift():
+    # The gates install "ruff>=0.6,<1"; 0.16 widened the default rule set and made
+    # the agentic validation gate unpassable against unchanged files.
+    pyproject = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+
+    assert "[tool.ruff.lint]" in pyproject
+    assert 'select = ["E4", "E7", "E9", "F"]' in pyproject

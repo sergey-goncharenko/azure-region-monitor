@@ -36,3 +36,8 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+
+# Pin the rule set the repository actually lints against. Without this the CI
+# gates inherit whatever the installed ruff calls default, and 0.16 widened it.
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
