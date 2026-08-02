@@ -311,7 +311,7 @@ The reviewed pull request branch is already checked out. Amend that existing wor
 3. Prefer the smallest coherent correction. Avoid broad cleanup, speculative refactors, and unrelated formatting.
 4. Keep provider-specific compatibility behavior provider-specific. Reconcile any shared helper change with every affected provider contract.
 5. Any `src/**/*.py` behavior change must include a `tests/test_*.py` change, including presentation-only changes such as generated CSS or HTML. The publication gate rejects the patch and fails the run with "A source behavior change requires a focused regression test when the baseline suite is green", so write the test before committing.
-6. Dependencies are already installed. Never run `pip`, `hatch`, or another installer. Run `python -m pytest`, `python -m ruff check .`, and `git diff --check`.
+6. Dependencies are already installed. Never run `pip`, `hatch`, or another installer. After your final edit and before you commit, run all three of `python -m pytest`, `python -m ruff check .`, and `git diff --check`, and fix whatever they report. Skipping `python -m ruff check .` is currently the most common cause of a discarded run: unused or duplicated imports in your own new test are reported as F401/F811 and fail the gate. You may use `python -m ruff check --fix .` on your own new code, but re-run the plain check afterwards.
 7. Use `rg -F` for literal searches. Do not retry malformed regular expressions or out-of-range file reads.
 8. Limit orientation to the summary, the existing branch diff, and at most eight focused source/test reads. By tool call 16, either make the smallest justified edit or report that no safe correction exists.
 9. Review the final diff for scope, indentation, status semantics, and accidental generated-file changes. Commit onto the checked-out pull request branch, staging every file you changed; run `git status --short` first and never `git add` a hand-picked subset of paths. Use a concise single-line commit subject; never embed literal `\\n` sequences in a commit message.
@@ -324,6 +324,6 @@ The reviewed pull request branch is already checked out. Amend that existing wor
 
 ## Required result
 
-Commit your corrections onto the checked-out branch, then call `push_to_pull_request_branch` exactly once with `pull_request_number` set to the task's `rework.pull_request` value. Summarise which reviewer requirements you addressed, the causal link to the changed behavior, changed files, and only validation actually observed in tool output.
+Commit your corrections onto the checked-out branch once `python -m pytest`, `python -m ruff check .`, and `git diff --check` have all passed on your final edit, then call `push_to_pull_request_branch` exactly once with `pull_request_number` set to the task's `rework.pull_request` value. Summarise which reviewer requirements you addressed, the causal link to the changed behavior, changed files, and only validation actually observed in tool output.
 
 A rework that changes nothing is a failure. If the reviewer requirements cannot be satisfied safely, or the requested change would violate the trust, scope, or status-semantics rules above, do not push: report the blocking reason instead so the run fails visibly for a human.

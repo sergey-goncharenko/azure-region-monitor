@@ -241,7 +241,7 @@ Implement one atomic, independently reviewable correction for that task.
 3. Prefer the smallest coherent fix. Avoid broad cleanup, speculative refactors, and unrelated formatting.
 4. Keep provider-specific compatibility behavior provider-specific. Reconcile any shared helper change with every affected provider contract.
 5. Add or update focused regression tests for changed behavior. Any `src/**/*.py` behavior change must include a `tests/test_*.py` change, including presentation-only changes such as generated CSS or HTML. The publication gate rejects the patch and fails the run with "A source behavior change requires a focused regression test when the baseline suite is green", so write the test before committing. The only exception is a baseline suite that already fails for the exact bug; explain that evidence in the PR.
-6. Dependencies are already installed. Never run `pip`, `hatch`, or another installer. Run the task's suggested tests with `python -m pytest`, then run `python -m pytest`, `python -m ruff check .`, and `git diff --check`.
+6. Dependencies are already installed. Never run `pip`, `hatch`, or another installer. After your final edit and before you commit, run all three of `python -m pytest`, `python -m ruff check .`, and `git diff --check`, and fix whatever they report. Skipping `python -m ruff check .` is currently the most common cause of a discarded run: unused or duplicated imports in your own new test are reported as F401/F811 and fail the gate. You may use `python -m ruff check --fix .` on your own new code, but re-run the plain check afterwards.
 7. Use `rg -F` for literal searches. Do not retry malformed regular expressions or out-of-range file reads.
 8. Limit orientation to the summary, relevance hints, and at most eight focused source/test reads. Do not map the whole repository or reread overlapping ranges. By tool call 16, either make the smallest justified edit or call `noop`.
 9. Review the final diff for scope, indentation, status semantics, and accidental generated-file changes. Stage every file you changed, source and tests together in one commit; run `git status --short` first and never `git add` a hand-picked subset of paths. Use a concise single-line commit subject; never embed literal `\\n` sequences in a commit message.
@@ -254,7 +254,7 @@ Implement one atomic, independently reviewable correction for that task.
 
 ## Required result
 
-If a safe correction is implemented and all validation passes, call `create_pull_request` exactly once:
+If a safe correction is implemented and you have personally seen `python -m pytest`, `python -m ruff check .`, and `git diff --check` all pass on your final edit, call `create_pull_request` exactly once:
 
 - use branch `agentic/issue-<issue_number>`;
 - make the PR a small draft suitable for human review;
