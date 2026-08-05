@@ -109,6 +109,19 @@ def agent_task_summary(manifest: dict[str, Any]) -> str:
     lines = [
         "# Agent task summary",
         "",
+        # Repeated here because the agent reads this file first and has skipped the
+        # equivalent prompt rules on several runs.
+        "## Publication gate — read before editing",
+        "",
+        "An independent gate re-runs full validation after this session exits. The whole run is "
+        "discarded, and no pull request is published, unless the committed patch satisfies all of:",
+        "",
+        "- every `src/**/*.py` change ships with a `tests/test_*.py` change in the same commit, "
+        "including presentation-only changes such as generated CSS or HTML;",
+        "- `python -m pytest`, `python -m ruff check .`, and `git diff --check` all pass on the "
+        "final edit;",
+        "- the commit stages every file changed, not a hand-picked subset of paths.",
+        "",
         "## Issue queue selection",
         "",
         f"- Source issue: #{issue_number}",

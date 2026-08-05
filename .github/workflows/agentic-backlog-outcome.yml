@@ -1,0 +1,109 @@
+name: Agentic backlog outcome
+
+# The scheduled agentic lane is a gh-aw workflow, whose custom jobs cannot depend on
+# its generated safe_outputs job, so it cannot observe its own result. This follower
+# records the outcome against the source issue and pauses an issue that keeps failing
+# the publication gate, which otherwise gets re-selected every day.
+on:
+  workflow_run:
+    workflows: ["Scheduled agentic backlog"]
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read
+  issues: write
+
+concurrency:
+  group: agentic-backlog-outcome-${{ github.event.workflow_run.id }}
+  cancel-in-progress: false
+
+jobs:
+  record:
+    name: Record the agentic run outcome
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout trusted follower code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Download the selected issue
+        id: download
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          if ! gh run download "$RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name agentic-backlog-selection \
+            --dir "$RUNNER_TEMP/selection"; then
+            echo "No issue was selected for that run; nothing to record."
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          issue_number="$(jq -r '.issue_number // ""' "$RUNNER_TEMP/selection/selection.json")"
+          if [[ ! "$issue_number" =~ ^[1-9][0-9]*$ ]]; then
+            echo "Malformed agentic backlog selection metadata." >&2
+            exit 2
+          fi
+          echo "found=true" >> "$GITHUB_OUTPUT"
+          echo "issue_number=$issue_number" >> "$GITHUB_OUTPUT"
+
+      - name: Decide the outcome record
+        id: decide
+        if: ${{ steps.download.outputs.found == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ steps.download.outputs.issue_number }}
+          RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+        run: |
+          set -euo pipefail
+          gh issue view "$ISSUE_NUMBER" \
+            --repo "$GITHUB_REPOSITORY" \
+            --json number,labels,comments > "$RUNNER_TEMP/issue.json"
+          case "$RUN_CONCLUSION" in
+            success|failure|cancelled|skipped) outcome="$RUN_CONCLUSION" ;;
+            *) outcome=failure ;;
+          esac
+          python scripts/record_azure_agentic_outcome.py \
+            --issue "$RUNNER_TEMP/issue.json" \
+            --outcome "$outcome" \
+            --run-url "$RUN_URL" \
+            --github-output "$GITHUB_OUTPUT" \
+            >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Apply the outcome record
+        if: ${{ steps.decide.outputs.action != '' && steps.decide.outputs.action != 'none' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ steps.download.outputs.issue_number }}
+          COMMENT_ID: ${{ steps.decide.outputs.comment_id }}
+          BODY_B64: ${{ steps.decide.outputs.body_b64 }}
+          SHOULD_PAUSE: ${{ steps.decide.outputs.pause }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$BODY_B64" | base64 --decode > "$RUNNER_TEMP/outcome-body.md"
+          if [[ "$COMMENT_ID" =~ ^[1-9][0-9]*$ ]]; then
+            gh api --method PATCH \
+              "repos/$GITHUB_REPOSITORY/issues/comments/$COMMENT_ID" \
+              -F body=@"$RUNNER_TEMP/outcome-body.md" > /dev/null
+          else
+            gh api --method POST \
+              "repos/$GITHUB_REPOSITORY/issues/$ISSUE_NUMBER/comments" \
+              -F body=@"$RUNNER_TEMP/outcome-body.md" > /dev/null
+          fi
+          if [ "$SHOULD_PAUSE" = "true" ]; then
+            gh issue edit "$ISSUE_NUMBER" \
+              --repo "$GITHUB_REPOSITORY" \
+              --add-label azure-paused
+            echo "Labelled issue #$ISSUE_NUMBER azure-paused." >> "$GITHUB_STEP_SUMMARY"
+          fi

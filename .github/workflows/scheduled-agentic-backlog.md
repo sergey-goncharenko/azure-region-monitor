@@ -99,6 +99,23 @@ jobs:
             --manifest /tmp/gh-aw/agent/task.json \
             --repository "$GITHUB_REPOSITORY" \
             --run-url "$RUN_URL"
+      - name: Publish the selected issue for the outcome follower
+        if: ${{ steps.select.outputs.has_task == 'true' }}
+        env:
+          ISSUE_NUMBER: ${{ steps.select.outputs.issue_number }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/agentic-outcome"
+          jq -n --arg issue_number "$ISSUE_NUMBER" '{issue_number: $issue_number}' \
+            > "$RUNNER_TEMP/agentic-outcome/selection.json"
+      # A gh-aw custom job cannot depend on safe_outputs, so the paired
+      # agentic-backlog-outcome.yml workflow_run follower records the result.
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: ${{ steps.select.outputs.has_task == 'true' }}
+        with:
+          name: agentic-backlog-selection
+          path: ${{ runner.temp }}/agentic-outcome/selection.json
+          retention-days: 1
 
 if: needs.prepare.outputs.has_task == 'true'
 

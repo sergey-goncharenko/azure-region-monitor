@@ -127,3 +127,12 @@ def test_agent_summary_explains_unknown_evidence_is_issue_enrichment():
     assert "live unknown evidence never creates a task by itself" in summary
     assert "evidence narrows its current investigation" in summary
     assert "modelLatency" in summary
+
+
+def test_agent_summary_states_the_publication_gate_before_the_task():
+    summary = agentic_filter.agent_task_summary(_manifest(53))
+
+    assert summary.index("Publication gate") < summary.index("Issue queue selection")
+    assert "ships with a `tests/test_*.py` change in the same commit" in summary
+    assert "`python -m pytest`, `python -m ruff check .`, and `git diff --check`" in summary
+    assert "stages every file changed, not a hand-picked subset" in summary

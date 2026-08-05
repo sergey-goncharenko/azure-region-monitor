@@ -39,5 +39,7 @@ target-version = "py311"
 
 # Pin the rule set the repository actually lints against. Without this the CI
 # gates inherit whatever the installed ruff calls default, and 0.16 widened it.
+# W291/W293 are included so `ruff check .` reports the trailing whitespace that
+# the `git diff --check` gate rejects; plain `W` would add pre-existing W292.
 [tool.ruff.lint]
-select = ["E4", "E7", "E9", "F"]
+select = ["E4", "E7", "E9", "F", "W291", "W293"]
