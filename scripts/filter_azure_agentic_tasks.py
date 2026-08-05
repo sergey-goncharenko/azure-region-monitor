@@ -118,8 +118,8 @@ def agent_task_summary(manifest: dict[str, Any]) -> str:
         "",
         "- every `src/**/*.py` change ships with a `tests/test_*.py` change in the same commit, "
         "including presentation-only changes such as generated CSS or HTML;",
-        "- `python -m pytest`, `python -m ruff check .`, and `git diff --check` all pass on the "
-        "final edit;",
+        "- `python scripts/check.py --fix` passes on the final edit; it repairs mechanical lint "
+        "findings and then runs exactly the checks the gate reruns;",
         "- the commit stages every file changed, not a hand-picked subset of paths.",
         "",
         "## Issue queue selection",

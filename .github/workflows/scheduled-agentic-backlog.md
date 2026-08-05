@@ -222,17 +222,17 @@ safe-outputs:
           python -m pytest > /tmp/gh-aw-baseline-tests.log 2>&1 || baseline_test_status=$?
           git apply "$patch_file"
           changed_files="$(git diff --name-only)"
+          if grep -Fxq 'scripts/check.py' <<< "$changed_files"; then
+            echo "scripts/check.py is the gate itself and is not agent-editable." >&2
+            exit 1
+          fi
           if grep -Eq '^src/.*\.py$' <<< "$changed_files" && \
              ! grep -Eq '^tests/test_.*\.py$' <<< "$changed_files" && \
              [ "$baseline_test_status" -eq 0 ]; then
             echo "A source behavior change requires a focused regression test when the baseline suite is green." >&2
             exit 1
           fi
-          python -m pytest
-          python -m ruff check .
-          python -m ruff check --preview --select E117 .
-          python -m ruff check --select B018 .
-          git diff --check
+          python scripts/check.py
 ---
 
 # Azure Regional Feature Availability Monitor issue agent
@@ -258,7 +258,7 @@ Implement one atomic, independently reviewable correction for that task.
 3. Prefer the smallest coherent fix. Avoid broad cleanup, speculative refactors, and unrelated formatting.
 4. Keep provider-specific compatibility behavior provider-specific. Reconcile any shared helper change with every affected provider contract.
 5. Add or update focused regression tests for changed behavior. Any `src/**/*.py` behavior change must include a `tests/test_*.py` change, including presentation-only changes such as generated CSS or HTML. The publication gate rejects the patch and fails the run with "A source behavior change requires a focused regression test when the baseline suite is green", so write the test before committing. The only exception is a baseline suite that already fails for the exact bug; explain that evidence in the PR.
-6. Dependencies are already installed. Never run `pip`, `hatch`, or another installer. After your final edit and before you commit, run all three of `python -m pytest`, `python -m ruff check .`, and `git diff --check`, and fix whatever they report. Skipping `python -m ruff check .` is currently the most common cause of a discarded run: unused or duplicated imports in your own new test are reported as F401/F811 and fail the gate. You may use `python -m ruff check --fix .` on your own new code, but re-run the plain check afterwards.
+6. Dependencies are already installed. Never run `pip`, `hatch`, or another installer. After your final edit and before you commit, run `python scripts/check.py --fix` and fix whatever it still reports. That one command repairs the mechanical findings that used to discard runs (unused imports in your own new test, trailing whitespace) and then runs exactly the checks the publication gate reruns, so a green result there is the same green result the gate will see.
 7. Use `rg -F` for literal searches. Do not retry malformed regular expressions or out-of-range file reads.
 8. Limit orientation to the summary, relevance hints, and at most eight focused source/test reads. Do not map the whole repository or reread overlapping ranges. By tool call 16, either make the smallest justified edit or call `noop`.
 9. Review the final diff for scope, indentation, status semantics, and accidental generated-file changes. Stage every file you changed, source and tests together in one commit; run `git status --short` first and never `git add` a hand-picked subset of paths. Use a concise single-line commit subject; never embed literal `\\n` sequences in a commit message.
@@ -271,7 +271,7 @@ Implement one atomic, independently reviewable correction for that task.
 
 ## Required result
 
-If a safe correction is implemented and you have personally seen `python -m pytest`, `python -m ruff check .`, and `git diff --check` all pass on your final edit, call `create_pull_request` exactly once:
+If a safe correction is implemented and you have personally seen `python scripts/check.py --fix` pass on your final edit, call `create_pull_request` exactly once:
 
 - use branch `agentic/issue-<issue_number>`;
 - make the PR a small draft suitable for human review;

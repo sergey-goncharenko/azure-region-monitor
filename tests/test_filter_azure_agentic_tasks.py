@@ -134,5 +134,5 @@ def test_agent_summary_states_the_publication_gate_before_the_task():
 
     assert summary.index("Publication gate") < summary.index("Issue queue selection")
     assert "ships with a `tests/test_*.py` change in the same commit" in summary
-    assert "`python -m pytest`, `python -m ruff check .`, and `git diff --check`" in summary
+    assert "`python scripts/check.py --fix` passes on the final edit" in summary
     assert "stages every file changed, not a hand-picked subset" in summary

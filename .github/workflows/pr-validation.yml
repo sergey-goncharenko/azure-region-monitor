@@ -1,0 +1,44 @@
+name: PR validation
+
+# The repository previously had no push or pull_request trigger at all, so the
+# test suite only ever ran inside a paid agent run. This is the free, fast lane.
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install -e .
+          python -m pip install "httpx>=0.27,<1" "pytest>=8.2,<9" "ruff>=0.6,<1"
+      - name: Validate
+        env:
+          DIFF_BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }}
+        run: |
+          set -euo pipefail
+          if [ -n "$DIFF_BASE" ]; then
+            python scripts/check.py --diff-range "$DIFF_BASE...HEAD"
+          else
+            python scripts/check.py
+          fi

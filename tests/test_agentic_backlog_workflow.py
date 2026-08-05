@@ -74,17 +74,23 @@ def test_agentic_backlog_preserves_deterministic_selection_without_write_scope()
 def test_agentic_backlog_gates_prs_on_full_validation_and_safe_outputs():
     source = SOURCE.read_text(encoding="utf-8")
     lock = LOCK.read_text(encoding="utf-8")
+    check_script = (REPO_ROOT / "scripts" / "check.py").read_text(encoding="utf-8")
 
     assert "python -m pytest" in source
-    assert "python -m ruff check ." in source
-    assert "python -m ruff check --preview --select E117 ." in source
-    assert "python -m ruff check --select B018 ." in source
+    # The gate, PR CI, and the agent all share one entrypoint so they cannot drift.
+    assert "python scripts/check.py" in source
+    assert "python scripts/check.py --fix" in source
+    assert "scripts/check.py is the gate itself and is not agent-editable" in source
+    assert '"-m", "pytest"' in check_script
+    assert '"-m", "ruff", "check", "."' in check_script
+    assert '"--preview", "--select", "E117"' in check_script
+    assert '"--select", "B018"' in check_script
+    assert '"git", "diff", "--check"' in check_script
     assert "A source behavior change requires a focused regression test" in source
     assert "baseline_test_status" in source
     assert "causal chain from the source issue or exact live error" in source
     assert "do not substitute an adjacent consistency cleanup" in source
     assert "never embed literal `\\\\n` sequences" in source
-    assert "git diff --check" in source
     assert "git apply \"$patch_file\"" in source
     assert "deterministic code validation is not required for noop" in source
     assert "protected-files: request_review" in source
