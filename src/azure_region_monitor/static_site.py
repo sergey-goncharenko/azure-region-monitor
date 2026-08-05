@@ -501,7 +501,6 @@ def _content_page(
   {style}
 </head>
 <body>
-  <a href="#main-content" class="skip-link">Skip to main content</a>
   <main id="main-content" class="content-page">
 {body}
   </main>
@@ -761,7 +760,6 @@ def _render_index(snapshot: Snapshot, recent_changes: dict[str, Any] | None = No
   {_style_block()}
 </head>
 <body>
-  <a href="#main-content" class="skip-link">Skip to main content</a>
   <main id="main-content">
     <header>
       <div>
@@ -885,7 +883,6 @@ def _render_heatmap_page(snapshot: Snapshot) -> str:
   {_style_block()}
 </head>
 <body>
-  <a href="#main-content" class="skip-link">Skip to main content</a>
   <main id="main-content">
     <header>
       <div>
@@ -988,7 +985,6 @@ def _render_methodology_page(snapshot: Snapshot) -> str:
   {_style_block()}
 </head>
 <body>
-  <a href="#main-content" class="skip-link">Skip to main content</a>
   <main id="main-content" class="content-page">
     <header>
       <div>
@@ -1109,7 +1105,6 @@ def _render_latency_page(
   {_style_block()}
 </head>
 <body>
-  <a href="#main-content" class="skip-link">Skip to main content</a>
   <main id="main-content" class="content-page">
     <header>
       <div>
