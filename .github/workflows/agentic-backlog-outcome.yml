@@ -13,6 +13,8 @@ permissions:
   contents: read
   actions: read
   issues: write
+  pull-requests: write
+  statuses: write
 
 concurrency:
   group: agentic-backlog-outcome-${{ github.event.workflow_run.id }}
@@ -107,3 +109,60 @@ jobs:
               --add-label azure-paused
             echo "Labelled issue #$ISSUE_NUMBER azure-paused." >> "$GITHUB_STEP_SUMMARY"
           fi
+
+      # Quality findings no longer block publication, so they have to reach the reviewer
+      # on the pull request itself.
+      - name: Publish advisory validation on the generated pull request
+        if: ${{ steps.download.outputs.found == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ steps.download.outputs.issue_number }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+        run: |
+          set -euo pipefail
+          if ! gh run download "$RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name agentic-validation \
+            --dir "$RUNNER_TEMP/validation"; then
+            echo "That run produced no candidate patch; there is nothing to report."
+            exit 0
+          fi
+          gh pr list \
+            --repo "$GITHUB_REPOSITORY" \
+            --state open \
+            --limit 100 \
+            --json number,headRefName,headRefOid > "$RUNNER_TEMP/pulls.json"
+          selector='^agentic/issue-'"$ISSUE_NUMBER"'(-[0-9a-f]+)?$'
+          pr_number="$(jq -r --arg re "$selector" \
+            'map(select(.headRefName | test($re))) | last | .number // ""' \
+            "$RUNNER_TEMP/pulls.json")"
+          if [ -z "$pr_number" ]; then
+            echo "No open agentic pull request for issue #$ISSUE_NUMBER."
+            exit 0
+          fi
+          head_sha="$(jq -r --arg re "$selector" \
+            'map(select(.headRefName | test($re))) | last | .headRefOid // ""' \
+            "$RUNNER_TEMP/pulls.json")"
+          comment_id="$(gh api \
+            "repos/$GITHUB_REPOSITORY/issues/$pr_number/comments" \
+            --paginate \
+            --jq '[.[] | select(.body | startswith("<!-- azure-agentic-validation -->")) | .id] | last // ""')"
+          if [[ "$comment_id" =~ ^[1-9][0-9]*$ ]]; then
+            gh api --method PATCH \
+              "repos/$GITHUB_REPOSITORY/issues/comments/$comment_id" \
+              -F body=@"$RUNNER_TEMP/validation/validation.md" > /dev/null
+          else
+            gh api --method POST \
+              "repos/$GITHUB_REPOSITORY/issues/$pr_number/comments" \
+              -F body=@"$RUNNER_TEMP/validation/validation.md" > /dev/null
+          fi
+          if [ -n "$head_sha" ]; then
+            gh api --method POST \
+              "repos/$GITHUB_REPOSITORY/statuses/$head_sha" \
+              -f state="$(jq -r '.state' "$RUNNER_TEMP/validation/validation.json")" \
+              -f context="agentic/validation" \
+              -f description="$(jq -r '.description' "$RUNNER_TEMP/validation/validation.json")" \
+              -f target_url="$RUN_URL" > /dev/null
+          fi
+          echo "Published advisory validation on PR #$pr_number." >> "$GITHUB_STEP_SUMMARY"

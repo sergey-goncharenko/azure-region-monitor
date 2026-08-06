@@ -76,23 +76,27 @@ def test_agentic_backlog_gates_prs_on_full_validation_and_safe_outputs():
     lock = LOCK.read_text(encoding="utf-8")
     check_script = (REPO_ROOT / "scripts" / "check.py").read_text(encoding="utf-8")
 
-    assert "python -m pytest" in source
-    # The gate, PR CI, and the agent all share one entrypoint so they cannot drift.
-    assert "python scripts/check.py" in source
-    assert "python scripts/check.py --fix" in source
+    # Only security and patch integrity block publication. Quality findings ride along
+    # with the draft PR, because a discarded run leaves the same issue at the queue head.
+    assert "git apply \"$patch_file\"" in source
     assert "scripts/check.py is the gate itself and is not agent-editable" in source
+    assert "python scripts/check.py > \"$RUNNER_TEMP/validation/check.log\"" in source
+    assert "summarize_agentic_validation.py" in source
+    assert "name: agentic-validation" in source
+    assert "baseline_test_status" not in source
+    assert "A source behavior change requires a focused regression test" not in source
+    # The gate, PR CI, and the agent all share one entrypoint so they cannot drift.
+    assert "python scripts/check.py --fix" in source
     assert '"-m", "pytest"' in check_script
     assert '"-m", "ruff", "check", "."' in check_script
     assert '"--preview", "--select", "E117"' in check_script
     assert '"--select", "B018"' in check_script
     assert '"git", "diff", "--check"' in check_script
-    assert "A source behavior change requires a focused regression test" in source
-    assert "baseline_test_status" in source
     assert "causal chain from the source issue or exact live error" in source
     assert "do not substitute an adjacent consistency cleanup" in source
     assert "never embed literal `\\\\n` sequences" in source
-    assert "git apply \"$patch_file\"" in source
-    assert "deterministic code validation is not required for noop" in source
+    assert "an imperfect draft is reviewable and repairable" in source
+    assert "this is a noop run" in source
     assert "protected-files: request_review" in source
     assert "fallback-as-issue: false" in source
     assert "if-no-changes: error" in source

@@ -113,11 +113,16 @@ def agent_task_summary(manifest: dict[str, Any]) -> str:
         # equivalent prompt rules on several runs.
         "## Publication gate — read before editing",
         "",
-        "An independent gate re-runs full validation after this session exits. The whole run is "
-        "discarded, and no pull request is published, unless the committed patch satisfies all of:",
+        "Only two things stop your work from being published: a security finding, and a "
+        "patch that does not apply or that edits `scripts/check.py`. Everything else is "
+        "advisory and is reported on the pull request, so publish the work rather than "
+        "abandoning it.",
+        "",
+        "Aim for all of the following anyway, because they are what a reviewer checks:",
         "",
         "- every `src/**/*.py` change ships with a `tests/test_*.py` change in the same commit, "
-        "including presentation-only changes such as generated CSS or HTML;",
+        "including presentation-only changes such as generated CSS or HTML, whose assertion "
+        "belongs in `tests/test_static_site.py`;",
         "- `python scripts/check.py --fix` passes on the final edit; it repairs mechanical lint "
         "findings and then runs exactly the checks the gate reruns;",
         "- the commit stages every file changed, not a hand-picked subset of paths.",

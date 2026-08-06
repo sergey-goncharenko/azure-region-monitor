@@ -207,32 +207,44 @@ safe-outputs:
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
         with:
           python-version: "3.11"
-      - name: Apply candidate patch and run deterministic validation
+      # Blocking checks protect the repository. Quality findings are advisory and travel
+      # with the draft pull request, because a discarded run leaves the same issue at the
+      # front of the queue and produces nothing a human can review.
+      - name: Apply candidate patch and record advisory validation
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/validation"
           python -m pip install -e .
           python -m pip install "httpx>=0.27,<1" "pytest>=8.2,<9" "ruff>=0.6,<1"
           patch_file="$(find /tmp/gh-aw/threat-detection -maxdepth 1 -type f -name 'aw*.patch' -print -quit)"
           if [ -z "$patch_file" ]; then
-            echo "No candidate patch was produced; deterministic code validation is not required for noop."
+            echo "No candidate patch was produced; this is a noop run."
             exit 0
           fi
-          baseline_test_status=0
-          python -m pytest > /tmp/gh-aw-baseline-tests.log 2>&1 || baseline_test_status=$?
           git apply "$patch_file"
-          changed_files="$(git diff --name-only)"
-          if grep -Fxq 'scripts/check.py' <<< "$changed_files"; then
+          git diff --name-only > "$RUNNER_TEMP/validation/changed-files.txt"
+          if grep -Fxq 'scripts/check.py' "$RUNNER_TEMP/validation/changed-files.txt"; then
             echo "scripts/check.py is the gate itself and is not agent-editable." >&2
             exit 1
           fi
-          if grep -Eq '^src/.*\.py$' <<< "$changed_files" && \
-             ! grep -Eq '^tests/test_.*\.py$' <<< "$changed_files" && \
-             [ "$baseline_test_status" -eq 0 ]; then
-            echo "A source behavior change requires a focused regression test when the baseline suite is green." >&2
-            exit 1
-          fi
-          python scripts/check.py
+          check_status=0
+          python scripts/check.py > "$RUNNER_TEMP/validation/check.log" 2>&1 || check_status=$?
+          python scripts/summarize_agentic_validation.py \
+            --changed-files "$RUNNER_TEMP/validation/changed-files.txt" \
+            --check-status "$check_status" \
+            --check-log "$RUNNER_TEMP/validation/check.log" \
+            --run-url "https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+            --output-dir "$RUNNER_TEMP/validation" \
+            >> "$GITHUB_STEP_SUMMARY"
+          cat "$RUNNER_TEMP/validation/validation.md" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: ${{ always() }}
+        with:
+          name: agentic-validation
+          path: ${{ runner.temp }}/validation
+          retention-days: 7
+          if-no-files-found: ignore
 ---
 
 # Azure Regional Feature Availability Monitor issue agent
@@ -257,8 +269,8 @@ Implement one atomic, independently reviewable correction for that task.
 2. Before editing, identify the causal chain from the source issue or exact live error to a specific code path and observable corrected behavior. If current code already handles that evidence, call `noop`; do not substitute an adjacent consistency cleanup or unrelated pre-existing test concern.
 3. Prefer the smallest coherent fix. Avoid broad cleanup, speculative refactors, and unrelated formatting.
 4. Keep provider-specific compatibility behavior provider-specific. Reconcile any shared helper change with every affected provider contract.
-5. Add or update focused regression tests for changed behavior. Any `src/**/*.py` behavior change must include a `tests/test_*.py` change, including presentation-only changes such as generated CSS or HTML. The publication gate rejects the patch and fails the run with "A source behavior change requires a focused regression test when the baseline suite is green", so write the test before committing. The only exception is a baseline suite that already fails for the exact bug; explain that evidence in the PR.
-6. Dependencies are already installed. Never run `pip`, `hatch`, or another installer. After your final edit and before you commit, run `python scripts/check.py --fix` and fix whatever it still reports. That one command repairs the mechanical findings that used to discard runs (unused imports in your own new test, trailing whitespace) and then runs exactly the checks the publication gate reruns, so a green result there is the same green result the gate will see.
+5. Add or update focused regression tests for changed behavior. Any `src/**/*.py` behavior change should ship with a `tests/test_*.py` change, including presentation-only changes such as generated CSS or HTML. All dashboard styles in this repository live inside Python string literals, so the assertion for a CSS or markup change belongs in `tests/test_static_site.py` and should check that the rendered page contains the specific token or rule you added.
+6. Dependencies are already installed. Never run `pip`, `hatch`, or another installer. After your final edit and before you commit, run `python scripts/check.py --fix` and fix whatever it still reports. That one command repairs the mechanical findings that used to discard runs (unused imports in your own new test, trailing whitespace) and then runs exactly the checks the publication gate reruns.
 7. Use `rg -F` for literal searches. Do not retry malformed regular expressions or out-of-range file reads.
 8. Limit orientation to the summary, relevance hints, and at most eight focused source/test reads. Do not map the whole repository or reread overlapping ranges. By tool call 16, either make the smallest justified edit or call `noop`.
 9. Review the final diff for scope, indentation, status semantics, and accidental generated-file changes. Stage every file you changed, source and tests together in one commit; run `git status --short` first and never `git add` a hand-picked subset of paths. Use a concise single-line commit subject; never embed literal `\\n` sequences in a commit message.
@@ -271,7 +283,9 @@ Implement one atomic, independently reviewable correction for that task.
 
 ## Required result
 
-If a safe correction is implemented and you have personally seen `python scripts/check.py --fix` pass on your final edit, call `create_pull_request` exactly once:
+If you implemented a safe correction, call `create_pull_request` exactly once. Publish it even when `python scripts/check.py --fix` still reports something you could not resolve: an imperfect draft is reviewable and repairable, an abandoned run is not. State plainly in the PR what you observed failing. Reserve `noop` for the case where no change is justified at all.
+
+When you do publish:
 
 - use branch `agentic/issue-<issue_number>`;
 - make the PR a small draft suitable for human review;
@@ -279,4 +293,4 @@ If a safe correction is implemented and you have personally seen `python scripts
 - explain source-issue queue selection, the causal link from Objective/evidence to changed behavior, implementation, alternatives and risks, changed files, and only validation actually observed in tool output;
 - include a closing keyword only when `recurring` is false.
 
-If no safe change is justified, the task is already satisfied, required evidence is unavailable, or validation does not pass, call `noop` exactly once with a concise reason. Never create a placeholder PR.
+Call `noop` exactly once, with a concise reason, only when no safe change is justified, the task is already satisfied, or the evidence required to act is unavailable. Never create a placeholder PR.
