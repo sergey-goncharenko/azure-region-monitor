@@ -2,15 +2,35 @@ import json
 from pathlib import Path
 
 from azure_region_monitor.static_site import (
+    DASHBOARD_CSS_PATH,
     _region_badge,
     _region_country_name,
     _region_short_label,
     _render_narrative_banner,
     _render_region_header,
     _sort_regions,
+    _style_block,
     build_static_site,
     _render_regional_latency_section,
 )
+
+
+def test_dashboard_styles_live_in_a_reviewable_stylesheet():
+    # Styles used to sit in a Python string literal, which made every design change a
+    # src/**/*.py edit with no natural place to assert anything.
+    assert DASHBOARD_CSS_PATH.is_file()
+    css = DASHBOARD_CSS_PATH.read_text(encoding="utf-8")
+    assert ":root {" in css
+    assert "<style" not in css
+
+    block = _style_block()
+    assert block.startswith("<style>\n")
+    assert block.rstrip().endswith("</style>")
+    assert "--available-bg: #e5f6ee;" in block
+
+
+def test_rendered_page_embeds_the_stylesheet_rules():
+    assert "--unknown-text: #4f5f73;" in _style_block()
 
 
 def test_narrative_banner_renders_ai_blog_post_with_headline_and_paragraphs():
