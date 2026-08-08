@@ -21,6 +21,10 @@ def test_verify_commands_run_tests_first_and_whitespace_last():
     assert commands[-1] == ["git", "diff", "--check"]
 
 
+def test_verify_commands_lint_the_stylesheet_that_ruff_cannot_parse():
+    assert any("scripts/check_css.py" in command for command in check.verify_commands())
+
+
 def test_verify_commands_accept_a_commit_range_for_pull_request_ci():
     assert check.verify_commands("abc123...HEAD")[-1] == [
         "git",

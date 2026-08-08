@@ -14,24 +14,8 @@
       --partial-text: #76520b;
       --unknown-bg: #edf1f6;
       --unknown-text: #4f5f73;
-      /* spacing tokens */
-      --space-xs: 4px;
-      --space-sm: 8px;
-      --space-md: 16px;
-      --space-lg: 24px;
-      /* radius tokens */
-      --radius-sm: 4px;
-      --radius-md: 8px;
-      --radius-lg: 12px;
-      /* border tokens */
-      --border-width: 1px;
-      /* focus tokens */
       --focus-outline-color: #2759a5;
       --focus-outline-width: 2px;
-      --transition-duration: 0.2s;
-      /* motion tokens */
-      --motion-duration: 0.3s;
-      --motion-easing: ease-in-out;
     }
     * { box-sizing: border-box; }
     body {
@@ -244,7 +228,7 @@
     /* reduced motion */
     @media (prefers-reduced-motion: reduce) {
       * {
-        animation-duration: 0 !important;
-        transition-duration: 0 !important;
+        animation-duration: 0s !important;
+        transition-duration: 0s !important;
       }
     }

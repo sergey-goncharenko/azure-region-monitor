@@ -79,7 +79,7 @@ def test_agentic_backlog_gates_prs_on_full_validation_and_safe_outputs():
     # Only security and patch integrity block publication. Quality findings ride along
     # with the draft PR, because a discarded run leaves the same issue at the queue head.
     assert "git apply \"$patch_file\"" in source
-    assert "scripts/check.py is the gate itself and is not agent-editable" in source
+    assert "The scripts/check*.py validators are the gate itself" in source
     assert "python scripts/check.py > \"$RUNNER_TEMP/validation/check.log\"" in source
     assert "summarize_agentic_validation.py" in source
     assert "name: agentic-validation" in source

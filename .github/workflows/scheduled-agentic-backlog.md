@@ -224,8 +224,8 @@ safe-outputs:
           fi
           git apply "$patch_file"
           git diff --name-only > "$RUNNER_TEMP/validation/changed-files.txt"
-          if grep -Fxq 'scripts/check.py' "$RUNNER_TEMP/validation/changed-files.txt"; then
-            echo "scripts/check.py is the gate itself and is not agent-editable." >&2
+          if grep -Eq '^scripts/check(_[a-z]+)?\.py$' "$RUNNER_TEMP/validation/changed-files.txt"; then
+            echo "The scripts/check*.py validators are the gate itself and are not agent-editable." >&2
             exit 1
           fi
           check_status=0
@@ -267,13 +267,14 @@ Implement one atomic, independently reviewable correction for that task.
 
 1. Inspect the relevant implementation, callers, and tests before editing.
 2. Before editing, identify the causal chain from the source issue or exact live error to a specific code path and observable corrected behavior. If current code already handles that evidence, call `noop`; do not substitute an adjacent consistency cleanup or unrelated pre-existing test concern.
-3. Prefer the smallest coherent fix. Avoid broad cleanup, speculative refactors, and unrelated formatting.
-4. Keep provider-specific compatibility behavior provider-specific. Reconcile any shared helper change with every affected provider contract.
-5. Add or update focused regression tests for changed behavior. Any `src/**/*.py` behavior change should ship with a `tests/test_*.py` change, including presentation-only changes such as generated CSS or HTML. All dashboard styles in this repository live inside Python string literals, so the assertion for a CSS or markup change belongs in `tests/test_static_site.py` and should check that the rendered page contains the specific token or rule you added.
-6. Dependencies are already installed. Never run `pip`, `hatch`, or another installer. After your final edit and before you commit, run `python scripts/check.py --fix` and fix whatever it still reports. That one command repairs the mechanical findings that used to discard runs (unused imports in your own new test, trailing whitespace) and then runs exactly the checks the publication gate reruns.
-7. Use `rg -F` for literal searches. Do not retry malformed regular expressions or out-of-range file reads.
-8. Limit orientation to the summary, relevance hints, and at most eight focused source/test reads. Do not map the whole repository or reread overlapping ranges. By tool call 16, either make the smallest justified edit or call `noop`.
-9. Review the final diff for scope, indentation, status semantics, and accidental generated-file changes. Stage every file you changed, source and tests together in one commit; run `git status --short` first and never `git add` a hand-picked subset of paths. Use a concise single-line commit subject; never embed literal `\\n` sequences in a commit message.
+3. Prefer the smallest change that fully delivers the Objective's outcome. Small is a tie-breaker between working solutions, not a licence to deliver a fraction of one. Avoid unrelated cleanup and speculative refactors, but do not stop short of the outcome to keep the diff small.
+4. Never introduce an abstraction you do not use in the same patch. Every CSS custom property you declare must be referenced by `var()` in a rule; every helper, constant, or class you add must have a call site. Declaring `--space-md` and leaving 97 hardcoded paddings in place is not a design-token system, it is dead code, and `python scripts/check.py` rejects unreferenced custom properties. If adopting the abstraction everywhere is too large for one patch, adopt it in the specific area the Objective names and say in the PR what remains.
+5. Keep provider-specific compatibility behavior provider-specific. Reconcile any shared helper change with every affected provider contract.
+6. Add or update focused regression tests for changed behavior. Any `src/**/*.py` behavior change should ship with a `tests/test_*.py` change, including presentation-only changes such as generated CSS or HTML. All dashboard styles live in `src/azure_region_monitor/assets/dashboard.css`, so a style change is a CSS diff, and its assertion belongs in `tests/test_static_site.py`.
+7. Dependencies are already installed. Never run `pip`, `hatch`, or another installer. After your final edit and before you commit, run `python scripts/check.py --fix` and fix whatever it still reports. That one command repairs the mechanical findings that used to discard runs (unused imports, trailing whitespace), lints the stylesheet, and then runs exactly the checks the publication gate reruns.
+8. Use `rg -F` for literal searches. Do not retry malformed regular expressions or out-of-range file reads.
+9. Limit orientation to the summary, relevance hints, and at most eight focused source/test reads. Do not map the whole repository or reread overlapping ranges. By tool call 16, either make the smallest justified edit or call `noop`.
+10. Review the final diff for scope, indentation, status semantics, and accidental generated-file changes. Stage every file you changed, source and tests together in one commit; run `git status --short` first and never `git add` a hand-picked subset of paths. Use a concise single-line commit subject; never embed literal `\\n` sequences in a commit message.
 
 ## Tool and reporting rules
 

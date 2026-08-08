@@ -27,6 +27,7 @@ def verify_commands(diff_range: str = "") -> list[list[str]]:
         [sys.executable, "-m", "ruff", "check", "."],
         [sys.executable, "-m", "ruff", "check", "--preview", "--select", "E117", "."],
         [sys.executable, "-m", "ruff", "check", "--select", "B018", "."],
+        [sys.executable, "scripts/check_css.py"],
         whitespace,
     ]
 
