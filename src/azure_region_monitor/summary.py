@@ -6,7 +6,6 @@ from importlib import resources
 from typing import Mapping, Protocol
 
 from azure_region_monitor.models import Change
-from azure_region_monitor.history import _feature_category
 
 ChangeKey = tuple[str, str, str]
 MAX_FACTS = 40
@@ -259,7 +258,9 @@ def expansion_label(expansion_kind: str | None, region_group: str | None = None)
 
 
 def feature_details(feature: str) -> tuple[str | None, str | None, str | None]:
-    # Map feature to modality category for details lookup
+    # Imported here because history imports this module; a module-level import cycles.
+    from azure_region_monitor.history import _feature_category
+
     return _DETAILS_BY_MODALITY.get(_feature_category(feature), (None, None, None))
 
 
