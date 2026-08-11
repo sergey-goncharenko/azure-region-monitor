@@ -840,6 +840,8 @@ def _feature_category(feature: str) -> str:
         return "AKS Kubernetes versions"
     if feature.startswith("vmSkus."):
         return "VM SKUs"
+    if feature.startswith("aiModels."):
+        return "Azure AI models"
     return feature.split(".", 1)[0]
 
 
