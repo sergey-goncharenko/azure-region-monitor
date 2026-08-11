@@ -122,12 +122,12 @@ if: needs.prepare.outputs.has_task == 'true'
 engine:
   id: copilot
   version: "1.0.65"
-  model: gpt-5.1-codex
+  model: gpt-5.3-codex
   max-continuations: 3
   env:
     COPILOT_PROVIDER_BASE_URL: https://azrm-code-eus2-16221e01.openai.azure.com/openai/v1
     COPILOT_PROVIDER_API_KEY: ${{ secrets.AZURE_CODING_OPENAI_KEY }}
-    COPILOT_PROVIDER_MODEL_ID: gpt-5.1-codex
+    COPILOT_PROVIDER_MODEL_ID: gpt-5.3-codex
     COPILOT_PROVIDER_WIRE_API: responses
 
 sandbox:
