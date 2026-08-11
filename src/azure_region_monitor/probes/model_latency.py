@@ -172,11 +172,12 @@ class ModelLatencyProbe:
                 measurements.append(measurement)
 
         if not measurements:
+            status = "unavailable" if last_error and last_error.error_code == "GitHubModelsHttp410" else "unknown"
             return ProbeResult(
                 service=SERVICE,
                 feature=model.feature,
                 result=FeatureResult(
-                    status="unknown",
+                    status=status,
                     error_code=last_error.error_code if last_error else "LatencyNoSamples",
                     message=(
                         last_error.message
