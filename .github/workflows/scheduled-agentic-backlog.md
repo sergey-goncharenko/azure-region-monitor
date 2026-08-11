@@ -141,9 +141,11 @@ network:
 timeout-minutes: 30
 # Runs that reached turn 49-50 were cut off by the proxy mid-task, which the Copilot CLI
 # reports as a provider 403; the credit ceilings are sized to cover the wider turn budget.
+# Temporarily raised for the 2026-08-12 o4-mini/gpt-5.1-codex/gpt-5.3-codex comparison so a
+# run is never truncated by the cap - otherwise the experiment measures the cap, not the model.
 max-turns: 80
-max-ai-credits: 700
-max-daily-ai-credits: 1400
+max-ai-credits: 2500
+max-daily-ai-credits: 8000
 
 tools:
   edit:
