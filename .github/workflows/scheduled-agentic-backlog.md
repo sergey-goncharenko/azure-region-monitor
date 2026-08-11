@@ -122,12 +122,12 @@ if: needs.prepare.outputs.has_task == 'true'
 engine:
   id: copilot
   version: "1.0.65"
-  model: gpt-5-codex
+  model: o4-mini
   max-continuations: 3
   env:
     COPILOT_PROVIDER_BASE_URL: https://azrm-code-eus2-16221e01.openai.azure.com/openai/v1
     COPILOT_PROVIDER_API_KEY: ${{ secrets.AZURE_CODING_OPENAI_KEY }}
-    COPILOT_PROVIDER_MODEL_ID: gpt-5-codex
+    COPILOT_PROVIDER_MODEL_ID: o4-mini
     COPILOT_PROVIDER_WIRE_API: responses
 
 sandbox:
@@ -141,11 +141,11 @@ network:
 timeout-minutes: 30
 # Runs that reached turn 49-50 were cut off by the proxy mid-task, which the Copilot CLI
 # reports as a provider 403; the credit ceilings are sized to cover the wider turn budget.
-# Temporarily raised for the 2026-08-12 o4-mini/gpt-5.1-codex/gpt-5-codex comparison so a
+# Temporarily raised for the 2026-08-12 o4-mini/gpt-5.1-codex/o4-mini comparison so a
 # run is never truncated by the cap - otherwise the experiment measures the cap, not the model.
 max-turns: 80
-max-ai-credits: 2500
-max-daily-ai-credits: 8000
+max-ai-credits: 700
+max-daily-ai-credits: 1400
 
 tools:
   edit:
