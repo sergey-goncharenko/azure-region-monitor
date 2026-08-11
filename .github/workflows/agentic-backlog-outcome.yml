@@ -14,7 +14,7 @@ permissions:
   actions: read
   issues: write
   pull-requests: write
-  statuses: write
+  checks: write
 
 concurrency:
   group: agentic-backlog-outcome-${{ github.event.workflow_run.id }}
@@ -158,11 +158,22 @@ jobs:
               -F body=@"$RUNNER_TEMP/validation/validation.md" > /dev/null
           fi
           if [ -n "$head_sha" ]; then
+            # A check run can conclude `neutral`; a commit status cannot, and a red cross
+            # made advisory findings look like a broken build.
+            jq -n \
+              --arg sha "$head_sha" \
+              --arg url "$RUN_URL" \
+              --slurpfile v "$RUNNER_TEMP/validation/validation.json" \
+              '{
+                 name: "agentic/validation",
+                 head_sha: $sha,
+                 status: "completed",
+                 conclusion: $v[0].conclusion,
+                 details_url: $url,
+                 output: { title: $v[0].title, summary: $v[0].summary }
+               }' > "$RUNNER_TEMP/check-run.json"
             gh api --method POST \
-              "repos/$GITHUB_REPOSITORY/statuses/$head_sha" \
-              -f state="$(jq -r '.state' "$RUNNER_TEMP/validation/validation.json")" \
-              -f context="agentic/validation" \
-              -f description="$(jq -r '.description' "$RUNNER_TEMP/validation/validation.json")" \
-              -f target_url="$RUN_URL" > /dev/null
+              "repos/$GITHUB_REPOSITORY/check-runs" \
+              --input "$RUNNER_TEMP/check-run.json" > /dev/null
           fi
           echo "Published advisory validation on PR #$pr_number." >> "$GITHUB_STEP_SUMMARY"

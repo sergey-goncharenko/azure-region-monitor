@@ -20,26 +20,42 @@ MARKER = "<!-- azure-agentic-validation -->"
 MAX_LOG_CHARS = 8_000
 
 
-def missing_regression_test(changed_files: list[str]) -> bool:
-    has_source = any(SOURCE_PATTERN.match(name) for name in changed_files)
-    has_test = any(TEST_PATTERN.match(name) for name in changed_files)
-    return has_source and not has_test
+def suggested_test_path(source_path: str) -> str:
+    """Return the test module this repository would conventionally put the assertion in."""
+    return f"tests/test_{Path(source_path).stem}.py"
+
+
+def sources_without_tests(changed_files: list[str]) -> list[str]:
+    if any(TEST_PATTERN.match(name) for name in changed_files):
+        return []
+    return [name for name in changed_files if SOURCE_PATTERN.match(name)]
+
+
+def checks(changed_files: list[str], check_status: int) -> list[tuple[str, bool, str]]:
+    """Return (name, passed, detail) for every advisory check, passing ones included.
+
+    Reporting only the failures made a green suite indistinguishable from a broken one.
+    """
+    untested = sources_without_tests(changed_files)
+    if untested:
+        targets = ", ".join(f"`{suggested_test_path(name)}`" for name in untested)
+        test_detail = f"none of the changed source files has a matching test; add {targets}"
+    else:
+        test_detail = "present"
+    return [
+        (
+            "Tests, lint and stylesheet (`scripts/check.py`)",
+            check_status == 0,
+            "all green" if check_status == 0 else "failed - see the output below",
+        ),
+        ("Regression test accompanies the source change", not untested, test_detail),
+    ]
 
 
 def findings(changed_files: list[str], check_status: int) -> list[str]:
-    results: list[str] = []
-    if check_status != 0:
-        results.append(
-            "`python scripts/check.py` failed on the candidate patch. "
-            "Run `python scripts/check.py --fix` on this branch to reproduce and repair it."
-        )
-    if missing_regression_test(changed_files):
-        results.append(
-            "A `src/**/*.py` change landed without a `tests/test_*.py` change. "
-            "Presentation-only edits still need one focused assertion, and for generated "
-            "CSS or HTML that assertion belongs in `tests/test_static_site.py`."
-        )
-    return results
+    return [
+        f"{name}: {detail}" for name, passed, detail in checks(changed_files, check_status) if not passed
+    ]
 
 
 def _log_tail(check_log: str) -> str:
@@ -54,23 +70,37 @@ def report_markdown(
     check_log: str,
     run_url: str,
 ) -> str:
-    problems = findings(changed_files, check_status)
-    lines = [MARKER, "## Agentic publication validation", ""]
-    if not problems:
-        lines.append("Deterministic validation passed on the published patch.")
-    else:
-        lines.append(
-            "This draft was published so the work is reviewable, but deterministic "
-            "validation reported findings. They are advisory: only security and "
-            "patch-integrity checks block publication."
-        )
-        lines.append("")
-        lines.extend(f"{index}. {problem}" for index, problem in enumerate(problems, start=1))
+    rows = checks(changed_files, check_status)
+    failed = [row for row in rows if not row[1]]
+    lines = [
+        MARKER,
+        "## Agentic publication validation",
+        "",
+        "**Advisory only.** Nothing below blocks this pull request. Publication is stopped "
+        "only by a security finding or a patch that will not apply, and neither happened here.",
+        "",
+        "| Check | Result |",
+        "| --- | --- |",
+    ]
+    lines.extend(
+        f"| {name} | {'pass' if passed else 'action needed'} - {detail} |" for name, passed, detail in rows
+    )
     lines.extend(["", "### Changed files", ""])
     lines.extend(f"- `{name}`" for name in changed_files)
+    if failed:
+        lines.extend(
+            [
+                "",
+                "### To resolve",
+                "",
+                "Comment `/agent-rework <what to change>` on this pull request to send it back "
+                "for another bounded pass, or push the fix yourself. Merging as-is is also fine "
+                "if you accept the findings above.",
+            ]
+        )
     if run_url:
         lines.extend(["", f"[Publication run]({run_url})"])
-    if problems and check_status != 0:
+    if check_status != 0:
         lines.extend(
             [
                 "",
@@ -114,11 +144,18 @@ def main() -> int:
     (output_dir / "validation.json").write_text(
         json.dumps(
             {
-                "state": "success" if not problems else "failure",
-                "description": (
-                    "Deterministic validation passed."
+                # `neutral`, not `failure`: a red cross reads as "this is broken" and these
+                # findings never block the pull request.
+                "conclusion": "success" if not problems else "neutral",
+                "title": (
+                    "Advisory validation passed"
                     if not problems
-                    else f"{len(problems)} advisory validation finding(s)."
+                    else f"{len(problems)} advisory finding(s), nothing blocking"
+                ),
+                "summary": (
+                    "Tests, lint and stylesheet checks all passed on the published patch."
+                    if not problems
+                    else "\n".join(f"- {problem}" for problem in problems)
                 ),
                 "changed_files": changed_files,
                 "check_status": args.check_status,

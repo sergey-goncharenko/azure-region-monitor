@@ -14,49 +14,55 @@ sys.modules[SPEC.name] = summarize
 SPEC.loader.exec_module(summarize)
 
 
-def test_css_only_change_is_reported_but_never_blocks():
-    # Issue #53 shape: all dashboard CSS lives in a Python string literal.
-    changed = ["src/azure_region_monitor/static_site.py"]
-    assert summarize.missing_regression_test(changed) is True
-
-    problems = summarize.findings(changed, check_status=0)
-    assert len(problems) == 1
-    assert "tests/test_static_site.py" in problems[0]
+PROBE = "src/azure_region_monitor/probes/model_latency.py"
 
 
-def test_source_change_with_a_test_reports_nothing():
-    changed = ["src/azure_region_monitor/static_site.py", "tests/test_static_site.py"]
-    assert summarize.missing_regression_test(changed) is False
-    assert summarize.findings(changed, check_status=0) == []
-
-
-def test_docs_only_change_needs_no_test():
-    assert summarize.missing_regression_test(["README.md"]) is False
-
-
-def test_failed_check_is_reported_alongside_the_missing_test():
-    problems = summarize.findings(["src/azure_region_monitor/api.py"], check_status=1)
-    assert len(problems) == 2
-    assert "scripts/check.py --fix" in problems[0]
-
-
-def test_report_markdown_is_idempotently_updatable_and_lists_changed_files():
-    report = summarize.report_markdown(
-        ["src/azure_region_monitor/static_site.py"],
-        check_status=0,
-        check_log="",
-        run_url="https://example.invalid/run/1",
+def test_suggested_test_path_points_at_the_matching_module():
+    # PR #71 changed the latency probe and was told the assertion belonged in the
+    # static-site tests, which was boilerplate for a completely unrelated surface.
+    assert summarize.suggested_test_path(PROBE) == "tests/test_model_latency.py"
+    assert (
+        summarize.suggested_test_path("src/azure_region_monitor/static_site.py")
+        == "tests/test_static_site.py"
     )
+
+
+def test_sources_without_tests_lists_the_actual_files():
+    assert summarize.sources_without_tests([PROBE]) == [PROBE]
+    assert summarize.sources_without_tests([PROBE, "tests/test_model_latency.py"]) == []
+    assert summarize.sources_without_tests(["README.md"]) == []
+
+
+def test_checks_report_passing_rows_too():
+    rows = summarize.checks([PROBE], check_status=0)
+    assert any("scripts/check.py" in name for name, _passed, _detail in rows)
+    assert rows[0][1] is True and rows[0][2] == "all green"
+    assert rows[1][1] is False
+
+
+def test_report_names_the_right_test_file_and_says_nothing_is_blocked():
+    report = summarize.report_markdown([PROBE], 0, "", "https://example.invalid/run/1")
     assert report.startswith(summarize.MARKER)
-    assert "advisory" in report
-    assert "- `src/azure_region_monitor/static_site.py`" in report
+    assert "Advisory only" in report
+    assert "tests/test_model_latency.py" in report
+    assert "static_site" not in report
+    # The green row must stay visible, otherwise a reader cannot tell a passing suite
+    # from a broken one.
+    assert "pass - all green" in report
+    assert "/agent-rework" in report
     assert "https://example.invalid/run/1" in report
 
 
-def test_clean_report_states_success_without_a_findings_list():
-    report = summarize.report_markdown([], check_status=0, check_log="", run_url="")
-    assert "Deterministic validation passed" in report
-    assert "advisory" not in report
+def test_clean_report_has_no_resolution_section():
+    report = summarize.report_markdown([PROBE, "tests/test_model_latency.py"], 0, "", "")
+    assert "action needed" not in report
+    assert "To resolve" not in report
+
+
+def test_failed_check_marks_the_row_and_attaches_the_output():
+    report = summarize.report_markdown([PROBE], 1, "boom happened", "")
+    assert "action needed - failed" in report
+    assert "boom happened" in report
 
 
 def test_long_check_output_is_truncated_from_the_front():
@@ -65,33 +71,42 @@ def test_long_check_output_is_truncated_from_the_front():
     assert len(tail) == summarize.MAX_LOG_CHARS + len("...truncated...\n")
 
 
-def test_main_writes_the_report_and_machine_readable_state(tmp_path):
+def _run_main(tmp_path, changed_lines: str, check_status: str):
     changed = tmp_path / "changed.txt"
-    changed.write_text("src/azure_region_monitor/static_site.py\n", encoding="utf-8")
+    changed.write_text(changed_lines, encoding="utf-8")
     check_log = tmp_path / "check.log"
     check_log.write_text("boom\n", encoding="utf-8")
     out = tmp_path / "out"
 
-    argv = [
+    original = sys.argv
+    sys.argv = [
         "summarize_agentic_validation.py",
         "--changed-files",
         str(changed),
         "--check-status",
-        "1",
+        check_status,
         "--check-log",
         str(check_log),
         "--output-dir",
         str(out),
     ]
-    original = sys.argv
-    sys.argv = argv
     try:
         assert summarize.main() == 0
     finally:
         sys.argv = original
+    return json.loads((out / "validation.json").read_text(encoding="utf-8")), out
 
-    state = json.loads((out / "validation.json").read_text(encoding="utf-8"))
-    assert state["state"] == "failure"
+
+def test_advisory_result_is_neutral_never_failure(tmp_path):
+    # A red cross reads as "the build is broken"; these findings never block the PR.
+    state, out = _run_main(tmp_path, f"{PROBE}\n", "1")
+    assert state["conclusion"] == "neutral"
+    assert "nothing blocking" in state["title"]
     assert state["check_status"] == 1
-    assert state["changed_files"] == ["src/azure_region_monitor/static_site.py"]
+    assert state["changed_files"] == [PROBE]
     assert "boom" in (out / "validation.md").read_text(encoding="utf-8")
+
+
+def test_clean_run_concludes_success(tmp_path):
+    state, _ = _run_main(tmp_path, f"{PROBE}\ntests/test_model_latency.py\n", "0")
+    assert state["conclusion"] == "success"
