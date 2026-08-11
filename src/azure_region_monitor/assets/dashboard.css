@@ -16,6 +16,10 @@
       --unknown-text: #4f5f73;
       --focus-outline-color: #2759a5;
       --focus-outline-width: 2px;
+      /* design tokens */
+      --space: 12px;
+      --radius: 8px;
+      --border-width: 1px;
     }
     * { box-sizing: border-box; }
     body {
@@ -42,7 +46,7 @@
     .resource-links { display: flex; flex-wrap: wrap; gap: 10px; padding: 12px 14px 14px; }
     .resource-links a { display: inline-flex; align-items: center; min-height: 30px; border: 1px solid var(--line); border-radius: 6px; padding: 4px 9px; background: #f8fafc; font-weight: 600; text-decoration: none; }
     .metrics { display: grid; grid-template-columns: repeat(4, minmax(130px, 1fr)); gap: 10px; margin: 18px 0; }
-    .metric { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
+    .metric { background: var(--panel); border: var(--border-width) solid var(--line); border-radius: var(--radius); padding: var(--space); }
     .metric-value { font-size: 24px; font-weight: 650; }
     .metric-label { color: var(--muted); font-size: 13px; margin-top: 2px; }
     .metric-detail { display: flex; align-items: center; gap: 8px; min-height: 20px; margin-top: 7px; color: var(--muted); font-size: 12px; line-height: 1.3; }
