@@ -1,6 +1,6 @@
 # Azure-Funded Agent Sessions
 
-This repository runs bounded Azure-funded schedules. The regular issue backlog runs daily at 07:00 UTC through the GitHub Agentic Workflows source [.github/workflows/scheduled-agentic-backlog.md](../.github/workflows/scheduled-agentic-backlog.md) and its generated lock workflow. The former Aider workflow [.github/workflows/scheduled-azure-backlog.yml](../.github/workflows/scheduled-azure-backlog.yml) remains available only for manual fallback and existing PR rework during the comparison period. Public documentation alignment runs at 09:00 UTC through [.github/workflows/scheduled-azure-maintenance.yml](../.github/workflows/scheduled-azure-maintenance.yml). Maintainer-only security and repository-hygiene analysis runs at 10:00 UTC in the private `azure-region-monitor-maintainers` companion repository. Actionable public coding work lives in GitHub Issues, not in repository configuration files.
+This repository runs bounded Azure-funded schedules. The regular issue backlog runs daily at 07:00 UTC through the GitHub Agentic Workflows source [.github/workflows/scheduled-agentic-backlog.md](../.github/workflows/scheduled-agentic-backlog.md) and its generated lock workflow. The former Aider workflow [.github/workflows/scheduled-azure-backlog.yml](../.github/workflows/scheduled-azure-backlog.yml) remains available only for manual fallback and existing PR rework. Public documentation alignment runs at 09:00 UTC through [.github/workflows/scheduled-azure-maintenance.yml](../.github/workflows/scheduled-azure-maintenance.yml). Maintainer-only security and repository-hygiene analysis runs at 10:00 UTC in the private `azure-region-monitor-maintainers` companion repository. Actionable public coding work lives in GitHub Issues, not in repository configuration files.
 
 ## Issue Backlog Order
 
@@ -100,7 +100,7 @@ Agentic runs expose prompts, outputs, patches, tool/firewall logs, token usage, 
 
 ## Requesting Changes On A Bot PR
 
-During the first comparison period, agentic `[agentic]` PRs use normal human review; do not expect the existing Aider rework dispatcher to update their salted `agentic/issue-*` branches. For an Aider fallback PR on `azure-issues/issue-<number>`, repository collaborators can request another Azure-funded coding pass without opening the Actions page:
+Agentic `[agentic]` PRs use normal human review; do not expect the existing Aider rework dispatcher to update their salted `agentic/issue-*` branches. For an Aider fallback PR on `azure-issues/issue-<number>`, repository collaborators can request another Azure-funded coding pass without opening the Actions page:
 
 1. Describe the required bounded correction in the **Request changes** review body, or after `/agent-rework` in a new PR conversation comment.
 2. Submit the review or comment. The triggering text is capped and carried as trusted acceptance criteria only after write-level permission and PR/source-issue validation; it cannot expand editable paths or override safety controls.
@@ -146,7 +146,7 @@ The agentic workflow gives the model only read permissions. Deterministic prepar
 - BYOK agent prompts contain the bounded task evidence and may use more Azure input tokens than the former direct JSON client; that trade-off is intentional for a full coding-agent runtime.
 - The agentic lane caps the main run at 400 AI credits, a rolling daily schedule at 800 AI credits, threat detection at 200 AI credits, 50 tool turns, three continuations, and 30 minutes. The dedicated `o4-mini` deployment has 100K TPM.
 - The Aider fallback keeps its 70-minute job limit so a manually requested three-issue run can accommodate three 15-minute outer budgets plus validation and cooldowns. Each scheduled or manual agentic run creates at most one draft PR. Each workflow has its own concurrency lock.
-- The older Copilot path is intentionally manual-only in [.github/workflows/scheduled-copilot-agents.yml](../.github/workflows/scheduled-copilot-agents.yml), for an occasional comparison rather than recurring consumption.
+- The older Copilot path is intentionally manual-only in [.github/workflows/scheduled-copilot-agents.yml](../.github/workflows/scheduled-copilot-agents.yml), for occasional manual use rather than recurring consumption.
 
 ## Manual Run
 
@@ -161,5 +161,5 @@ For manual fallback or existing Aider PR rework, select **Scheduled Azure backlo
 
 For public documentation work, select **Scheduled Azure documentation alignment**. For security/hygiene work, use **Scheduled private Azure analysis** in the private companion repository. Dry runs build the relevant manifests without starting a model, creating a PR, or updating reports.
 
-The comparison is reversible: disable the agentic schedule before restoring the Aider schedule so regular issue work never runs twice.
+The schedules are reversible: disable the agentic schedule before restoring the Aider schedule so regular issue work never runs twice.
 <!-- End of Azure-funded agent session guide. -->
