@@ -1771,7 +1771,7 @@ def _render_narrative_banner(day: dict[str, Any]) -> str:
         body = "".join(
             f"<p>{html.escape(paragraph)}</p>" for paragraph in rest if paragraph
         )
-        content = f'<p class="narrative-headline">{html.escape(headline)}</p>{body}'
+        content = f'<h3 class="narrative-headline">{html.escape(headline)}</h3>{body}'
     else:
         content = f"<p>{html.escape(narrative)}</p>"
 
