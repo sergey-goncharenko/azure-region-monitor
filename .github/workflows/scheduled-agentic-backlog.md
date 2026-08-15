@@ -119,7 +119,7 @@ jobs:
 
 if: needs.prepare.outputs.has_task == 'true'
 
-model: o4-mini
+model: gpt-5.6-terra
 engine:
   id: copilot
   version: "1.0.65"
@@ -127,7 +127,7 @@ engine:
   env:
     COPILOT_PROVIDER_BASE_URL: https://azrm-code-eus2-16221e01.openai.azure.com/openai/v1
     COPILOT_PROVIDER_API_KEY: ${{ secrets.AZURE_CODING_OPENAI_KEY }}
-    COPILOT_PROVIDER_MODEL_ID: o4-mini
+    COPILOT_PROVIDER_MODEL_ID: gpt-5.6-terra
     COPILOT_PROVIDER_WIRE_API: responses
 
 sandbox:

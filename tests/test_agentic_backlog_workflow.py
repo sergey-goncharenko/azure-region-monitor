@@ -32,13 +32,14 @@ def test_agentic_backlog_is_the_only_daily_issue_coding_schedule():
     assert "aider-chat==0.86.2" in fallback
 
 
-def test_agentic_backlog_uses_existing_azure_o4_byok_with_secret_isolation():
+def test_agentic_backlog_uses_existing_azure_byok_with_secret_isolation():
     source = SOURCE.read_text(encoding="utf-8")
     lock = LOCK.read_text(encoding="utf-8")
 
     assert "engine:\n  id: copilot" in source
     assert 'version: "1.0.65"' in source
-    assert "model: o4-mini" in source
+    # Any Azure deployment works from AWF 0.27.44; 0.27.11 rejected everything but o4-mini.
+    assert "model: gpt-5.6-terra" in source
     assert "max-continuations: 3" in source
     assert "max-turns: 80" in source
     assert "max-ai-credits: 700" in source
