@@ -121,9 +121,10 @@ engine:
   id: codex
   model: gpt-5.3-codex
   env:
-    # Trailing slash is required: without it the client drops /v1 when joining the path
-    # and lands on the legacy /openai/responses route, which needs an api-version query.
-    OPENAI_BASE_URL: https://azrm-code-eus2-16221e01.openai.azure.com/openai/v1/
+    # learn.microsoft.com/azure/foundry/openai/how-to/codex prescribes this exact form,
+    # no trailing slash. gh-aw still rewrites it to model_provider "openai-proxy" at
+    # http://172.30.0.30:10000, which drops the /openai/v1 path, so Azure 404s.
+    OPENAI_BASE_URL: https://azrm-code-eus2-16221e01.openai.azure.com/openai/v1
     OPENAI_API_KEY: ${{ secrets.AZURE_CODING_OPENAI_KEY }}
 
 sandbox:
