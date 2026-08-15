@@ -1,4 +1,5 @@
 import json
+import re
 from pathlib import Path
 
 from azure_region_monitor.static_site import (
@@ -27,6 +28,23 @@ def test_dashboard_styles_live_in_a_reviewable_stylesheet():
     assert block.startswith("<style>\n")
     assert block.rstrip().endswith("</style>")
     assert "--available-bg: #e5f6ee;" in block
+
+
+def test_dashboard_density_uses_shared_spacing_radius_and_border_tokens():
+    css = DASHBOARD_CSS_PATH.read_text(encoding="utf-8")
+
+    assert "--space-unit: 2px;" in css
+    assert "--border-width: 1px;" in css
+    assert "border-radius: 999px" not in css
+    assert not re.search(
+        r"(?:^|[;{])\s*(?:margin|padding|gap)(?:-[a-z]+)?\s*:[^;{}]*\b\d+px",
+        css,
+    )
+    assert not re.search(
+        r"(?:^|[;{])\s*border(?:-(?:top|right|bottom|left))?\s*:\s*\d+px",
+        css,
+    )
+    assert not re.search(r"border-radius:\s*\d+px", css)
 
 
 def test_rendered_page_embeds_the_stylesheet_rules():
