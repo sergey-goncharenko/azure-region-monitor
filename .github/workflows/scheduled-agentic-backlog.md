@@ -119,10 +119,10 @@ jobs:
 
 if: needs.prepare.outputs.has_task == 'true'
 
+model: o4-mini
 engine:
   id: copilot
   version: "1.0.65"
-  model: o4-mini
   max-continuations: 3
   env:
     COPILOT_PROVIDER_BASE_URL: https://azrm-code-eus2-16221e01.openai.azure.com/openai/v1
