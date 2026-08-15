@@ -31,6 +31,14 @@ from azure_region_monitor.storage import load_snapshot
 # rather than an edit to a Python string literal.
 DASHBOARD_CSS_PATH = Path(__file__).resolve().parent / "assets" / "dashboard.css"
 
+
+def _style_block() -> str:
+    """
+    Read the dashboard CSS and wrap it in a <style> tag for embedding in HTML.
+    """
+    css = DASHBOARD_CSS_PATH.read_text(encoding="utf-8")
+    return f"<style>\n{css}\n</style>"
+
 _COUNTRY_NAMES = {
   "AE": "United Arab Emirates",
   "AT": "Austria",
