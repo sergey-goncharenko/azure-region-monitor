@@ -1,6 +1,6 @@
 ---
-name: Codex engine canary
-description: Manual A/B of the codex engine against the copilot engine on the same task.
+name: Model canary
+description: Manual A/B of one model against o4-mini on the same task, Azure BYOK.
 on:
   workflow_dispatch:
     inputs:
@@ -118,14 +118,15 @@ jobs:
 if: needs.prepare.outputs.has_task == 'true'
 
 engine:
-  id: codex
-  model: gpt-5.3-codex
+  id: copilot
+  version: "1.0.65"
+  model: gpt-5.6-terra
+  max-continuations: 3
   env:
-    # learn.microsoft.com/azure/foundry/openai/how-to/codex prescribes this exact form,
-    # no trailing slash. gh-aw still rewrites it to model_provider "openai-proxy" at
-    # http://172.30.0.30:10000, which drops the /openai/v1 path, so Azure 404s.
-    OPENAI_BASE_URL: https://azrm-code-eus2-16221e01.openai.azure.com/openai/v1
-    OPENAI_API_KEY: ${{ secrets.AZURE_CODING_OPENAI_KEY }}
+    COPILOT_PROVIDER_BASE_URL: https://azrm-code-eus2-16221e01.openai.azure.com/openai/v1
+    COPILOT_PROVIDER_API_KEY: ${{ secrets.AZURE_CODING_OPENAI_KEY }}
+    COPILOT_PROVIDER_MODEL_ID: gpt-5.6-terra
+    COPILOT_PROVIDER_WIRE_API: responses
 
 sandbox:
   agent: awf
