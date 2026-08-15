@@ -1,0 +1,33 @@
+name: Copilot setup steps
+
+# GitHub Copilot cloud agent runs in an ephemeral GitHub Actions environment. This job
+# name is a fixed contract: the agent runs it before starting work so the repository's
+# own validation entrypoint is available to it.
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+  pull_request:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+
+jobs:
+  copilot-setup-steps:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: "3.11"
+      - name: Install the package and its validation dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install -e .
+          python -m pip install "httpx>=0.27,<1" "pytest>=8.2,<9" "ruff>=0.6,<1"
+      - name: Confirm the shared validation entrypoint runs
+        run: python scripts/check.py
