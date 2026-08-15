@@ -121,7 +121,9 @@ engine:
   id: codex
   model: gpt-5.3-codex
   env:
-    OPENAI_BASE_URL: https://azrm-code-eus2-16221e01.openai.azure.com/openai/v1
+    # Trailing slash is required: without it the client drops /v1 when joining the path
+    # and lands on the legacy /openai/responses route, which needs an api-version query.
+    OPENAI_BASE_URL: https://azrm-code-eus2-16221e01.openai.azure.com/openai/v1/
     OPENAI_API_KEY: ${{ secrets.AZURE_CODING_OPENAI_KEY }}
 
 sandbox:
