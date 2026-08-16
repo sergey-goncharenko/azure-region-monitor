@@ -133,6 +133,7 @@ def test_agent_summary_states_the_publication_gate_before_the_task():
     summary = agentic_filter.agent_task_summary(_manifest(53))
 
     assert summary.index("Publication gate") < summary.index("Issue queue selection")
-    assert "ships with a `tests/test_*.py` change in the same commit" in summary
-    assert "`python scripts/check.py --fix` passes on the final edit" in summary
-    assert "stages every file changed, not a hand-picked subset" in summary
+    assert "ships with a `tests/test_*.py` change" in summary
+    assert "`pytest` and `ruff` are " in summary
+    assert "never create a branch, stage, or commit" in summary
+    assert "let `create_pull_request` collect them" in summary

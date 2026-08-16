@@ -89,7 +89,11 @@ def test_agentic_backlog_gates_prs_on_full_validation_and_safe_outputs():
     assert "baseline_test_status" not in source
     assert "A source behavior change requires a focused regression test" not in source
     # The gate, PR CI, and the agent all share one entrypoint so they cannot drift.
-    assert "python scripts/check.py --fix" in source
+    # The sandbox denies branch creation and commits, and pytest/ruff are not importable
+    # there; run 31933692344 discarded finished work because the prompt said otherwise.
+    assert "Do not create a branch, stage files, or commit" in source
+    assert "`pytest` and `ruff` are not importable" in source or "not importable from your sandbox" in source
+    assert "Never abandon completed work because a command was denied" in source
     assert '"-m", "pytest"' in check_script
     assert '"-m", "ruff", "check", "."' in check_script
     assert '"--preview", "--select", "E117"' in check_script
@@ -97,7 +101,6 @@ def test_agentic_backlog_gates_prs_on_full_validation_and_safe_outputs():
     assert '"git", "diff", "--check"' in check_script
     assert "causal chain from the source issue or exact live error" in source
     assert "do not substitute an adjacent consistency cleanup" in source
-    assert "never embed literal `\\\\n` sequences" in source
     assert "an imperfect draft is reviewable and repairable" in source
     assert "this is a noop run" in source
     assert "protected-files: request_review" in source

@@ -120,12 +120,13 @@ def agent_task_summary(manifest: dict[str, Any]) -> str:
         "",
         "Aim for all of the following anyway, because they are what a reviewer checks:",
         "",
-        "- every `src/**/*.py` change ships with a `tests/test_*.py` change in the same commit, "
-        "including presentation-only changes such as generated CSS or HTML, whose assertion "
+        "- every `src/**/*.py` change ships with a `tests/test_*.py` change, including "
+        "presentation-only changes such as generated CSS or HTML, whose assertion "
         "belongs in `tests/test_static_site.py`;",
-        "- `python scripts/check.py --fix` passes on the final edit; it repairs mechanical lint "
-        "findings and then runs exactly the checks the gate reruns;",
-        "- the commit stages every file changed, not a hand-picked subset of paths.",
+        "- `python scripts/check_css.py` and `git diff --check` pass. `pytest` and `ruff` are "
+        "not importable from your sandbox; the gate runs them for you afterwards;",
+        "- you never create a branch, stage, or commit. Leave the edits in the working tree "
+        "and let `create_pull_request` collect them.",
         "",
         "## Issue queue selection",
         "",

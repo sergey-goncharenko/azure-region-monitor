@@ -273,10 +273,10 @@ Implement one atomic, independently reviewable correction for that task.
 4. Never introduce an abstraction you do not use in the same patch. Every CSS custom property you declare must be referenced by `var()` in a rule; every helper, constant, or class you add must have a call site. Declaring `--space-md` and leaving 97 hardcoded paddings in place is not a design-token system, it is dead code, and `python scripts/check.py` rejects unreferenced custom properties. If adopting the abstraction everywhere is too large for one patch, adopt it in the specific area the Objective names and say in the PR what remains.
 5. Keep provider-specific compatibility behavior provider-specific. Reconcile any shared helper change with every affected provider contract.
 6. Add or update focused regression tests for changed behavior. Any `src/**/*.py` behavior change should ship with a `tests/test_*.py` change, including presentation-only changes such as generated CSS or HTML. All dashboard styles live in `src/azure_region_monitor/assets/dashboard.css`, so a style change is a CSS diff, and its assertion belongs in `tests/test_static_site.py`.
-7. Dependencies are already installed. Never run `pip`, `hatch`, or another installer. After your final edit and before you commit, run `python scripts/check.py --fix` and fix whatever it still reports. That one command repairs the mechanical findings that used to discard runs (unused imports, trailing whitespace), lints the stylesheet, and then runs exactly the checks the publication gate reruns.
+7. Dependencies for the *gate* are installed, but `pytest` and `ruff` are not importable from your sandbox, so do not try to run them and do not report their absence as a blocker. What you can and should run before finishing is `python scripts/check_css.py` and `git diff --check`. The independent publication gate runs the full `python scripts/check.py` on your patch afterwards, and its findings are advisory, so an imperfect patch is still worth publishing.
 8. Use `rg -F` for literal searches. Do not retry malformed regular expressions or out-of-range file reads.
 9. Understand the code before you edit it. Do not map the whole repository or reread overlapping ranges, but do read every file your change affects, including the callers and tests around it. Recent runs finished in 25 of the 80 available turns, so comprehension is not what you should economise on; delivering a fraction of the outcome because you read too little is the more common failure. If you pass roughly forty tool calls with no clear edit in mind, call `noop` and state exactly which evidence was missing.
-10. Review the final diff for scope, indentation, status semantics, and accidental generated-file changes. Stage every file you changed, source and tests together in one commit; run `git status --short` first and never `git add` a hand-picked subset of paths. Use a concise single-line commit subject; never embed literal `\\n` sequences in a commit message.
+10. Review the final diff for scope, indentation, status semantics, and accidental generated-file changes. **Do not create a branch, stage files, or commit.** The sandbox denies those operations by design; `create_pull_request` collects your working-tree changes for you. Leave every edit uncommitted in the working tree and declare the pull request.
 
 ## Tool and reporting rules
 
@@ -286,7 +286,7 @@ Implement one atomic, independently reviewable correction for that task.
 
 ## Required result
 
-If you implemented a safe correction, call `create_pull_request` exactly once. Publish it even when `python scripts/check.py --fix` still reports something you could not resolve: an imperfect draft is reviewable and repairable, an abandoned run is not. State plainly in the PR what you observed failing. Reserve `noop` for the case where no change is justified at all.
+If you implemented a safe correction, call `create_pull_request` exactly once, leaving your edits uncommitted in the working tree. Publish even when something still looks unresolved: an imperfect draft is reviewable and repairable, an abandoned run is not. Never abandon completed work because a command was denied or a tool was missing - say so in the PR body and publish anyway. State plainly what you observed failing. Reserve `noop` for the case where no change is justified at all.
 
 When you do publish:
 
