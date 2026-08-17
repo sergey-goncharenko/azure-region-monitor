@@ -135,5 +135,5 @@ def test_agent_summary_states_the_publication_gate_before_the_task():
     assert summary.index("Publication gate") < summary.index("Issue queue selection")
     assert "ships with a `tests/test_*.py` change" in summary
     assert "`pytest` and `ruff` are " in summary
-    assert "never create a branch, stage, or commit" in summary
-    assert "let `create_pull_request` collect them" in summary
+    assert "no commits were found" in summary
+    assert "staging source and tests together" in summary

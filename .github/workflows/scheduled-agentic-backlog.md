@@ -155,6 +155,13 @@ tools:
     - "git log:*"
     - "git show:*"
     - "git status:*"
+    # create_pull_request rejects a run with no commits, so the agent has to be able to
+    # branch and commit; run 32006961427 finished the work and lost it without these.
+    - "git checkout:*"
+    - "git switch:*"
+    - "git branch:*"
+    - "git add:*"
+    - "git commit:*"
     - "jq:*"
     - "rg:*"
     - "python3:*"
@@ -276,7 +283,7 @@ Implement one atomic, independently reviewable correction for that task.
 7. Dependencies for the *gate* are installed, but `pytest` and `ruff` are not importable from your sandbox, so do not try to run them and do not report their absence as a blocker. What you can and should run before finishing is `python scripts/check_css.py` and `git diff --check`. The independent publication gate runs the full `python scripts/check.py` on your patch afterwards, and its findings are advisory, so an imperfect patch is still worth publishing.
 8. Use `rg -F` for literal searches. Do not retry malformed regular expressions or out-of-range file reads.
 9. Understand the code before you edit it. Do not map the whole repository or reread overlapping ranges, but do read every file your change affects, including the callers and tests around it. Recent runs finished in 25 of the 80 available turns, so comprehension is not what you should economise on; delivering a fraction of the outcome because you read too little is the more common failure. If you pass roughly forty tool calls with no clear edit in mind, call `noop` and state exactly which evidence was missing.
-10. Review the final diff for scope, indentation, status semantics, and accidental generated-file changes. **Do not create a branch, stage files, or commit.** The sandbox denies those operations by design; `create_pull_request` collects your working-tree changes for you. Leave every edit uncommitted in the working tree and declare the pull request.
+10. Review the final diff for scope, indentation, status semantics, and accidental generated-file changes. Then create the branch and commit: `create_pull_request` is rejected with "no commits were found" if you leave the work uncommitted. Run `git checkout -b agentic/issue-<issue_number>`, `git add -A`, and one `git commit` with a concise single-line subject, staging source and tests together rather than a hand-picked subset.
 
 ## Tool and reporting rules
 
@@ -286,7 +293,7 @@ Implement one atomic, independently reviewable correction for that task.
 
 ## Required result
 
-If you implemented a safe correction, call `create_pull_request` exactly once, leaving your edits uncommitted in the working tree. Publish even when something still looks unresolved: an imperfect draft is reviewable and repairable, an abandoned run is not. Never abandon completed work because a command was denied or a tool was missing - say so in the PR body and publish anyway. State plainly what you observed failing. Reserve `noop` for the case where no change is justified at all.
+If you implemented a safe correction, commit it on `agentic/issue-<issue_number>` and call `create_pull_request` exactly once. Publish even when something still looks unresolved: an imperfect draft is reviewable and repairable, an abandoned run is not. Never abandon completed work because a command was denied or a tool was missing - say so in the PR body and publish anyway. State plainly what you observed failing. Reserve `noop` for the case where no change is justified at all.
 
 When you do publish:
 

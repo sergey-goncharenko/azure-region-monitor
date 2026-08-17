@@ -89,9 +89,12 @@ def test_agentic_backlog_gates_prs_on_full_validation_and_safe_outputs():
     assert "baseline_test_status" not in source
     assert "A source behavior change requires a focused regression test" not in source
     # The gate, PR CI, and the agent all share one entrypoint so they cannot drift.
-    # The sandbox denies branch creation and commits, and pytest/ruff are not importable
-    # there; run 31933692344 discarded finished work because the prompt said otherwise.
-    assert "Do not create a branch, stage files, or commit" in source
+    # create_pull_request is rejected with "no commits were found", so the agent must be
+    # able to branch and commit; run 32006961427 finished the work and lost it without this.
+    assert '"git checkout:*"' in source
+    assert '"git add:*"' in source
+    assert '"git commit:*"' in source
+    assert "no commits were found" in source
     assert "`pytest` and `ruff` are not importable" in source or "not importable from your sandbox" in source
     assert "Never abandon completed work because a command was denied" in source
     assert '"-m", "pytest"' in check_script

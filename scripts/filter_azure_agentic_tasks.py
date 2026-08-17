@@ -125,8 +125,9 @@ def agent_task_summary(manifest: dict[str, Any]) -> str:
         "belongs in `tests/test_static_site.py`;",
         "- `python scripts/check_css.py` and `git diff --check` pass. `pytest` and `ruff` are "
         "not importable from your sandbox; the gate runs them for you afterwards;",
-        "- you never create a branch, stage, or commit. Leave the edits in the working tree "
-        "and let `create_pull_request` collect them.",
+        "- you commit the work on `agentic/issue-<number>` before calling "
+        "`create_pull_request`, staging source and tests together. The safe output is "
+        "rejected with \"no commits were found\" if you leave the tree dirty.",
         "",
         "## Issue queue selection",
         "",
