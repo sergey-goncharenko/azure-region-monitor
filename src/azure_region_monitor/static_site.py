@@ -714,6 +714,8 @@ def _render_index(snapshot: Snapshot, recent_changes: dict[str, Any] | None = No
     rows = _flatten_snapshot(snapshot)
     status_counts = _status_counts(rows)
     status_total = sum(status_counts.values())
+    unknown_count = status_counts.get("unknown", 0)
+    unknown_check_label = "check" if unknown_count == 1 else "checks"
     available_percent = (
         round((status_counts.get("available", 0) / status_total) * 100, 1) if status_total else 0
     )
@@ -767,7 +769,6 @@ def _render_index(snapshot: Snapshot, recent_changes: dict[str, Any] | None = No
     <header>
       <div>
         <h1>Azure Regional Feature Availability Monitor</h1>
-        <div class="timestamp">Latest snapshot: {html.escape(snapshot.timestamp.isoformat())}</div>
       </div>
       <nav class="links" aria-label="Dashboard links">
         <a href="methodology.html">Status meanings</a>
@@ -778,6 +779,23 @@ def _render_index(snapshot: Snapshot, recent_changes: dict[str, Any] | None = No
         <a href="{_REPOSITORY_URL}">GitHub repository</a>
       </nav>
     </header>
+    <section class="opening-summary" aria-label="Snapshot overview">
+      <div class="opening-summary-item">
+        <span class="opening-summary-label">Data freshness</span>
+        <strong>{html.escape(snapshot.timestamp.isoformat())}</strong>
+        <span class="opening-summary-detail">Latest completed snapshot</span>
+      </div>
+      <div class="opening-summary-item">
+        <span class="opening-summary-label">Coverage</span>
+        <strong>{len(regions):,} regions &middot; {len(unique_features):,} features</strong>
+        <span class="opening-summary-detail">{len(rows):,} regional checks</span>
+      </div>
+      <div class="opening-summary-item">
+        <span class="opening-summary-label">Unknown evidence</span>
+        <strong>{unknown_count:,} {unknown_check_label}</strong>
+        <span class="opening-summary-detail">Unknown means no trustworthy probe result, not unavailable.</span>
+      </div>
+    </section>
     {_render_alpha_notice(len(regions))}
     <section class="repo-callout" aria-label="Project repository">
       <div>

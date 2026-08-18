@@ -48,7 +48,10 @@ def test_dashboard_density_uses_shared_spacing_radius_and_border_tokens():
 
 
 def test_rendered_page_embeds_the_stylesheet_rules():
-    assert "--unknown-text: #4f5f73;" in _style_block()
+    block = _style_block()
+    assert "--unknown-text: #4f5f73;" in block
+    assert ".opening-summary { display: grid;" in block
+    assert ".opening-summary-item {" in block
 
 
 def test_narrative_banner_renders_ai_blog_post_with_headline_and_paragraphs():
@@ -212,6 +215,11 @@ def test_build_static_site_writes_dashboard_and_latest_json(tmp_path):
     assert "Current scans cover" in index_html
     assert "configured Azure public cloud regions" in index_html
     assert "unknown</span> means the monitor parked that check" in index_html
+    assert 'class="opening-summary" aria-label="Snapshot overview"' in index_html
+    assert "Data freshness" in index_html
+    assert "Coverage" in index_html
+    assert "Unknown evidence" in index_html
+    assert "Unknown means no trustworthy probe result, not unavailable." in index_html
     assert "GitHub repository" in index_html
     assert "https://github.com/sergey-goncharenko/azure-region-monitor" in index_html
     assert "swedencentral" in latest_json
@@ -666,6 +674,8 @@ def test_build_static_site_shows_uniform_extension_availability(tmp_path):
     assert "Unknowns To Investigate" in index_html
     assert "1 unknown checks" in index_html
     assert "Unknown checks are parked as" in index_html
+    assert "1 check" in index_html
+    assert "Unknown means no trustworthy probe result, not unavailable." in index_html
     assert "Catalog failed." in index_html
     assert "extensionCatalog" in index_html
     assert index_html.index("Large AKS Extension Groups") < index_html.index("Unknowns To Investigate")
