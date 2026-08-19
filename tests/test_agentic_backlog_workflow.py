@@ -120,14 +120,23 @@ def test_agentic_backlog_bounds_threat_detection_ripgrep_install():
     source = SOURCE.read_text(encoding="utf-8")
     lock = LOCK.read_text(encoding="utf-8")
 
-    assert "Install ripgrep with bounded timeouts" in source
+    assert source.count("Install ripgrep with bounded timeouts") == 2
     assert "steps.detection_guard.outputs.run_detection == 'true'" in source
     assert "timeout --kill-after=10s 120s" in source
     assert "Acquire::Retries=3" in source
     assert "DPkg::Lock::Timeout=60" in source
-    preflight = lock.index("- name: Install ripgrep with bounded timeouts")
-    generated_installer = lock.index("- name: Install ripgrep\n", preflight)
-    assert preflight < generated_installer
+    preflights = [
+        index
+        for index in range(len(lock))
+        if lock.startswith("- name: Install ripgrep with bounded timeouts", index)
+    ]
+    generated_installers = [
+        index
+        for index in range(len(lock))
+        if lock.startswith("- name: Install ripgrep\n", index)
+    ]
+    assert len(preflights) == len(generated_installers) == 2
+    assert all(preflight < installer for preflight, installer in zip(preflights, generated_installers))
 
 
 def test_ruff_rule_selection_is_pinned_against_tool_version_drift():
