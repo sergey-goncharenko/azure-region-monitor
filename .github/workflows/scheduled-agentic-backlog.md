@@ -172,35 +172,35 @@ tools:
   timeout: 300
 
 steps:
-  - name: Install ripgrep with bounded timeouts
+  - name: Install pinned ripgrep
     shell: bash
     run: |
       set -euo pipefail
       if command -v rg >/dev/null 2>&1; then
         exit 0
       fi
-      install_ripgrep() {
-        sudo env DEBIAN_FRONTEND=noninteractive \
-          timeout --kill-after=10s 120s \
-          apt-get update \
-            -o Acquire::Retries=3 \
-            -o Acquire::http::Timeout=30 \
-            -o Acquire::https::Timeout=30 \
-            -o DPkg::Lock::Timeout=60 &&
-        sudo env DEBIAN_FRONTEND=noninteractive \
-          timeout --kill-after=10s 120s \
-          apt-get install -y \
-            -o DPkg::Lock::Timeout=60 \
-            ripgrep
-      }
-      for attempt in 1 2; do
-        if install_ripgrep; then
-          exit 0
-        fi
-        echo "::warning::Bounded ripgrep install attempt ${attempt} failed." >&2
-      done
-      echo "Unable to install ripgrep after two bounded attempts." >&2
-      exit 1
+      version="15.2.0"
+      target="x86_64-unknown-linux-musl"
+      archive="ripgrep-${version}-${target}.tar.gz"
+      archive_path="${RUNNER_TEMP}/${archive}"
+      extract_dir="${RUNNER_TEMP}/ripgrep-${version}"
+      bin_dir="${RUNNER_TEMP}/gh-aw/bin"
+      rm -rf "$extract_dir"
+      mkdir -p "$extract_dir" "$bin_dir"
+      curl --fail --location --silent --show-error \
+        --retry 3 \
+        --retry-all-errors \
+        --connect-timeout 10 \
+        --max-time 60 \
+        "https://github.com/BurntSushi/ripgrep/releases/download/${version}/${archive}" \
+        --output "$archive_path"
+      printf '%s  %s\n' \
+        '33e15bcf1624b25cdd2a55813a47a2f95dbe126268203e76aa6a585d1e7b149c' \
+        "$archive_path" | sha256sum --check -
+      tar -xzf "$archive_path" -C "$extract_dir"
+      install -m 0755 "${extract_dir}/ripgrep-${version}-${target}/rg" "${bin_dir}/rg"
+      echo "$bin_dir" >> "$GITHUB_PATH"
+      "${bin_dir}/rg" --version
   - name: Restore deterministic issue task
     env:
       TASK_B64: ${{ needs.prepare.outputs.task_b64 }}
@@ -238,7 +238,7 @@ safe-outputs:
     protected-files: request_review
   threat-detection:
     steps:
-      - name: Install ripgrep with bounded timeouts
+      - name: Install pinned ripgrep
         if: always() && steps.detection_guard.outputs.run_detection == 'true'
         shell: bash
         run: |
@@ -246,28 +246,28 @@ safe-outputs:
           if command -v rg >/dev/null 2>&1; then
             exit 0
           fi
-          install_ripgrep() {
-            sudo env DEBIAN_FRONTEND=noninteractive \
-              timeout --kill-after=10s 120s \
-              apt-get update \
-                -o Acquire::Retries=3 \
-                -o Acquire::http::Timeout=30 \
-                -o Acquire::https::Timeout=30 \
-                -o DPkg::Lock::Timeout=60 &&
-            sudo env DEBIAN_FRONTEND=noninteractive \
-              timeout --kill-after=10s 120s \
-              apt-get install -y \
-                -o DPkg::Lock::Timeout=60 \
-                ripgrep
-          }
-          for attempt in 1 2; do
-            if install_ripgrep; then
-              exit 0
-            fi
-            echo "::warning::Bounded ripgrep install attempt ${attempt} failed." >&2
-          done
-          echo "Unable to install ripgrep after two bounded attempts." >&2
-          exit 1
+          version="15.2.0"
+          target="x86_64-unknown-linux-musl"
+          archive="ripgrep-${version}-${target}.tar.gz"
+          archive_path="${RUNNER_TEMP}/${archive}"
+          extract_dir="${RUNNER_TEMP}/ripgrep-${version}"
+          bin_dir="${RUNNER_TEMP}/gh-aw/bin"
+          rm -rf "$extract_dir"
+          mkdir -p "$extract_dir" "$bin_dir"
+          curl --fail --location --silent --show-error \
+            --retry 3 \
+            --retry-all-errors \
+            --connect-timeout 10 \
+            --max-time 60 \
+            "https://github.com/BurntSushi/ripgrep/releases/download/${version}/${archive}" \
+            --output "$archive_path"
+          printf '%s  %s\n' \
+            '33e15bcf1624b25cdd2a55813a47a2f95dbe126268203e76aa6a585d1e7b149c' \
+            "$archive_path" | sha256sum --check -
+          tar -xzf "$archive_path" -C "$extract_dir"
+          install -m 0755 "${extract_dir}/ripgrep-${version}-${target}/rg" "${bin_dir}/rg"
+          echo "$bin_dir" >> "$GITHUB_PATH"
+          "${bin_dir}/rg" --version
     max-ai-credits: 200
     prompt: |
       Reject patches that do not directly address the trusted Objective or cited live error evidence. Also reject unrelated bulk edits, generated snapshot edits, weakened status semantics, disabled tests, hidden network behavior, or changes that conflate provider-specific contracts.

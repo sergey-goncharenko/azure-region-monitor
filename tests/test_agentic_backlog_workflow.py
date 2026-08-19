@@ -116,19 +116,21 @@ def test_agentic_backlog_gates_prs_on_full_validation_and_safe_outputs():
     assert "GH_AW_SAFE_OUTPUTS_HANDLER_CONFIG" in lock
 
 
-def test_agentic_backlog_bounds_threat_detection_ripgrep_install():
+def test_agentic_backlog_pins_ripgrep_before_generated_installers():
     source = SOURCE.read_text(encoding="utf-8")
     lock = LOCK.read_text(encoding="utf-8")
 
-    assert source.count("Install ripgrep with bounded timeouts") == 2
+    assert source.count("Install pinned ripgrep") == 2
     assert "steps.detection_guard.outputs.run_detection == 'true'" in source
-    assert "timeout --kill-after=10s 120s" in source
-    assert "Acquire::Retries=3" in source
-    assert "DPkg::Lock::Timeout=60" in source
+    assert "ripgrep-15.2.0-x86_64-unknown-linux-musl.tar.gz" not in source
+    assert "33e15bcf1624b25cdd2a55813a47a2f95dbe126268203e76aa6a585d1e7b149c" in source
+    assert "--retry 3" in source
+    assert "--max-time 60" in source
+    assert "apt-get" not in source
     preflights = [
         index
         for index in range(len(lock))
-        if lock.startswith("- name: Install ripgrep with bounded timeouts", index)
+        if lock.startswith("- name: Install pinned ripgrep", index)
     ]
     generated_installers = [
         index
