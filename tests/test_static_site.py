@@ -875,6 +875,41 @@ def test_build_static_site_uses_paged_detail_page_for_heavy_tables(tmp_path):
     assert index_html.count("vmSkus.standard.test") == 0
 
 
+def test_build_static_site_heatmap_supports_region_filter_and_mobile_detail_rows(tmp_path):
+    snapshot_path = tmp_path / "snapshot.json"
+    output_dir = tmp_path / "public"
+    snapshot_path.write_text(
+        json.dumps(
+            {
+                "timestamp": "2026-05-08T00:00:00Z",
+                "regions": {
+                    "eastus": {"compute": {"vmSkus.standard.d2": {"status": "available"}}},
+                    "westus": {"compute": {"vmSkus.standard.d2": {"status": "unavailable"}}},
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    build_static_site(
+        output_dir, snapshot_path=snapshot_path, diff_path=tmp_path / "missing-diff.json"
+    )
+
+    heatmap_html = (output_dir / "heatmap.html").read_text(encoding="utf-8")
+    css = DASHBOARD_CSS_PATH.read_text(encoding="utf-8")
+
+    assert '<select id="region" aria-label="Filter by region">' in heatmap_html
+    assert "(!region || row.region === region)" in heatmap_html
+    assert "populateSelect(elements.region, state.regions);" in heatmap_html
+    assert '<td data-label="Region"><code>${escapeHtml(row.region)}</code></td>' in heatmap_html
+    assert '<td data-label="Status"><span class="status status-${escapeHtml(row.status)}">' in heatmap_html
+    assert '<table class="details-table">' in heatmap_html
+    assert '<th scope="col">Status</th>' in heatmap_html
+    assert ".details-table { min-width: 0; }" in css
+    assert ".details-table td::before {" in css
+    assert "content: attr(data-label);" in css
+
+
 def test_build_static_site_splits_large_extension_groups_into_detail_tables(tmp_path):
     snapshot_path = tmp_path / "snapshot.json"
     output_dir = tmp_path / "public"

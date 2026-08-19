@@ -926,6 +926,7 @@ def _render_heatmap_page(snapshot: Snapshot) -> str:
       </div>
       <div class="toolbar heatmap-toolbar">
         <input id="search" type="search" placeholder="Search region, group, feature, or message" aria-label="Search checks">
+        <select id="region" aria-label="Filter by region"><option value="">All regions</option></select>
         <select id="modality" aria-label="Filter by modality"><option value="">All modalities</option></select>
         <select id="group" aria-label="Filter by group"><option value="">All groups</option></select>
         <select id="status" aria-label="Filter by status">
@@ -968,15 +969,15 @@ def _render_heatmap_page(snapshot: Snapshot) -> str:
         <button id="details-next" type="button">Next</button>
       </div>
       <div class="table-wrap">
-        <table>
+        <table class="details-table">
           <thead>
             <tr>
-              <th>Region</th>
-              <th>Modality</th>
-              <th>Group</th>
-              <th>Feature</th>
-              <th>Status</th>
-              <th>Message</th>
+              <th scope="col">Region</th>
+              <th scope="col">Modality</th>
+              <th scope="col">Group</th>
+              <th scope="col">Feature</th>
+              <th scope="col">Status</th>
+              <th scope="col">Message</th>
             </tr>
           </thead>
           <tbody id="details-rows"></tbody>
@@ -2951,6 +2952,7 @@ def _heatmap_script() -> str:
     const elements = {
       loadStatus: document.getElementById('load-status'),
       search: document.getElementById('search'),
+      region: document.getElementById('region'),
       modality: document.getElementById('modality'),
       group: document.getElementById('group'),
       status: document.getElementById('status'),
@@ -3038,11 +3040,13 @@ def _heatmap_script() -> str:
     }
     function applyFilters() {
       const query = elements.search.value.trim().toLowerCase();
+      const region = elements.region.value;
       const modality = elements.modality.value;
       const selectedGroup = elements.group.value;
       const status = elements.status.value;
       state.filteredRows = state.rows.filter((row) => (
         (!query || row.searchText.includes(query)) &&
+        (!region || row.region === region) &&
         (!modality || row.category === modality) &&
         (!selectedGroup || row.group === selectedGroup) &&
         (!status || row.status === status)
@@ -3074,12 +3078,12 @@ def _heatmap_script() -> str:
       const visible = state.filteredRows.slice(bounds.start, bounds.end);
       elements.detailsRows.innerHTML = visible.map((row) => `
         <tr>
-          <td><code>${escapeHtml(row.region)}</code></td>
-          <td>${escapeHtml(row.category)}</td>
-          <td><code>${escapeHtml(row.group)}</code></td>
-          <td><code>${escapeHtml(row.feature)}</code></td>
-          <td><span class="status status-${escapeHtml(row.status)}">${escapeHtml(row.status)}</span></td>
-          <td>${escapeHtml(row.message)}</td>
+          <td data-label="Region"><code>${escapeHtml(row.region)}</code></td>
+          <td data-label="Modality">${escapeHtml(row.category)}</td>
+          <td data-label="Group"><code>${escapeHtml(row.group)}</code></td>
+          <td data-label="Feature"><code>${escapeHtml(row.feature)}</code></td>
+          <td data-label="Status"><span class="status status-${escapeHtml(row.status)}">${escapeHtml(row.status)}</span></td>
+          <td data-label="Message">${escapeHtml(row.message)}</td>
         </tr>`).join('') || '<tr><td colspan="6" class="empty">No checks match the current filters.</td></tr>';
       elements.detailsCount.textContent = `${state.filteredRows.length.toLocaleString()} checks`;
       elements.detailsPage.textContent = `Page ${bounds.page} of ${bounds.pages}`;
@@ -3124,6 +3128,7 @@ def _heatmap_script() -> str:
         const all = await Promise.all(manifestModalities.map(loadModalityRows));
         state.rows = all.flat();
         state.regions = regionsFromRows(state.rows);
+        populateSelect(elements.region, state.regions);
         populateSelect(elements.group, [...new Set(state.rows.map((row) => row.group))].sort());
         elements.loadStatus.textContent = `${state.rows.length.toLocaleString()} checks loaded across all modalities`;
         applyFilters();
@@ -3135,6 +3140,7 @@ def _heatmap_script() -> str:
       const rows = await loadModalityRows(modality);
       state.rows = rows;
       state.regions = regionsFromRows(rows);
+      populateSelect(elements.region, state.regions);
       populateSelect(elements.group, [...new Set(rows.map((row) => row.group))].sort());
       elements.loadStatus.textContent = `${rows.length.toLocaleString()} checks loaded for ${label}`;
       applyFilters();
@@ -3168,6 +3174,7 @@ def _heatmap_script() -> str:
         elements.loadStatus.textContent = `Could not load modality: ${error}`;
       });
     });
+    elements.region.addEventListener('change', applyFilters);
     elements.group.addEventListener('change', applyFilters);
     elements.status.addEventListener('change', applyFilters);
     elements.pageSize.addEventListener('change', applyFilters);
