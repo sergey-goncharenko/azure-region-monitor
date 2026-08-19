@@ -116,6 +116,20 @@ def test_agentic_backlog_gates_prs_on_full_validation_and_safe_outputs():
     assert "GH_AW_SAFE_OUTPUTS_HANDLER_CONFIG" in lock
 
 
+def test_agentic_backlog_bounds_threat_detection_ripgrep_install():
+    source = SOURCE.read_text(encoding="utf-8")
+    lock = LOCK.read_text(encoding="utf-8")
+
+    assert "Install ripgrep with bounded timeouts" in source
+    assert "steps.detection_guard.outputs.run_detection == 'true'" in source
+    assert "timeout --kill-after=10s 120s" in source
+    assert "Acquire::Retries=3" in source
+    assert "DPkg::Lock::Timeout=60" in source
+    preflight = lock.index("- name: Install ripgrep with bounded timeouts")
+    generated_installer = lock.index("- name: Install ripgrep\n", preflight)
+    assert preflight < generated_installer
+
+
 def test_ruff_rule_selection_is_pinned_against_tool_version_drift():
     # The gates install "ruff>=0.6,<1"; 0.16 widened the default rule set and made
     # the agentic validation gate unpassable against unchanged files. W291/W293 keep

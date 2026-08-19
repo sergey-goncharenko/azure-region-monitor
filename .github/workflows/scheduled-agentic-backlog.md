@@ -208,6 +208,37 @@ safe-outputs:
       - public/*.html
     protected-files: request_review
   threat-detection:
+    steps:
+      - name: Install ripgrep with bounded timeouts
+        if: always() && steps.detection_guard.outputs.run_detection == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if command -v rg >/dev/null 2>&1; then
+            exit 0
+          fi
+          install_ripgrep() {
+            sudo env DEBIAN_FRONTEND=noninteractive \
+              timeout --kill-after=10s 120s \
+              apt-get update \
+                -o Acquire::Retries=3 \
+                -o Acquire::http::Timeout=30 \
+                -o Acquire::https::Timeout=30 \
+                -o DPkg::Lock::Timeout=60 &&
+            sudo env DEBIAN_FRONTEND=noninteractive \
+              timeout --kill-after=10s 120s \
+              apt-get install -y \
+                -o DPkg::Lock::Timeout=60 \
+                ripgrep
+          }
+          for attempt in 1 2; do
+            if install_ripgrep; then
+              exit 0
+            fi
+            echo "::warning::Bounded ripgrep install attempt ${attempt} failed." >&2
+          done
+          echo "Unable to install ripgrep after two bounded attempts." >&2
+          exit 1
     max-ai-credits: 200
     prompt: |
       Reject patches that do not directly address the trusted Objective or cited live error evidence. Also reject unrelated bulk edits, generated snapshot edits, weakened status semantics, disabled tests, hidden network behavior, or changes that conflate provider-specific contracts.
