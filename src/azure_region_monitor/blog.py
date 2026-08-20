@@ -20,7 +20,9 @@ FEED_PATH = "blog/feed.xml"
 INDEX_PATH = "blog/index.html"
 _EXCERPT_CHARS = 220
 _SOCIAL_POST_LIMIT = 1
+_SOCIAL_LINKEDIN_MIN_CHARS = 700
 _SOCIAL_LINKEDIN_MAX_CHARS = 2_800
+_SOCIAL_SHORT_POST_MIN_CHARS = 180
 _SOCIAL_SHORT_POST_MAX_CHARS = 600
 _SOCIAL_MAX_HIGHLIGHTS = 4
 _SOCIAL_NARRATIVE_MAX_CHARS = 1_600
@@ -44,6 +46,7 @@ Return only a JSON object with exactly these string fields:
 
 LinkedIn: 700-1,500 characters, 3-5 short paragraphs or bullets, no hashtags, must include the supplied full digest URL and the supplied evidence note verbatim.
 Short post: 180-500 characters, concise, must include the full digest URL and a compact evidence note.
+Both posts must name the supplied date and state all three supplied counts: new availability, regressions, and parked unknown transitions.
 """
 # A real blog-post headline is short. Anything longer is almost certainly a
 # single-paragraph rule/older summary, so it is demoted to body text and the post
@@ -181,7 +184,7 @@ def _generate_ai_social_drafts(
         response = client.generate(system=_load_social_prompt(), user=_social_facts(post, url)).strip()
     except Exception:
         return None
-    return _parse_social_drafts(response, url)
+    return _parse_social_drafts(response, post, url)
 
 
 def _load_social_prompt() -> str:
@@ -263,7 +266,9 @@ def _compact_social_highlights(value: object) -> list[dict[str, Any]]:
     return highlights
 
 
-def _parse_social_drafts(response: str, url: str) -> dict[str, str] | None:
+def _parse_social_drafts(
+    response: str, post: dict[str, Any], url: str
+) -> dict[str, str] | None:
     text = response.strip()
     if text.startswith("```"):
         text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE)
@@ -274,24 +279,42 @@ def _parse_social_drafts(response: str, url: str) -> dict[str, str] | None:
         return None
     if not isinstance(payload, dict):
         return None
-    linkedin = _validated_social_copy(payload.get("linkedin"), url, _SOCIAL_LINKEDIN_MAX_CHARS)
-    short_post = _validated_social_copy(payload.get("short_post"), url, _SOCIAL_SHORT_POST_MAX_CHARS)
+    linkedin = _validated_social_copy(
+        payload.get("linkedin"),
+        post,
+        url,
+        _SOCIAL_LINKEDIN_MIN_CHARS,
+        _SOCIAL_LINKEDIN_MAX_CHARS,
+    )
+    short_post = _validated_social_copy(
+        payload.get("short_post"),
+        post,
+        url,
+        _SOCIAL_SHORT_POST_MIN_CHARS,
+        _SOCIAL_SHORT_POST_MAX_CHARS,
+    )
     if not linkedin or not short_post:
         return None
     return {"linkedin": linkedin, "short_post": short_post}
 
 
-def _validated_social_copy(value: object, url: str, maximum_length: int) -> str | None:
+def _validated_social_copy(
+    value: object,
+    post: dict[str, Any],
+    url: str,
+    minimum_length: int,
+    maximum_length: int,
+) -> str | None:
     if not isinstance(value, str):
         return None
     text = value.strip()
-    if not text or len(text) > maximum_length:
+    if len(text) < minimum_length or len(text) > maximum_length:
         return None
     if url not in text:
         text = f"{text}\n\n{url}"
     if not _has_social_evidence_note(text):
         text = f"{text}\n\n{_SOCIAL_EVIDENCE_NOTE}"
-    if len(text) > maximum_length:
+    if len(text) > maximum_length or not _has_daily_social_evidence(text, post):
         return None
     return text
 
@@ -306,6 +329,17 @@ def _has_social_evidence_note(text: str) -> bool:
         and "deployment failure" in normalized
         and "sla impact" in normalized
     )
+
+
+def _has_daily_social_evidence(text: str, post: dict[str, Any]) -> bool:
+    normalized = " ".join(text.lower().split())
+    required = (
+        str(post["date"]).lower(),
+        f"{post['new_availability']:,} new availability",
+        f"{post['regressions']:,} regressions",
+        f"{post['parked_unknown']:,} parked unknown",
+    )
+    return all(fact in normalized for fact in required)
 
 
 def _linkedin_draft(post: dict[str, Any], url: str) -> str:

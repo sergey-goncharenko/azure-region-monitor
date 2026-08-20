@@ -9,6 +9,7 @@ Truth rules:
 - Do not invent regions, numbers, model capabilities, causes, or customer impact.
 - If a large number of changes occurred, synthesize the pattern. Do not list many individual SKUs.
 - Do not use hashtags or emojis.
+- Both posts must name the supplied date and state all three supplied counts: new availability, regressions, and parked unknown transitions.
 
 Return only a JSON object with exactly these string fields:
 {"linkedin": "...", "short_post": "..."}
