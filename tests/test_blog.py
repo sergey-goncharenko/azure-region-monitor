@@ -250,10 +250,22 @@ def test_social_drafts_use_valid_ai_copy_and_append_evidence_constraints():
             self.calls.append((system, user))
             return json.dumps(
                 {
-                    "linkedin": "A focused rollout story for platform teams.\n\n"
-                    "https://azwatch.operator.lat/blog/2026-07-03.html",
-                    "short_post": "A concise rollout signal.\n"
-                    "https://azwatch.operator.lat/blog/2026-07-03.html",
+                    "linkedin": (
+                        "Platform teams can review regional rollout timing and fallback plans from "
+                        "this monitored daily signal. " * 8
+                        + "\n\n2026-07-03 recorded 1 new availability signal, 0 regressions, and "
+                        "0 parked unknown transitions.\n\n"
+                        "Evidence note: these are read-only Azure catalog/list signals; unavailable "
+                        "does not mean quota, capacity, deployment failure, or SLA impact.\n\n"
+                        "https://azwatch.operator.lat/blog/2026-07-03.html"
+                    ),
+                    "short_post": (
+                        "Platform teams can use this monitored daily signal to review rollout timing "
+                        "and fallback plans. 2026-07-03 recorded 1 new availability signal, "
+                        "0 regressions, and 0 parked unknown transitions. Read-only catalog/list "
+                        "evidence; unavailable does not mean quota, capacity, deployment failure, "
+                        "or SLA impact. https://azwatch.operator.lat/blog/2026-07-03.html"
+                    ),
                 }
             )
 
@@ -263,13 +275,42 @@ def test_social_drafts_use_valid_ai_copy_and_append_evidence_constraints():
     drafts = render_social_drafts(posts, SITE, client=client)
 
     assert "Source: AI social copy" in drafts
-    assert "A focused rollout story for platform teams." in drafts
+    assert "2026-07-03 recorded 1 new availability signal, 0 regressions" in drafts
     assert "Signal counts:" not in drafts
     assert "Evidence note: these are read-only Azure catalog/list signals" in drafts
     assert len(client.calls) == 1
     system, user = client.calls[0]
     assert "Return only a JSON object" in system
     assert "Structured facts" in user
+
+
+def test_social_drafts_fall_back_when_ai_copy_omits_daily_evidence():
+    class _Client:
+        def generate(self, *, system, user):
+            return json.dumps(
+                {
+                    "linkedin": (
+                        "Platform teams can review this operational signal before planning a rollout. "
+                        * 12
+                        + " Read-only catalog/list evidence; unavailable does not mean quota, "
+                        "capacity, deployment failure, or SLA impact. "
+                        "https://azwatch.operator.lat/blog/2026-07-03.html"
+                    ),
+                    "short_post": (
+                        "Platform teams can review this operational signal before planning a rollout. "
+                        "Read-only catalog/list evidence; unavailable does not mean quota, capacity, "
+                        "deployment failure, or SLA impact. "
+                        "https://azwatch.operator.lat/blog/2026-07-03.html"
+                    ),
+                }
+            )
+
+    posts = select_blog_posts(_history([_day("2026-07-03", "Headline\n\nBody.", new=1)]))
+
+    drafts = render_social_drafts(posts, SITE, client=_Client())
+
+    assert "Source: Structured fallback" in drafts
+    assert "Signal counts:" in drafts
 
 
 def test_social_drafts_fall_back_when_ai_response_is_invalid():
@@ -290,10 +331,22 @@ def test_social_drafts_preserve_compact_ai_evidence_note_without_duplication():
         def generate(self, *, system, user):
             return json.dumps(
                 {
-                    "linkedin": "Read-only catalog/list evidence; unavailable does not mean quota, "
-                    "capacity, deployment failure, or SLA impact.\nhttps://azwatch.operator.lat/blog/2026-07-03.html",
-                    "short_post": "Read-only catalog/list evidence: unavailable does not mean quota, "
-                    "capacity, deployment failure, or SLA impact.\nhttps://azwatch.operator.lat/blog/2026-07-03.html",
+                    "linkedin": (
+                        "2026-07-03 recorded 1 new availability signal, 0 regressions, and 0 parked "
+                        "unknown transitions. "
+                        "Platform teams can use this monitored signal to review rollout timing and "
+                        "fallback planning. " * 8
+                        + "Read-only catalog/list evidence; unavailable does not mean quota, capacity, "
+                        "deployment failure, or SLA impact. "
+                        "https://azwatch.operator.lat/blog/2026-07-03.html"
+                    ),
+                    "short_post": (
+                        "2026-07-03 recorded 1 new availability signal, 0 regressions, and 0 parked "
+                        "unknown transitions. Platform teams can use this monitored signal to review "
+                        "rollout timing and fallback planning. Read-only catalog/list evidence: "
+                        "unavailable does not mean quota, capacity, deployment failure, or SLA impact. "
+                        "https://azwatch.operator.lat/blog/2026-07-03.html"
+                    ),
                 }
             )
 
