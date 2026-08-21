@@ -423,6 +423,7 @@ def test_agentic_rework_workflow_bounds_pushes_to_the_reviewed_pull_request():
     )
 
     assert "types: [azure-agentic-pr-rework]" in source
+    assert 'bots: ["github-actions[bot]"]' in source
     assert "Malformed agentic PR rework dispatch metadata." in source
     assert '"${#REWORK_REQUIREMENTS}" -gt 4000' in source
     assert '^agentic/issue-[1-9][0-9]*(-[0-9a-f]{6,32})?$' in source
@@ -440,6 +441,7 @@ def test_agentic_rework_workflow_bounds_pushes_to_the_reviewed_pull_request():
     scheduled_agent = scheduled.split("\nmodel: ", 1)[1].split("\nsandbox:", 1)[0]
     assert rework_agent == scheduled_agent
     assert '"agent_model":"gpt-5.6-terra"' in lock
+    assert 'GH_AW_ALLOWED_BOTS: "github-actions[bot]"' in lock
     assert '"protected_files_policy":"fallback-to-issue"' in lock
 
 

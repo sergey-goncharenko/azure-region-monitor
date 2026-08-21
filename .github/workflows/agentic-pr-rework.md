@@ -4,6 +4,7 @@ description: Rework an open agentic draft PR from bounded collaborator feedback 
 on:
   repository_dispatch:
     types: [azure-agentic-pr-rework]
+  bots: ["github-actions[bot]"]
 
 permissions:
   contents: read
