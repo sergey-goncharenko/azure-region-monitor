@@ -23,8 +23,12 @@ Interpret the change classifications: net-new availability means a feature has n
 seen available in that region before; restored availability means it was available before,
 then disappeared, and is now back; deprecation candidate means a stable availability signal
 has disappeared for the first time; recurring disappearance means it has gone missing before.
-Explain the practical impact for SREs, such as placement choice, capacity, cost, scale,
-latency, upgrade paths, or feature enablement. Keep every claim grounded in the facts.
+Explain the practical impact for SREs in simple language, such as placement choice, capacity,
+cost, scale, latency, upgrade paths, or feature enablement. Do not leave a raw SKU, model ID,
+version, or feature code unexplained; translate it into a practical capability only when the
+facts support that interpretation. End with a short final paragraph beginning "What this means
+for Azure users:" that states the practical decision or planning impact. Keep every claim
+grounded in the facts.
 
 Rules: do not invent regions, models, features, dates, numbers, causes, quotas, or SLAs.
 Do not add disclaimers, caveats, sign-offs, or a call to action. Keep it under ~350 words.

@@ -66,6 +66,26 @@ def test_ai_path_used_when_client_and_signals_present():
     assert "new_availability" in user and "eastus" in user
 
 
+def test_ai_prompt_requires_plain_language_and_azure_user_impact_section():
+    changes = [
+        _change(
+            "eastus",
+            "vmSkus.standard.ncads.h100.v5",
+            "unavailable",
+            "available",
+            "new_availability",
+        ),
+    ]
+    client = _FakeClient(reply="Headline\n\nBody.")
+
+    build_change_narrative(changes, client=client)
+
+    system, _user = client.calls[0]
+    assert "simple language" in system
+    assert "raw SKU, model ID, version, or feature code unexplained" in system
+    assert 'beginning "What this means for Azure users:"' in system
+
+
 def test_ai_facts_include_history_classification_and_sre_impact():
     change = _change(
         "eastus",
