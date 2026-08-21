@@ -90,6 +90,11 @@ class AzureOpenAiTextClient:
             raise RuntimeError("Azure OpenAI social draft response did not contain output text.")
         return text
 
+    @property
+    def deployment(self) -> str:
+        """Return the configured deployment name without exposing credentials."""
+        return self._deployment
+
     def _responses_url(self) -> str:
         if self._endpoint.endswith("/openai/v1"):
             return f"{self._endpoint}/responses"
