@@ -158,12 +158,66 @@ jobs:
             '{pr_number: $pr_number, comment_id: $comment_id, request_id: $request_id}' \
             > "$RUNNER_TEMP/rework-status/status.json"
       # A gh-aw custom job cannot depend on safe_outputs, so the paired
-      # agentic-pr-rework-status.yml workflow_run follower closes the status comment.
+      # conclusion job closes the status comment after all generated jobs finish.
+      # The workflow_run follower remains an idempotent fallback for external dispatches.
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: agentic-rework-status
           path: ${{ runner.temp }}/rework-status/status.json
           retention-days: 1
+
+  conclusion:
+    pre-steps:
+      - name: Download rework status identifiers
+        id: download-rework-status
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: agentic-rework-status
+          path: ${{ runner.temp }}/rework-status
+      - name: Checkout trusted finalizer code
+        if: ${{ steps.download-rework-status.outcome == 'success' }}
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - name: Set up finalizer Python
+        if: ${{ steps.download-rework-status.outcome == 'success' }}
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: "3.11"
+      - name: Finalize the rework status comment
+        if: ${{ steps.download-rework-status.outcome == 'success' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AGENT_RESULT: ${{ needs.agent.result }}
+          DETECTION_RESULT: ${{ needs.detection.result }}
+          SAFE_OUTPUTS_RESULT: ${{ needs.safe_outputs.result }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          status_file="$RUNNER_TEMP/rework-status/status.json"
+          pr_number="$(jq -r '.pr_number // ""' "$status_file")"
+          comment_id="$(jq -r '.comment_id // ""' "$status_file")"
+          request_id="$(jq -r '.request_id // ""' "$status_file")"
+          if [ "$AGENT_RESULT" = success ] && \
+             [ "$DETECTION_RESULT" = success ] && \
+             [ "$SAFE_OUTPUTS_RESULT" = success ]; then
+            outcome=success
+          elif [ "$AGENT_RESULT" = cancelled ] || \
+               [ "$DETECTION_RESULT" = cancelled ] || \
+               [ "$SAFE_OUTPUTS_RESULT" = cancelled ]; then
+            outcome=cancelled
+          else
+            outcome=failure
+          fi
+          python scripts/manage_azure_pr_rework.py finalize-status \
+            --repository "$GITHUB_REPOSITORY" \
+            --pr-number "$pr_number" \
+            --comment-id "$comment_id" \
+            --request-id "$request_id" \
+            --outcome "$outcome" \
+            --run-url "$RUN_URL"
 
 if: needs.prepare.outputs.has_task == 'true'
 

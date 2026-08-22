@@ -438,6 +438,10 @@ def test_agentic_rework_workflow_bounds_pushes_to_the_reviewed_pull_request():
     assert "A source behavior change requires a focused regression test" in source
     assert "run `pytest`, `ruff check .`, and `git diff --check` directly" in source
     assert "independent publication gate" in source
+    assert "conclusion:" in source
+    assert "Finalize the rework status comment" in source
+    assert "SAFE_OUTPUTS_RESULT: ${{ needs.safe_outputs.result }}" in source
+    assert "scripts/manage_azure_pr_rework.py finalize-status" in source
     assert "secrets.AZURE_CODING_OPENAI_KEY" in source
     rework_agent = source.split("\nmodel: ", 1)[1].split("\nsandbox:", 1)[0]
     scheduled_agent = scheduled.split("\nmodel: ", 1)[1].split("\nsandbox:", 1)[0]
