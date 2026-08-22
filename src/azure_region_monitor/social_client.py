@@ -8,6 +8,8 @@ import urllib.request
 
 DEFAULT_TIMEOUT_SECONDS = 90
 DEFAULT_MAX_OUTPUT_TOKENS = 1_200
+MICROSOFT_LEARN_MCP_URL = "https://learn.microsoft.com/api/mcp?maxTokenBudget=2000"
+MICROSOFT_LEARN_MCP_TOOLS = ("microsoft_docs_search", "microsoft_docs_fetch")
 
 
 class AzureOpenAiTextClient:
@@ -21,6 +23,7 @@ class AzureOpenAiTextClient:
         deployment: str,
         timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
         max_output_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
+        enable_microsoft_learn_mcp: bool = False,
         opener: urllib.request.OpenerDirector | None = None,
     ) -> None:
         self._api_key = api_key
@@ -28,13 +31,21 @@ class AzureOpenAiTextClient:
         self._deployment = deployment
         self._timeout_seconds = timeout_seconds
         self._max_output_tokens = max_output_tokens
+        self._enable_microsoft_learn_mcp = enable_microsoft_learn_mcp
         self._opener = opener or urllib.request.build_opener()
+        self._generation_metadata: dict[str, object] = {
+            "narrative_mcp_status": "disabled",
+            "narrative_mcp_error": None,
+            "narrative_grounding_status": "scan_facts_only",
+            "narrative_microsoft_learn_urls": [],
+        }
 
     @classmethod
     def from_env(
         cls,
         *,
         max_output_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
+        enable_microsoft_learn_mcp: bool = False,
     ) -> "AzureOpenAiTextClient":
         api_key = os.environ.get("AZURE_OPENAI_API_KEY", "").strip()
         endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT", "").strip()
@@ -56,6 +67,7 @@ class AzureOpenAiTextClient:
             deployment=deployment,
             timeout_seconds=int(os.environ.get("AI_SOCIAL_TIMEOUT_SECONDS", DEFAULT_TIMEOUT_SECONDS)),
             max_output_tokens=max_output_tokens,
+            enable_microsoft_learn_mcp=enable_microsoft_learn_mcp,
         )
 
     def generate(self, *, system: str, user: str) -> str:
@@ -66,6 +78,15 @@ class AzureOpenAiTextClient:
             "max_output_tokens": self._max_output_tokens,
             "reasoning": {"effort": "low"},
         }
+        if self._enable_microsoft_learn_mcp:
+            payload["tools"] = [
+                {
+                    "type": "mcp",
+                    "server_label": "microsoft_learn",
+                    "server_url": MICROSOFT_LEARN_MCP_URL,
+                    "allowed_tools": list(MICROSOFT_LEARN_MCP_TOOLS),
+                }
+            ]
         request = urllib.request.Request(
             self._responses_url(),
             data=json.dumps(payload).encode("utf-8"),
@@ -81,10 +102,15 @@ class AzureOpenAiTextClient:
                 body = json.loads(response.read().decode("utf-8"))
         except urllib.error.HTTPError as error:
             detail = error.read().decode("utf-8", errors="replace")
-            raise RuntimeError(f"Azure OpenAI social draft request failed: HTTP {error.code}: {detail}") from error
+            self._record_mcp_error(f"HTTP {error.code}")
+            raise RuntimeError(
+                f"Azure OpenAI social draft request failed: HTTP {error.code}: {detail}"
+            ) from error
         except (urllib.error.URLError, http.client.HTTPException, OSError, json.JSONDecodeError) as error:
+            self._record_mcp_error(type(error).__name__)
             raise RuntimeError(f"Azure OpenAI social draft request failed: {error}") from error
 
+        self._record_grounding(body)
         text = _response_text(body)
         if not text:
             raise RuntimeError("Azure OpenAI social draft response did not contain output text.")
@@ -95,10 +121,41 @@ class AzureOpenAiTextClient:
         """Return the configured deployment name without exposing credentials."""
         return self._deployment
 
+    @property
+    def generation_metadata(self) -> dict[str, object]:
+        """Expose non-sensitive generation provenance to the history writer."""
+        return dict(self._generation_metadata)
+
     def _responses_url(self) -> str:
         if self._endpoint.endswith("/openai/v1"):
             return f"{self._endpoint}/responses"
         return f"{self._endpoint}/openai/v1/responses"
+
+    def _record_mcp_error(self, error: str) -> None:
+        if self._enable_microsoft_learn_mcp:
+            self._generation_metadata.update(
+                {
+                    "narrative_mcp_status": "failed",
+                    "narrative_mcp_error": error,
+                    "narrative_grounding_status": "scan_facts_only",
+                    "narrative_microsoft_learn_urls": [],
+                }
+            )
+
+    def _record_grounding(self, payload: object) -> None:
+        urls = sorted(_microsoft_learn_urls(payload))
+        if not self._enable_microsoft_learn_mcp:
+            return
+        self._generation_metadata.update(
+            {
+                "narrative_mcp_status": (
+                    "consulted" if _used_microsoft_learn_mcp(payload) else "available"
+                ),
+                "narrative_mcp_error": None,
+                "narrative_grounding_status": "microsoft_learn" if urls else "scan_facts_only",
+                "narrative_microsoft_learn_urls": urls,
+            }
+        )
 
 
 def _response_text(payload: object) -> str:
@@ -125,3 +182,25 @@ def _response_text(payload: object) -> str:
             if isinstance(text, str):
                 parts.append(text)
     return "".join(parts).strip()
+
+
+def _used_microsoft_learn_mcp(payload: object) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    output = payload.get("output")
+    return isinstance(output, list) and any(
+        isinstance(item, dict)
+        and item.get("type") == "mcp_call"
+        and item.get("server_label") == "microsoft_learn"
+        for item in output
+    )
+
+
+def _microsoft_learn_urls(value: object) -> set[str]:
+    if isinstance(value, str):
+        return {value} if value.startswith("https://learn.microsoft.com/") else set()
+    if isinstance(value, list):
+        return set().union(*(_microsoft_learn_urls(item) for item in value))
+    if isinstance(value, dict):
+        return set().union(*(_microsoft_learn_urls(item) for item in value.values()))
+    return set()

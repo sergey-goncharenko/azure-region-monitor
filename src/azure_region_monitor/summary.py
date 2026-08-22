@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from functools import lru_cache
 from importlib import resources
-from typing import Mapping, Protocol
+from typing import Any, Mapping, Protocol
 
 from azure_region_monitor.models import Change
 
@@ -302,33 +302,88 @@ def build_change_narrative(
     try:
         user = _facts_block(signals, context_map)
         text = client.generate(system=SYSTEM_PROMPT, user=user).strip()
-    except Exception:
-        return _rule_result(rule, "generation_failed", deployment)
+    except Exception as error:
+        return _rule_result(
+            rule,
+            "generation_failed",
+            deployment,
+            metadata=_client_generation_metadata(client),
+            generation_error=_generation_error(error),
+        )
 
     if not text:
-        return _rule_result(rule, "empty_generation", deployment)
-    return {
+        return _rule_result(rule, "empty_generation", deployment, _client_generation_metadata(client))
+    if not _is_supported_narrative(text):
+        return _rule_result(
+            rule, "unsupported_generation", deployment, _client_generation_metadata(client)
+        )
+    result: dict[str, Any] = {
         "narrative": text,
         "narrative_source": "ai",
         "narrative_fallback_reason": None,
         "narrative_model_deployment": deployment,
     }
+    result.update(_client_generation_metadata(client))
+    return result
 
 
 def _rule_result(
-    narrative: str, reason: str, deployment: str | None
-) -> dict[str, str | None]:
-    return {
+    narrative: str,
+    reason: str,
+    deployment: str | None,
+    metadata: Mapping[str, object] | None = None,
+    generation_error: str | None = None,
+) -> dict[str, Any]:
+    result: dict[str, Any] = {
         "narrative": narrative,
         "narrative_source": "rule",
         "narrative_fallback_reason": reason,
         "narrative_model_deployment": deployment,
+        "narrative_generation_error": generation_error,
     }
+    if metadata:
+        result.update(metadata)
+    return result
 
 
 def _client_deployment(client: NarrativeClient | None) -> str | None:
     deployment = getattr(client, "deployment", None)
     return deployment if isinstance(deployment, str) and deployment else None
+
+
+def _client_generation_metadata(client: NarrativeClient) -> dict[str, object]:
+    metadata = getattr(client, "generation_metadata", {})
+    if not isinstance(metadata, Mapping):
+        return {}
+    return {
+        key: value
+        for key, value in metadata.items()
+        if key
+        in {
+            "narrative_mcp_status",
+            "narrative_mcp_error",
+            "narrative_grounding_status",
+            "narrative_microsoft_learn_urls",
+        }
+    }
+
+
+def _generation_error(error: Exception) -> str:
+    detail = str(error).replace("\n", " ").strip()
+    return f"{type(error).__name__}: {detail}"[:300]
+
+
+def _is_supported_narrative(text: str) -> bool:
+    lowered = text.lower()
+    unsupported_claims = (
+        "quota",
+        "sla",
+        "deployment succeeded",
+        "successful deployment",
+        "capacity is available",
+        "available capacity",
+    )
+    return len(text.split()) <= 350 and not any(claim in lowered for claim in unsupported_claims)
 
 
 def _clear_signal_changes(changes: list[Change]) -> list[Change]:

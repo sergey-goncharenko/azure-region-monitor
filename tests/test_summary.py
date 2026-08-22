@@ -163,6 +163,31 @@ def test_ai_empty_reply_falls_back_to_rule():
     assert result["narrative_source"] == "rule"
 
 
+def test_ai_unsupported_claim_falls_back_with_observable_reason():
+    changes = [
+        _change("eastus", "aiModels.openai.gpt-5.2025", "unavailable", "available", "new_availability"),
+    ]
+
+    result = build_change_narrative(
+        changes,
+        client=_FakeClient(reply="East US has available capacity and a new quota."),
+    )
+
+    assert result["narrative_source"] == "rule"
+    assert result["narrative_fallback_reason"] == "unsupported_generation"
+
+
+def test_ai_failure_surfaces_the_generation_error():
+    changes = [
+        _change("eastus", "aiModels.openai.gpt-5.2025", "unavailable", "available", "new_availability"),
+    ]
+
+    result = build_change_narrative(changes, client=_FakeClient(error=RuntimeError("MCP timed out")))
+
+    assert result["narrative_source"] == "rule"
+    assert result["narrative_generation_error"] == "RuntimeError: MCP timed out"
+
+
 def test_rule_summary_is_opinionated_about_rollout_and_deprecation():
     changes = [
         _change("eastus", "aiModels.openai.gpt-5.2025", "unavailable", "available", "new_availability"),

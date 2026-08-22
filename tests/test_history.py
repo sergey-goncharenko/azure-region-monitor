@@ -9,6 +9,20 @@ from azure_region_monitor.history import fetch_history, update_history
 
 
 def test_update_history_writes_daily_snapshot_and_recent_changes(tmp_path):
+    class _NarrativeClient:
+        deployment = "gpt-5.4-mini"
+        generation_metadata = {
+            "narrative_mcp_status": "consulted",
+            "narrative_mcp_error": None,
+            "narrative_grounding_status": "microsoft_learn",
+            "narrative_microsoft_learn_urls": [
+                "https://learn.microsoft.com/azure/aks/cluster-extensions"
+            ],
+        }
+
+        def generate(self, *, system, user):
+            return "AKS extensions update."
+
     history_dir = tmp_path / "history"
     previous_snapshot = tmp_path / "previous.json"
     current_snapshot = tmp_path / "current.json"
@@ -44,7 +58,7 @@ def test_update_history_writes_daily_snapshot_and_recent_changes(tmp_path):
     )
 
     update_history(previous_snapshot, history_dir)
-    recent_changes = update_history(current_snapshot, history_dir)
+    recent_changes = update_history(current_snapshot, history_dir, narrative_client=_NarrativeClient())
 
     index = json.loads((history_dir / "index.json").read_text(encoding="utf-8"))
     change_day = json.loads((history_dir / "changes" / "2026-05-10.json").read_text(encoding="utf-8"))
@@ -61,6 +75,12 @@ def test_update_history_writes_daily_snapshot_and_recent_changes(tmp_path):
     assert change_day["change_type_counts"]["new_availability"] == 1
     assert change_day["parked_unknown_changes"] == 0
     assert change_day["summary_counts"] == {"regions": 1, "features": 1, "checks": 1}
+    assert change_day["narrative_model_deployment"] == "gpt-5.4-mini"
+    assert change_day["narrative_mcp_status"] == "consulted"
+    assert change_day["narrative_grounding_status"] == "microsoft_learn"
+    assert change_day["narrative_microsoft_learn_urls"] == [
+        "https://learn.microsoft.com/azure/aks/cluster-extensions"
+    ]
     assert change_day["highlights"][0]["group"] == "microsoft"
     assert recent_changes["days"][0]["date"] == "2026-05-10"
 

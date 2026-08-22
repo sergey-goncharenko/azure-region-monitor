@@ -238,7 +238,7 @@ def _build_day_summary(
     change_path: Path,
     previous_entry: dict[str, Any] | None,
     changes: list[Change],
-    narrative: dict[str, str] | None = None,
+    narrative: dict[str, Any] | None = None,
     change_contexts: dict[ChangeKey, ChangeContext] | None = None,
 ) -> dict[str, Any]:
     change_type_counts: dict[str, int] = {}
@@ -268,6 +268,13 @@ def _build_day_summary(
         "narrative_source": (narrative or {}).get("narrative_source", "rule"),
         "narrative_fallback_reason": (narrative or {}).get("narrative_fallback_reason"),
         "narrative_model_deployment": (narrative or {}).get("narrative_model_deployment"),
+        "narrative_generation_error": (narrative or {}).get("narrative_generation_error"),
+        "narrative_mcp_status": (narrative or {}).get("narrative_mcp_status"),
+        "narrative_mcp_error": (narrative or {}).get("narrative_mcp_error"),
+        "narrative_grounding_status": (narrative or {}).get("narrative_grounding_status"),
+        "narrative_microsoft_learn_urls": (narrative or {}).get(
+            "narrative_microsoft_learn_urls", []
+        ),
         "highlights": [
             _summarize_change(change, (change_contexts or {}).get(change_key(change)))
             for change in _highlight_changes(changes)
