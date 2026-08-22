@@ -14,9 +14,10 @@ def _change(region, feature, previous, current, change_type, service="ai"):
 
 
 class _FakeClient:
-    def __init__(self, reply="eastus newly lists gpt-5.", error=None):
+    def __init__(self, reply="eastus newly lists gpt-5.", error=None, deployment=None):
         self.reply = reply
         self.error = error
+        self.deployment = deployment
         self.calls = []
 
     def generate(self, *, system, user):
@@ -35,6 +36,7 @@ def test_rule_summary_when_no_client():
     result = build_change_narrative(changes, client=None)
 
     assert result["narrative_source"] == "rule"
+    assert result["narrative_fallback_reason"] == "no_narrative_client"
     assert "1 new availability signal" in result["narrative"]
     assert "1 regression" in result["narrative"]
     assert "eastus" in result["narrative"]
@@ -60,10 +62,31 @@ def test_ai_path_used_when_client_and_signals_present():
 
     assert result["narrative_source"] == "ai"
     assert result["narrative"] == "eastus newly lists openai/gpt-5."
+    assert result["narrative_fallback_reason"] is None
     assert len(client.calls) == 1
     # Facts must be passed to the model.
     _system, user = client.calls[0]
     assert "new_availability" in user and "eastus" in user
+
+
+def test_ai_prompt_requires_plain_language_and_azure_user_impact_section():
+    changes = [
+        _change(
+            "eastus",
+            "vmSkus.standard.ncads.h100.v5",
+            "unavailable",
+            "available",
+            "new_availability",
+        ),
+    ]
+    client = _FakeClient(reply="Headline\n\nBody.")
+
+    build_change_narrative(changes, client=client)
+
+    system, _user = client.calls[0]
+    assert "simple language" in system
+    assert "raw SKU, model ID, version, or feature code unexplained" in system
+    assert 'beginning "What this means for Azure users:"' in system
 
 
 def test_ai_facts_include_history_classification_and_sre_impact():
@@ -117,12 +140,16 @@ def test_ai_failure_falls_back_to_rule():
     changes = [
         _change("eastus", "aiModels.openai.gpt-5.2025", "unavailable", "available", "new_availability"),
     ]
-    client = _FakeClient(error=RuntimeError("boom"))
+    client = _FakeClient(error=RuntimeError("boom"), deployment="gpt-5-mini")
 
     result = build_change_narrative(changes, client=client)
 
     assert result["narrative_source"] == "rule"
+    assert result["narrative_fallback_reason"] == "generation_failed"
+    assert result["narrative_model_deployment"] == "gpt-5-mini"
     assert "eastus" in result["narrative"]
+    assert "Azure AI model (openai.gpt-5.2025)" in result["narrative"]
+    assert "What this means for Azure users:" in result["narrative"]
 
 
 def test_ai_empty_reply_falls_back_to_rule():

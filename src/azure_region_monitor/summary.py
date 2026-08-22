@@ -23,8 +23,12 @@ Interpret the change classifications: net-new availability means a feature has n
 seen available in that region before; restored availability means it was available before,
 then disappeared, and is now back; deprecation candidate means a stable availability signal
 has disappeared for the first time; recurring disappearance means it has gone missing before.
-Explain the practical impact for SREs, such as placement choice, capacity, cost, scale,
-latency, upgrade paths, or feature enablement. Keep every claim grounded in the facts.
+Explain the practical impact for SREs in simple language, such as placement choice, capacity,
+cost, scale, latency, upgrade paths, or feature enablement. Do not leave a raw SKU, model ID,
+version, or feature code unexplained; translate it into a practical capability only when the
+facts support that interpretation. End with a short final paragraph beginning "What this means
+for Azure users:" that states the practical decision or planning impact. Keep every claim
+grounded in the facts.
 
 Rules: do not invent regions, models, features, dates, numbers, causes, quotas, or SLAs.
 Do not add disclaimers, caveats, sign-offs, or a call to action. Keep it under ~350 words.
@@ -276,10 +280,10 @@ class NarrativeClient(Protocol):
 def build_change_narrative(
     changes: list[Change], *, client: NarrativeClient | None = None,
     contexts: Mapping[ChangeKey, ChangeContext] | None = None,
-) -> dict[str, str]:
+) -> dict[str, str | None]:
     """Build a human-readable change narrative with a deterministic fallback.
 
-    Returns a dict with 'narrative' and 'narrative_source' ('ai' or 'rule').
+    Returns a dict with the narrative, source, fallback reason, and model deployment.
     The AI path is only attempted when a client is provided and there are clear
     signals; any failure falls back to the rule-based summary. This function
     never raises.
@@ -289,18 +293,42 @@ def build_change_narrative(
     context_map = contexts or {}
     rule = _rule_summary(changes, signals, context_map)
 
-    if client is None or not signals:
-        return {"narrative": rule, "narrative_source": "rule"}
+    deployment = _client_deployment(client)
+    if client is None:
+        return _rule_result(rule, "no_narrative_client", deployment)
+    if not signals:
+        return _rule_result(rule, "no_clear_signals", deployment)
 
     try:
         user = _facts_block(signals, context_map)
         text = client.generate(system=SYSTEM_PROMPT, user=user).strip()
     except Exception:
-        return {"narrative": rule, "narrative_source": "rule"}
+        return _rule_result(rule, "generation_failed", deployment)
 
     if not text:
-        return {"narrative": rule, "narrative_source": "rule"}
-    return {"narrative": text, "narrative_source": "ai"}
+        return _rule_result(rule, "empty_generation", deployment)
+    return {
+        "narrative": text,
+        "narrative_source": "ai",
+        "narrative_fallback_reason": None,
+        "narrative_model_deployment": deployment,
+    }
+
+
+def _rule_result(
+    narrative: str, reason: str, deployment: str | None
+) -> dict[str, str | None]:
+    return {
+        "narrative": narrative,
+        "narrative_source": "rule",
+        "narrative_fallback_reason": reason,
+        "narrative_model_deployment": deployment,
+    }
+
+
+def _client_deployment(client: NarrativeClient | None) -> str | None:
+    deployment = getattr(client, "deployment", None)
+    return deployment if isinstance(deployment, str) and deployment else None
 
 
 def _clear_signal_changes(changes: list[Change]) -> list[Change]:
@@ -333,6 +361,10 @@ def _rule_summary(
     # Regressions first: a delisting/deprecation is the more consequential signal.
     parts.extend(_opinionated_sentences(regressions, "regression", context_map))
     parts.extend(_opinionated_sentences(new_avail, "new_availability", context_map))
+    parts.append(
+        "What this means for Azure users: review placement and fallback plans using these "
+        "catalog/list signals before changing production deployments."
+    )
     return " ".join(parts)
 
 
@@ -425,7 +457,7 @@ def _counted_classification(count: int, classification: str) -> str:
 
 def _examples(changes: list[Change]) -> str:
     shown = changes[:MAX_EXAMPLES]
-    rendered = "; ".join(f"{c.region} · {_feature_label(c.feature)}" for c in shown)
+    rendered = "; ".join(f"{c.region} · {_feature_description(c.feature)}" for c in shown)
     remaining = len(changes) - len(shown)
     if remaining > 0:
         rendered += f"; and {remaining} more"
@@ -542,3 +574,17 @@ def _feature_label(feature: str) -> str:
             break
     feature = feature.removeprefix("standard.")
     return feature
+
+
+def _feature_description(feature: str) -> str:
+    label = _feature_label(feature)
+    modality = _modality(feature)
+    descriptions = {
+        "VM SKUs": "Azure virtual-machine size",
+        "Azure AI models": "Azure AI model",
+        "AKS Kubernetes versions": "AKS Kubernetes upgrade version",
+        "AKS extensions": "AKS cluster extension",
+        "Azure Functions": "Azure Functions runtime or hosting option",
+        "Container Apps": "Azure Container Apps capability",
+    }
+    return f"{descriptions.get(modality, modality)} ({label})"

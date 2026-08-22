@@ -266,6 +266,8 @@ def _build_day_summary(
         "change_context_counts": _change_context_counts(change_contexts or {}),
         "narrative": (narrative or {}).get("narrative", ""),
         "narrative_source": (narrative or {}).get("narrative_source", "rule"),
+        "narrative_fallback_reason": (narrative or {}).get("narrative_fallback_reason"),
+        "narrative_model_deployment": (narrative or {}).get("narrative_model_deployment"),
         "highlights": [
             _summarize_change(change, (change_contexts or {}).get(change_key(change)))
             for change in _highlight_changes(changes)
