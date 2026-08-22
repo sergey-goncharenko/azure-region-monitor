@@ -442,6 +442,8 @@ def test_agentic_rework_workflow_bounds_pushes_to_the_reviewed_pull_request():
     assert "Finalize the rework status comment" in source
     assert "SAFE_OUTPUTS_RESULT: ${{ needs.safe_outputs.result }}" in source
     assert "scripts/manage_azure_pr_rework.py finalize-status" in source
+    assert "detection:\n    needs: [prepare]" in source
+    assert "      - prepare\n" in lock
     assert "secrets.AZURE_CODING_OPENAI_KEY" in source
     rework_agent = source.split("\nmodel: ", 1)[1].split("\nsandbox:", 1)[0]
     scheduled_agent = scheduled.split("\nmodel: ", 1)[1].split("\nsandbox:", 1)[0]

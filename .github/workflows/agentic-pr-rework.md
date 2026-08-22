@@ -219,6 +219,9 @@ jobs:
             --outcome "$outcome" \
             --run-url "$RUN_URL"
 
+  detection:
+    needs: [prepare]
+
 if: needs.prepare.outputs.has_task == 'true'
 
 model: gpt-5.6-terra
