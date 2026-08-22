@@ -259,31 +259,44 @@ def _build_narrative_client():
     if os.environ.get("AI_SUMMARY_ENABLED", "1") == "0":
         return None
 
+    azure_error: Exception | None = None
     try:
         from azure_region_monitor.social_client import AzureOpenAiTextClient
 
         return AzureOpenAiTextClient.from_env(
-            max_output_tokens=int(os.environ.get("AI_SUMMARY_MAX_TOKENS", "900"))
+            max_output_tokens=int(os.environ.get("AI_SUMMARY_MAX_TOKENS", "900")),
+            enable_microsoft_learn_mcp=True,
         )
-    except Exception:
-        pass
+    except (ImportError, ValueError) as error:
+        azure_error = error
 
     token = os.environ.get("GITHUB_MODELS_TOKEN") or os.environ.get("GITHUB_TOKEN")
     if not token or os.environ.get("AI_SUMMARY_ALLOW_GITHUB_FALLBACK", "0") != "1":
-        return None
+        return _UnavailableNarrativeClient(str(azure_error) if azure_error else "Azure OpenAI unavailable")
     try:
         from azure_region_monitor.probes.github_models import (
             DEFAULT_SUMMARY_MODELS,
             GitHubModelsClient,
             GitHubModelsNarrativeClient,
+            LatencyClientError,
         )
 
         # AI_SUMMARY_MODEL may be a single model or a comma-separated preference list;
         # the client tries them in order. Default is the best-first gpt-5 family.
         models = os.environ.get("AI_SUMMARY_MODEL") or ",".join(DEFAULT_SUMMARY_MODELS)
         return GitHubModelsNarrativeClient(GitHubModelsClient.from_env(), models=models)
-    except Exception:
-        return None
+    except (ImportError, LatencyClientError, ValueError) as error:
+        return _UnavailableNarrativeClient(str(error))
+
+
+class _UnavailableNarrativeClient:
+    """Preserve client-initialization failures in the published fallback metadata."""
+
+    def __init__(self, reason: str) -> None:
+        self._reason = reason
+
+    def generate(self, *, system: str, user: str) -> str:
+        raise RuntimeError(self._reason)
 
 
 def _merge_snapshot(args: argparse.Namespace) -> None:
