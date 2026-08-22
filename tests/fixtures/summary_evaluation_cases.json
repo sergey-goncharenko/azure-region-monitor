@@ -1,0 +1,24 @@
+{
+  "cases": [
+    {
+      "id": "ai-model",
+      "expected_terms": ["Azure AI model", "What this means for Azure users:"]
+    },
+    {
+      "id": "vm-sku",
+      "expected_terms": ["VM", "What this means for Azure users:"]
+    },
+    {
+      "id": "aks",
+      "expected_terms": ["AKS", "What this means for Azure users:"]
+    },
+    {
+      "id": "functions",
+      "expected_terms": ["Functions", "What this means for Azure users:"]
+    },
+    {
+      "id": "container-apps",
+      "expected_terms": ["Container Apps", "What this means for Azure users:"]
+    }
+  ]
+}

@@ -56,12 +56,14 @@ def test_ai_path_used_when_client_and_signals_present():
     changes = [
         _change("eastus", "aiModels.openai.gpt-5.2025", "unavailable", "available", "new_availability"),
     ]
-    client = _FakeClient(reply="eastus newly lists openai/gpt-5.")
+    client = _FakeClient(
+        reply="East US newly lists openai/gpt-5.\n\nWhat this means for Azure users: review model selection."
+    )
 
     result = build_change_narrative(changes, client=client)
 
     assert result["narrative_source"] == "ai"
-    assert result["narrative"] == "eastus newly lists openai/gpt-5."
+    assert result["narrative"].startswith("East US newly lists openai/gpt-5.")
     assert result["narrative_fallback_reason"] is None
     assert len(client.calls) == 1
     # Facts must be passed to the model.
@@ -148,7 +150,7 @@ def test_ai_failure_falls_back_to_rule():
     assert result["narrative_fallback_reason"] == "generation_failed"
     assert result["narrative_model_deployment"] == "gpt-5-mini"
     assert "eastus" in result["narrative"]
-    assert "Azure AI model (openai.gpt-5.2025)" in result["narrative"]
+    assert "Azure AI model/version catalog entry for model selection (openai.gpt-5.2025)" in result["narrative"]
     assert "What this means for Azure users:" in result["narrative"]
 
 
@@ -175,6 +177,39 @@ def test_ai_unsupported_claim_falls_back_with_observable_reason():
 
     assert result["narrative_source"] == "rule"
     assert result["narrative_fallback_reason"] == "unsupported_generation"
+
+
+def test_ai_requires_user_impact_section_and_rejects_unsupported_claims():
+    changes = [
+        _change("eastus", "vmSkus.standard.d2as.v5", "unavailable", "available", "new_availability"),
+    ]
+
+    for reply in (
+        "A VM SKU is listed.",
+        "What this means for Azure users: this SKU is eligible because of a root cause.",
+        "What this means for Azure users: deployment success is guaranteed.",
+    ):
+        result = build_change_narrative(changes, client=_FakeClient(reply=reply))
+        assert result["narrative_source"] == "rule"
+        assert result["narrative_fallback_reason"] == "unsupported_generation"
+
+
+def test_rule_fallback_expands_known_identifier_modalities():
+    changes = [
+        _change("eastus", "aiModels.openai.gpt-5.2025", "unavailable", "available", "new_availability"),
+        _change("westus3", "vmSkus.standard.d2as.v5", "unavailable", "available", "new_availability"),
+        _change("centralus", "extensions.flux", "unavailable", "available", "new_availability"),
+        _change("eastus2", "runtimes.python.3.12", "unavailable", "available", "new_availability"),
+        _change("westeurope", "containerApps.managedEnvironments", "unavailable", "available", "new_availability"),
+    ]
+
+    narrative = build_change_narrative(changes)["narrative"]
+
+    assert "model/version catalog entry" in narrative
+    assert "right-sizing compute" in narrative
+    assert "managed cluster capabilities" in narrative
+    assert "Flex Consumption runtime" in narrative
+    assert "serverless container planning" in narrative
 
 
 def test_ai_failure_surfaces_the_generation_error():

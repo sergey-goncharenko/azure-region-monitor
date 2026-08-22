@@ -380,10 +380,25 @@ def _is_supported_narrative(text: str) -> bool:
         "sla",
         "deployment succeeded",
         "successful deployment",
+        "deployment success",
+        "eligible",
+        "eligibility",
+        "root cause",
+        "caused by",
+        "because of",
         "capacity is available",
         "available capacity",
+        "has capacity",
     )
-    return len(text.split()) <= 350 and not any(claim in lowered for claim in unsupported_claims)
+    has_impact_section = any(
+        line.strip().lower().startswith("what this means for azure users:")
+        for line in text.splitlines()
+    )
+    return (
+        len(text.split()) <= 350
+        and has_impact_section
+        and not any(claim in lowered for claim in unsupported_claims)
+    )
 
 
 def _clear_signal_changes(changes: list[Change]) -> list[Change]:
@@ -635,11 +650,11 @@ def _feature_description(feature: str) -> str:
     label = _feature_label(feature)
     modality = _modality(feature)
     descriptions = {
-        "VM SKUs": "Azure virtual-machine size",
-        "Azure AI models": "Azure AI model",
-        "AKS Kubernetes versions": "AKS Kubernetes upgrade version",
-        "AKS extensions": "AKS cluster extension",
-        "Azure Functions": "Azure Functions runtime or hosting option",
-        "Container Apps": "Azure Container Apps capability",
+        "VM SKUs": "Azure virtual-machine size for right-sizing compute",
+        "Azure AI models": "Azure AI model/version catalog entry for model selection",
+        "AKS Kubernetes versions": "AKS Kubernetes version for upgrade planning",
+        "AKS extensions": "AKS cluster extension type for managed cluster capabilities",
+        "Azure Functions": "Azure Functions Flex Consumption runtime or hosting option",
+        "Container Apps": "Azure Container Apps provider capability for serverless container planning",
     }
     return f"{descriptions.get(modality, modality)} ({label})"

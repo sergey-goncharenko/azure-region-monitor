@@ -198,7 +198,6 @@ def _build_social_draft_client():
                 DEFAULT_SUMMARY_MODELS,
                 GitHubModelsClient,
                 GitHubModelsNarrativeClient,
-                LatencyClientError,
             )
 
             models = os.environ.get("AI_SOCIAL_MODEL") or ",".join(DEFAULT_SUMMARY_MODELS)
@@ -279,6 +278,7 @@ def _build_narrative_client():
             DEFAULT_SUMMARY_MODELS,
             GitHubModelsClient,
             GitHubModelsNarrativeClient,
+            LatencyClientError,
         )
 
         # AI_SUMMARY_MODEL may be a single model or a comma-separated preference list;

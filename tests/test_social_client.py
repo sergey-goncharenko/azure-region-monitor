@@ -103,6 +103,7 @@ def test_azure_summary_client_records_microsoft_learn_grounding():
             "server_label": "microsoft_learn",
             "server_url": MICROSOFT_LEARN_MCP_URL,
             "allowed_tools": list(MICROSOFT_LEARN_MCP_TOOLS),
+            "require_approval": "never",
         }
     ]
     assert client.generation_metadata == {
@@ -113,7 +114,7 @@ def test_azure_summary_client_records_microsoft_learn_grounding():
     }
 
 
-def test_azure_summary_client_records_mcp_transport_failure():
+def test_azure_summary_client_does_not_mislabel_responses_transport_failure_as_mcp_failure():
     client = AzureOpenAiTextClient(
         api_key="test-key",
         endpoint="https://example.openai.azure.com",
@@ -129,5 +130,72 @@ def test_azure_summary_client_records_mcp_transport_failure():
     else:
         raise AssertionError("Expected the Azure OpenAI request to fail")
 
+    assert client.generation_metadata["narrative_mcp_status"] == "available"
+    assert client.generation_metadata["narrative_mcp_error"] is None
+
+
+def test_azure_summary_client_rejects_mcp_approval_request():
+    client = AzureOpenAiTextClient(
+        api_key="test-key",
+        endpoint="https://example.openai.azure.com",
+        deployment="gpt-5.4-mini",
+        enable_microsoft_learn_mcp=True,
+        opener=_FakeOpener(
+            {
+                "output": [
+                    {
+                        "type": "mcp_approval_request",
+                        "server_label": "microsoft_learn",
+                    }
+                ]
+            }
+        ),
+    )
+
+    try:
+        client.generate(system="system", user="facts")
+    except RuntimeError as error:
+        assert "Microsoft Learn MCP request failed: approval_requested" in str(error)
+    else:
+        raise AssertionError("Expected MCP approval request to fail")
+
     assert client.generation_metadata["narrative_mcp_status"] == "failed"
-    assert client.generation_metadata["narrative_mcp_error"] == "URLError"
+
+
+def test_azure_summary_client_uses_only_successful_mcp_result_urls():
+    client = AzureOpenAiTextClient(
+        api_key="test-key",
+        endpoint="https://example.openai.azure.com",
+        deployment="gpt-5.4-mini",
+        enable_microsoft_learn_mcp=True,
+        opener=_FakeOpener(
+            {
+                "output": [
+                    {
+                        "type": "mcp_call",
+                        "server_label": "microsoft_learn",
+                        "status": "completed",
+                        "result": {
+                            "url": "https://learn.microsoft.com/azure/aks/cluster-extensions",
+                            "endpoint": MICROSOFT_LEARN_MCP_URL,
+                        },
+                    },
+                    {
+                        "type": "message",
+                        "content": [
+                            {
+                                "type": "output_text",
+                                "text": "Ignore https://learn.microsoft.com/not-a-result",
+                            }
+                        ],
+                    },
+                ]
+            }
+        ),
+    )
+
+    client.generate(system="system", user="facts")
+
+    assert client.generation_metadata["narrative_microsoft_learn_urls"] == [
+        "https://learn.microsoft.com/azure/aks/cluster-extensions"
+    ]

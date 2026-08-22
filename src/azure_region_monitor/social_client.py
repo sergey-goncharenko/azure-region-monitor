@@ -5,11 +5,13 @@ import json
 import os
 import urllib.error
 import urllib.request
+from urllib.parse import urlparse
 
 DEFAULT_TIMEOUT_SECONDS = 90
 DEFAULT_MAX_OUTPUT_TOKENS = 1_200
 MICROSOFT_LEARN_MCP_URL = "https://learn.microsoft.com/api/mcp?maxTokenBudget=2000"
 MICROSOFT_LEARN_MCP_TOOLS = ("microsoft_docs_search", "microsoft_docs_fetch")
+MAX_MICROSOFT_LEARN_URLS = 20
 
 
 class AzureOpenAiTextClient:
@@ -34,7 +36,7 @@ class AzureOpenAiTextClient:
         self._enable_microsoft_learn_mcp = enable_microsoft_learn_mcp
         self._opener = opener or urllib.request.build_opener()
         self._generation_metadata: dict[str, object] = {
-            "narrative_mcp_status": "disabled",
+            "narrative_mcp_status": "available" if enable_microsoft_learn_mcp else "disabled",
             "narrative_mcp_error": None,
             "narrative_grounding_status": "scan_facts_only",
             "narrative_microsoft_learn_urls": [],
@@ -85,6 +87,7 @@ class AzureOpenAiTextClient:
                     "server_label": "microsoft_learn",
                     "server_url": MICROSOFT_LEARN_MCP_URL,
                     "allowed_tools": list(MICROSOFT_LEARN_MCP_TOOLS),
+                    "require_approval": "never",
                 }
             ]
         request = urllib.request.Request(
@@ -102,15 +105,17 @@ class AzureOpenAiTextClient:
                 body = json.loads(response.read().decode("utf-8"))
         except urllib.error.HTTPError as error:
             detail = error.read().decode("utf-8", errors="replace")
-            self._record_mcp_error(f"HTTP {error.code}")
             raise RuntimeError(
                 f"Azure OpenAI social draft request failed: HTTP {error.code}: {detail}"
             ) from error
         except (urllib.error.URLError, http.client.HTTPException, OSError, json.JSONDecodeError) as error:
-            self._record_mcp_error(type(error).__name__)
             raise RuntimeError(f"Azure OpenAI social draft request failed: {error}") from error
 
         self._record_grounding(body)
+        if self._generation_metadata["narrative_mcp_status"] == "failed":
+            raise RuntimeError(
+                f"Microsoft Learn MCP request failed: {self._generation_metadata['narrative_mcp_error']}"
+            )
         text = _response_text(body)
         if not text:
             raise RuntimeError("Azure OpenAI social draft response did not contain output text.")
@@ -131,28 +136,15 @@ class AzureOpenAiTextClient:
             return f"{self._endpoint}/responses"
         return f"{self._endpoint}/openai/v1/responses"
 
-    def _record_mcp_error(self, error: str) -> None:
-        if self._enable_microsoft_learn_mcp:
-            self._generation_metadata.update(
-                {
-                    "narrative_mcp_status": "failed",
-                    "narrative_mcp_error": error,
-                    "narrative_grounding_status": "scan_facts_only",
-                    "narrative_microsoft_learn_urls": [],
-                }
-            )
-
     def _record_grounding(self, payload: object) -> None:
-        urls = sorted(_microsoft_learn_urls(payload))
         if not self._enable_microsoft_learn_mcp:
             return
+        status, error, urls = _microsoft_learn_mcp_result(payload)
         self._generation_metadata.update(
             {
-                "narrative_mcp_status": (
-                    "consulted" if _used_microsoft_learn_mcp(payload) else "available"
-                ),
-                "narrative_mcp_error": None,
-                "narrative_grounding_status": "microsoft_learn" if urls else "scan_facts_only",
+                "narrative_mcp_status": status,
+                "narrative_mcp_error": error,
+                "narrative_grounding_status": "microsoft_learn" if status == "consulted" and urls else "scan_facts_only",
                 "narrative_microsoft_learn_urls": urls,
             }
         )
@@ -184,21 +176,56 @@ def _response_text(payload: object) -> str:
     return "".join(parts).strip()
 
 
-def _used_microsoft_learn_mcp(payload: object) -> bool:
+def _microsoft_learn_mcp_result(payload: object) -> tuple[str, str | None, list[str]]:
     if not isinstance(payload, dict):
-        return False
+        return "available", None, []
     output = payload.get("output")
-    return isinstance(output, list) and any(
-        isinstance(item, dict)
-        and item.get("type") == "mcp_call"
-        and item.get("server_label") == "microsoft_learn"
-        for item in output
-    )
+    if not isinstance(output, list):
+        return "available", None, []
+
+    urls: set[str] = set()
+    for item in output:
+        if not isinstance(item, dict) or item.get("server_label") != "microsoft_learn":
+            continue
+        item_type = item.get("type")
+        if item_type == "mcp_approval_request":
+            return "failed", "approval_requested", []
+        if item_type in {"mcp_error", "mcp_call"} and (
+            item_type == "mcp_error"
+            or item.get("error")
+            or item.get("status") in {"cancelled", "error", "failed", "incomplete"}
+        ):
+            return "failed", _mcp_error_name(item), []
+        if item_type == "mcp_call":
+            urls.update(_microsoft_learn_urls(item.get("result")))
+
+    ordered_urls = sorted(urls)[:MAX_MICROSOFT_LEARN_URLS]
+    return ("consulted" if urls else "available"), None, ordered_urls
+
+
+def _mcp_error_name(item: dict[str, object]) -> str:
+    error = item.get("error")
+    if isinstance(error, dict):
+        error_type = error.get("type") or error.get("code")
+        if isinstance(error_type, str) and error_type:
+            return error_type[:120]
+    if isinstance(error, str) and error:
+        return error[:120]
+    status = item.get("status")
+    return status if isinstance(status, str) else "tool_error"
 
 
 def _microsoft_learn_urls(value: object) -> set[str]:
     if isinstance(value, str):
-        return {value} if value.startswith("https://learn.microsoft.com/") else set()
+        parsed = urlparse(value)
+        if (
+            parsed.scheme == "https"
+            and parsed.netloc == "learn.microsoft.com"
+            and parsed.path
+            and parsed.path != "/api/mcp"
+        ):
+            return {value}
+        return set()
     if isinstance(value, list):
         return set().union(*(_microsoft_learn_urls(item) for item in value))
     if isinstance(value, dict):
