@@ -224,15 +224,15 @@ jobs:
 
 if: needs.prepare.outputs.has_task == 'true'
 
-model: gpt-5.6-terra
+model: ${{ vars.AZWATCH_AGENTIC_MODEL }}
 engine:
   id: copilot
-  version: "1.0.65"
+  version: ${{ vars.AZWATCH_AGENTIC_COPILOT_VERSION }}
   max-continuations: 3
   env:
-    COPILOT_PROVIDER_BASE_URL: https://azrm-code-eus2-16221e01.openai.azure.com/openai/v1
+    COPILOT_PROVIDER_BASE_URL: ${{ secrets.AZWATCH_AGENTIC_AZURE_BASE_URL }}
     COPILOT_PROVIDER_API_KEY: ${{ secrets.AZURE_CODING_OPENAI_KEY }}
-    COPILOT_PROVIDER_MODEL_ID: gpt-5.6-terra
+    COPILOT_PROVIDER_MODEL_ID: ${{ vars.AZWATCH_AGENTIC_MODEL }}
     COPILOT_PROVIDER_WIRE_API: responses
 
 sandbox:
@@ -241,14 +241,14 @@ network:
   allowed:
     - defaults
     - python
-    - azrm-code-eus2-16221e01.openai.azure.com
+    - "*.openai.azure.com"
 
 checkout:
   fetch: ["*"]
   fetch-depth: 0
 
 timeout-minutes: 30
-max-turns: 80
+max-turns: ${{ vars.AZWATCH_AGENTIC_MAX_TURNS }}
 max-ai-credits: 700
 max-daily-ai-credits: 1400
 

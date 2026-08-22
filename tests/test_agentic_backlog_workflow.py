@@ -37,11 +37,12 @@ def test_agentic_backlog_uses_existing_azure_byok_with_secret_isolation():
     lock = LOCK.read_text(encoding="utf-8")
 
     assert "engine:\n  id: copilot" in source
-    assert 'version: "1.0.65"' in source
-    # Any Azure deployment works from AWF 0.27.44; 0.27.11 rejected everything but o4-mini.
-    assert "model: gpt-5.6-terra" in source
+    assert "version: ${{ vars.AZWATCH_AGENTIC_COPILOT_VERSION }}" in source
+    assert "model: ${{ vars.AZWATCH_AGENTIC_MODEL }}" in source
+    assert "secrets.AZWATCH_AGENTIC_AZURE_BASE_URL" in source
+    assert '"*.openai.azure.com"' in source
     assert "max-continuations: 3" in source
-    assert "max-turns: 80" in source
+    assert "max-turns: ${{ vars.AZWATCH_AGENTIC_MAX_TURNS }}" in source
     assert "max-ai-credits: 700" in source
     assert "max-daily-ai-credits: 1400" in source
     assert "COPILOT_PROVIDER_WIRE_API: responses" in source

@@ -448,7 +448,7 @@ def test_agentic_rework_workflow_bounds_pushes_to_the_reviewed_pull_request():
     rework_agent = source.split("\nmodel: ", 1)[1].split("\nsandbox:", 1)[0]
     scheduled_agent = scheduled.split("\nmodel: ", 1)[1].split("\nsandbox:", 1)[0]
     assert rework_agent == scheduled_agent
-    assert '"agent_model":"gpt-5.6-terra"' in lock
+    assert '"agent_model":"${{ vars.AZWATCH_AGENTIC_MODEL }}"' in lock
     assert 'GH_AW_ALLOWED_BOTS: "github-actions[bot]"' in lock
     assert '"protected_files_policy":"fallback-to-issue"' in lock
 
