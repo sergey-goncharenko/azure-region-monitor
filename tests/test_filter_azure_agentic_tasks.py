@@ -31,6 +31,9 @@ def _manifest(*issue_numbers: int):
         "status": {
             "selected_count": len(tasks),
             "selected_categories": [task["category"] for task in tasks],
+            "eligible_issues": [
+                {"number": number, "title": f"Issue {number}"} for number in issue_numbers
+            ],
         },
     }
 
@@ -47,6 +50,11 @@ def test_filter_manifest_skips_existing_aider_and_agentic_issue_prs():
     assert [task["issue_number"] for task in filtered["tasks"]] == [53]
     assert filtered["status"]["selected_count"] == 1
     assert filtered["status"]["selected_categories"] == ["issue-53"]
+    assert filtered["status"]["blocked_open_pr_count"] == 2
+    assert filtered["status"]["blocked_open_pr_issues"] == [
+        {"number": 43, "title": "Issue 43"},
+        {"number": 48, "title": "Issue 48"},
+    ]
     assert filtered["agentic_filter"]["skipped_open_pr_issue_numbers"] == [43, 48]
 
 

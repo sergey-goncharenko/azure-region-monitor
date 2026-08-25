@@ -38,6 +38,24 @@ def _issue_lines(items: object) -> list[str]:
     return lines or ["- None"]
 
 
+def _no_task_outcome(status: dict[str, Any]) -> str:
+    eligible = int(status.get("eligible_count", 0) or 0)
+    deferred = int(status.get("deferred_no_unknown_evidence_count", 0) or 0)
+    blocked = int(status.get("blocked_open_pr_count", 0) or 0)
+    if eligible == 0:
+        return "No agent session started because no queue-eligible backlog issue was available."
+    reasons = []
+    if deferred:
+        noun = "issue awaits" if deferred == 1 else "issues await"
+        reasons.append(f"{deferred} {noun} current `unknown` evidence")
+    if blocked:
+        noun = "issue already has" if blocked == 1 else "issues already have"
+        reasons.append(f"{blocked} {noun} an open coding PR")
+    if reasons:
+        return "No agent session started: " + "; ".join(reasons) + "."
+    return "No agent session started because no queue-eligible issue produced a runnable task."
+
+
 def render_status(manifest: dict[str, Any], run_url: str) -> str:
     status = manifest.get("status")
     status = status if isinstance(status, dict) else {}
@@ -45,7 +63,7 @@ def render_status(manifest: dict[str, Any], run_url: str) -> str:
     outcome = (
         f"Selected {selected} issue session(s); inspect the latest run audit and any draft PRs."
         if selected
-        else "No agent session started because no eligible backlog issue was available."
+        else _no_task_outcome(status)
     )
     lines = [
         "<!-- azure-agent-backlog-status -->",
@@ -54,15 +72,26 @@ def render_status(manifest: dict[str, Any], run_url: str) -> str:
         f"- Updated: `{datetime.now(timezone.utc).isoformat()}`",
         f"- Latest run: {run_url or 'not available'}",
         f"- Open backlog issues: {int(status.get('backlog_count', 0) or 0)}",
-        f"- Eligible issues: {int(status.get('eligible_count', 0) or 0)}",
+        f"- Queue-eligible issues: {int(status.get('eligible_count', 0) or 0)}",
+        "- Deferred without current unknown evidence: "
+        f"{int(status.get('deferred_no_unknown_evidence_count', 0) or 0)}",
+        f"- Blocked by open coding PRs: {int(status.get('blocked_open_pr_count', 0) or 0)}",
         f"- Paused issues: {int(status.get('paused_count', 0) or 0)}",
         f"- Selected sessions: {selected}",
         "",
         outcome,
         "",
-        "## Eligible issues",
+        "## Queue-eligible issues",
         "",
         *_issue_lines(status.get("eligible_issues")),
+        "",
+        "## Deferred without current unknown evidence",
+        "",
+        *_issue_lines(status.get("deferred_no_unknown_evidence_issues")),
+        "",
+        "## Blocked by open coding PRs",
+        "",
+        *_issue_lines(status.get("blocked_open_pr_issues")),
         "",
         "## Paused issues",
         "",
@@ -170,7 +199,10 @@ def publish_status(manifest: dict[str, Any], repository: str, run_url: str) -> i
                 "No agent session started: "
                 f"{int(status.get('backlog_count', 0) or 0)} backlog issue(s), "
                 f"{int(status.get('paused_count', 0) or 0)} paused, "
-                f"{int(status.get('eligible_count', 0) or 0)} eligible. "
+                f"{int(status.get('eligible_count', 0) or 0)} queue-eligible, "
+                f"{int(status.get('deferred_no_unknown_evidence_count', 0) or 0)} "
+                "deferred without current unknown evidence, "
+                f"{int(status.get('blocked_open_pr_count', 0) or 0)} blocked by an open PR. "
                 f"Run: {run_url or 'not available'}",
             )
         print(f"Published scheduled backlog status: issue #{issue_number or 'unknown'}.")

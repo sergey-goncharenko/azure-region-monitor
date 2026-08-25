@@ -44,9 +44,11 @@ To defer an item without closing it, add `azure-paused`. To remove it permanentl
 
 Issues labelled `azure-recurring` are different: their generated PRs do not close the source issue, so they can produce another bounded maintenance PR after the previous one is merged. Issue #48 is open, `azure-backlog`, `azure-recurring`, `azure-unknowns`, and Priority **Urgent**, so normal issue ordering selects it before lower-priority issues. Only after that selection does the task builder read the live snapshot, choose the largest current unknown category, and add its counts, error evidence, and relevant probe/test/workflow hints. If no current unknowns exist, that recurring lane is skipped and another eligible issue can fill the slot.
 
+Use `azure-unknowns` only when the issue should run conditionally against the largest current `unknown` group. It is not a generic investigation label: an issue about `unavailable` results, presentation, content, or another one-off outcome must omit it, otherwise the selector defers that issue whenever the live snapshot has no unknown group.
+
 Agentic PR branches start with `agentic/issue-<number>` and receive a collision-avoidance suffix. Aider fallback branches remain `azure-issues/issue-<number>`. Before starting a model, deterministic filtering skips any issue that already has an open PR from either lane.
 
-Every non-dry-run backlog workflow updates one stable `[agent-status] Scheduled Azure backlog` issue labelled `azure-agent-status` with the latest workflow link and open/eligible/paused/selected counts. When zero issues are eligible, no model is started and the status issue receives one concise no-session comment. Selected runs continue to use source-issue notes and draft PRs for detailed outcomes.
+Every non-dry-run backlog workflow updates one stable `[agent-status] Scheduled Azure backlog` issue labelled `azure-agent-status` with the latest workflow link and open, queue-eligible, deferred-without-unknown-evidence, open-PR-blocked, paused, and selected counts. When no runnable task remains, no model is started and the status issue receives one concise comment with the reason. Selected runs continue to use source-issue notes and draft PRs for detailed outcomes.
 
 ## Comments, Parent Issues, And Sub-Issues
 

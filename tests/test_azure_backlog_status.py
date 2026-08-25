@@ -24,6 +24,10 @@ def _manifest(selected: int = 0):
             "eligible_count": selected,
             "selected_count": selected,
             "eligible_issues": ([{"number": 55, "title": "Improve filters"}] if selected else []),
+            "deferred_no_unknown_evidence_count": 0,
+            "deferred_no_unknown_evidence_issues": [],
+            "blocked_open_pr_count": 0,
+            "blocked_open_pr_issues": [],
             "paused_issues": [{"number": 48, "title": "Investigate unknowns"}],
         },
     }
@@ -34,10 +38,28 @@ def test_render_status_explains_no_task_run():
 
     assert "No agent session started" in rendered
     assert "Open backlog issues: 8" in rendered
-    assert "Eligible issues: 0" in rendered
+    assert "Queue-eligible issues: 0" in rendered
     assert "Paused issues: 8" in rendered
     assert "#48: Investigate unknowns" in rendered
     assert "https://example.test/run/1" in rendered
+
+
+def test_render_status_explains_unknown_evidence_defer():
+    manifest = _manifest()
+    manifest["status"].update(
+        eligible_count=1,
+        eligible_issues=[{"number": 48, "title": "Investigate unknowns"}],
+        deferred_no_unknown_evidence_count=1,
+        deferred_no_unknown_evidence_issues=[
+            {"number": 48, "title": "Investigate unknowns"}
+        ],
+    )
+
+    rendered = backlog_status.render_status(manifest, "https://example.test/run/3")
+
+    assert "1 issue awaits current `unknown` evidence" in rendered
+    assert "Deferred without current unknown evidence: 1" in rendered
+    assert "#48: Investigate unknowns" in rendered
 
 
 def test_render_status_points_selected_runs_to_audit():

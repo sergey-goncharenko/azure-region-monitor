@@ -72,7 +72,7 @@ def test_issue_backlog_excludes_documentation_alignment_by_default(monkeypatch, 
     monkeypatch.setattr(
         backlog_cycle,
         "_build_issue_tasks",
-        lambda issues_path, limit, repository, snapshot_url, target_issue: [
+        lambda issues_path, limit, repository, snapshot_url, target_issue, **kwargs: [
             {"kind": "issue", "category": "issue-1", "summary": "First task"},
             {"kind": "issue", "category": "issue-2", "summary": "Second task"},
             {"kind": "issue", "category": "issue-3", "summary": "Third task"},
@@ -90,7 +90,7 @@ def test_issue_backlog_excludes_documentation_alignment_by_default(monkeypatch, 
 
 
 def test_documentation_task_can_still_be_built_explicitly(monkeypatch, tmp_path):
-    monkeypatch.setattr(backlog_cycle, "_build_issue_tasks", lambda *args: [])
+    monkeypatch.setattr(backlog_cycle, "_build_issue_tasks", lambda *args, **kwargs: [])
     monkeypatch.setattr(
         backlog_cycle,
         "_build_docs_task",
@@ -132,7 +132,7 @@ def test_empty_cycle_reports_all_paused_backlog_issues(monkeypatch, tmp_path):
         ),
         encoding="utf-8",
     )
-    monkeypatch.setattr(backlog_cycle, "_build_issue_tasks", lambda *args: [])
+    monkeypatch.setattr(backlog_cycle, "_build_issue_tasks", lambda *args, **kwargs: [])
 
     cycle = backlog_cycle.build_cycle(issues_path, 1, "example/repo")
     rendered = backlog_cycle.render_cycle_markdown(cycle)
@@ -145,10 +145,47 @@ def test_empty_cycle_reports_all_paused_backlog_issues(monkeypatch, tmp_path):
     assert "Paused issues: 2" in rendered
 
 
+def test_unknown_issue_without_live_unknowns_reports_defer_reason(monkeypatch, tmp_path):
+    issues_path = tmp_path / "issues.json"
+    issues_path.write_text(
+        json.dumps(
+            [
+                {
+                    "number": 48,
+                    "title": "[azure-backlog] Investigate unknowns",
+                    "body": "### Priority\nUrgent\n\n### Objective\nInvestigate unknowns.",
+                    "labels": [
+                        {"name": "azure-backlog"},
+                        {"name": "azure-unknowns"},
+                    ],
+                    "url": "https://example.test/issues/48",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        backlog_cycle,
+        "_current_unknown_context",
+        lambda snapshot_url: {"category": "", "source_paths": [], "tests": [], "evidence": {}},
+    )
+
+    cycle = backlog_cycle.build_cycle(issues_path, 1)
+    rendered = backlog_cycle.render_cycle_markdown(cycle)
+
+    assert cycle["status"]["eligible_count"] == 1
+    assert cycle["status"]["selected_count"] == 0
+    assert cycle["status"]["deferred_no_unknown_evidence_count"] == 1
+    assert cycle["status"]["deferred_no_unknown_evidence_issues"] == [
+        {"number": 48, "title": "[azure-backlog] Investigate unknowns"}
+    ]
+    assert "require current `unknown` evidence" in rendered
+
+
 def test_targeted_rework_selects_one_issue_and_skips_docs(monkeypatch, tmp_path):
     captured = {}
 
-    def build_tasks(issues_path, limit, repository, snapshot_url, target_issue):
+    def build_tasks(issues_path, limit, repository, snapshot_url, target_issue, **kwargs):
         captured["target_issue"] = target_issue
         return [{"kind": "issue", "category": "issue-49", "summary": "Rework"}]
 

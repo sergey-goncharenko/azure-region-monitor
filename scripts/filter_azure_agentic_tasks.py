@@ -80,6 +80,16 @@ def filter_manifest(
     status = dict(manifest.get("status")) if isinstance(manifest.get("status"), dict) else {}
     status["selected_count"] = len(selected)
     status["selected_categories"] = [str(task.get("category", "")) for task in selected]
+    eligible_items = status.get("eligible_issues")
+    eligible_items = eligible_items if isinstance(eligible_items, list) else []
+    skipped_numbers = set(skipped)
+    blocked_items = [
+        item
+        for item in eligible_items
+        if isinstance(item, dict) and item.get("number") in skipped_numbers
+    ]
+    status["blocked_open_pr_count"] = len(skipped)
+    status["blocked_open_pr_issues"] = blocked_items
     result["status"] = status
     result["agentic_filter"] = {
         "open_pr_issue_numbers": sorted(open_issue_numbers),

@@ -180,6 +180,7 @@ def _build_issue_tasks(
     snapshot_url: str = DEFAULT_SNAPSHOT_URL,
     target_issue: int | None = None,
     rework_context: dict[str, Any] | None = None,
+    selection_notes: dict[str, list[dict[str, Any]]] | None = None,
 ) -> list[dict[str, Any]]:
     issues = _load_module("azure_backlog_issues", "run_azure_issue_agent.py")
     if repository and not os.environ.get("GH_TOKEN"):
@@ -200,6 +201,10 @@ def _build_issue_tasks(
         if "azure-unknowns" in issue["labels"]:
             unknown_context = unknown_context or _current_unknown_context(snapshot_url)
             if not unknown_context["category"]:
+                if selection_notes is not None:
+                    selection_notes.setdefault("deferred_no_unknown_evidence_issues", []).append(
+                        {"number": issue["number"], "title": issue["title"]}
+                    )
                 continue
             scope_override = (
                 unknown_context["source_paths"],
@@ -303,14 +308,23 @@ def build_cycle(
         snapshot_url,
         target_issue,
     )
+    selection_notes: dict[str, list[dict[str, Any]]] = {}
     tasks = (
-        _build_issue_tasks(*issue_args, rework_context=rework_context)
+        _build_issue_tasks(
+            *issue_args,
+            rework_context=rework_context,
+            selection_notes=selection_notes,
+        )
         if rework_context is not None
-        else _build_issue_tasks(*issue_args)
+        else _build_issue_tasks(*issue_args, selection_notes=selection_notes)
     )
     if include_docs:
         tasks.append(_build_docs_task())
-    return {"tasks": tasks, "status": _backlog_status(issues_path, tasks)}
+    status = _backlog_status(issues_path, tasks)
+    deferred = selection_notes.get("deferred_no_unknown_evidence_issues", [])
+    status["deferred_no_unknown_evidence_count"] = len(deferred)
+    status["deferred_no_unknown_evidence_issues"] = deferred
+    return {"tasks": tasks, "status": status}
 
 
 def render_cycle_markdown(cycle: dict[str, Any]) -> str:
@@ -327,11 +341,19 @@ def render_cycle_markdown(cycle: dict[str, Any]) -> str:
             ]
         )
     if not cycle["tasks"]:
+        deferred = int(status.get("deferred_no_unknown_evidence_count", 0)) if isinstance(status, dict) else 0
+        reason = (
+            f"{deferred} queue-eligible issue(s) require current `unknown` evidence, but the "
+            "live snapshot has no unknown group to investigate."
+            if deferred
+            else "No runnable issue was selected. Review `azure-paused` labels or add a new "
+            "one-off `azure-backlog` issue."
+        )
         lines.extend(
             [
                 "### No agent session started",
                 "",
-                "No eligible issue was selected. Review `azure-paused` labels or add a new eligible `azure-backlog` issue.",
+                reason,
                 "",
             ]
         )
