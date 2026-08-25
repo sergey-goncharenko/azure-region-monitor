@@ -1,4 +1,4 @@
-from azure_region_monitor.probes.azure_openai import _build_azure_payload
+from azure_region_monitor.probes.azure_openai import DEFAULT_API_VERSION, _build_azure_payload
 from azure_region_monitor.probes.github_models import REASONING_MIN_COMPLETION_TOKENS
 
 
@@ -10,6 +10,10 @@ def test_azure_payload_standard_model():
     assert payload["stream"] is True
     # Deployment name is carried in the URL, not the body.
     assert "model" not in payload
+
+
+def test_default_api_version_supports_current_reasoning_models():
+    assert DEFAULT_API_VERSION == "2025-04-01-preview"
 
 
 def test_azure_payload_reasoning_model():
