@@ -188,7 +188,19 @@ jobs:
           AZURE_OPENAI_ENDPOINT: ${{ vars.AZURE_OPENAI_ENDPOINT }}
           AZURE_OPENAI_DEPLOYMENT: ${{ vars.AZURE_OPENAI_DEPLOYMENT }}
           AI_SOCIAL_MAX_TOKENS: "1200"
-        run: azure-region-monitor social-drafts --history data/history >> "$GITHUB_STEP_SUMMARY"
+        run: |
+          set -o pipefail
+          azure-region-monitor social-drafts --history data/history \
+            | tee "$RUNNER_TEMP/social-post-drafts.md" \
+            >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Retain social post drafts
+        uses: actions/upload-artifact@v4
+        with:
+          name: social-post-drafts
+          path: ${{ runner.temp }}/social-post-drafts.md
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Report static site size
         run: |

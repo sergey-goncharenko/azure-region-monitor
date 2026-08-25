@@ -335,6 +335,22 @@ def test_daily_scan_runs_github_model_latency_on_schedule():
     assert 'regions: "github-global"' in workflow
 
 
+def test_dashboard_workflows_retain_social_drafts_for_review():
+    for path in (
+        REPO_ROOT / ".github/workflows/daily-scan.yml",
+        REPO_ROOT / ".github/workflows/dashboard-redeploy.yml",
+    ):
+        workflow = path.read_text(encoding="utf-8")
+
+        assert 'tee "$RUNNER_TEMP/social-post-drafts.md"' in workflow
+        assert '>> "$GITHUB_STEP_SUMMARY"' in workflow
+        assert "name: Retain social post drafts" in workflow
+        assert "name: social-post-drafts" in workflow
+        assert "path: ${{ runner.temp }}/social-post-drafts.md" in workflow
+        assert "if-no-files-found: error" in workflow
+        assert "retention-days: 30" in workflow
+
+
 def test_aider_provisioning_workflow_uses_dedicated_o4_model():
     workflow = (
         REPO_ROOT / ".github/workflows/provision-azure-codex-openai.yml"
