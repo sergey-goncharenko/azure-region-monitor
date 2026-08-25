@@ -9,6 +9,7 @@ DEFAULT_INCLUDE = (
     "gpt-4.1",
     "gpt-5",
     "o3",
+    "o4",
 )
 # Substrings that mark non-chat or unsuitable variants.
 DEFAULT_EXCLUDE = (
