@@ -701,7 +701,7 @@ def render_blog_feed(posts: list[dict[str, Any]], site_url: str, limit: int = 50
 
 def _render_feed_item(post: dict[str, Any], site_url: str) -> str:
     url = f"{site_url}/{post['slug']}"
-    description = " ".join(post["paragraphs"]) or post["title"]
+    description = _excerpt(post) or post["title"]
     return f"""    <item>
       <title>{html.escape(post['title'])}</title>
       <link>{html.escape(url)}</link>

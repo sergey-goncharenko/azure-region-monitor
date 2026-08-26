@@ -193,20 +193,24 @@ def test_blog_feed_is_valid_rss_with_one_item_per_post():
 
 
 def test_blog_index_and_feed_prefer_persisted_authored_excerpt():
+    import xml.etree.ElementTree as ET
+
+    authored_excerpt = "A purpose-written excerpt for the index and feed."
     posts = select_blog_posts(
         _history(
             [
                 _day(
                     "2026-07-03",
                     "Headline\n\nA much longer narrative body that should not be mechanically truncated.",
-                    excerpt="A purpose-written excerpt for the index and feed.",
+                    excerpt=authored_excerpt,
                 )
             ]
         )
     )
 
-    assert "A purpose-written excerpt" in render_blog_index(posts, SITE, STYLE)
-    assert "A purpose-written excerpt" in render_blog_feed(posts, SITE)
+    assert authored_excerpt in render_blog_index(posts, SITE, STYLE)
+    feed = ET.fromstring(render_blog_feed(posts, SITE))
+    assert feed.findtext("./channel/item/description") == authored_excerpt
 
 
 def test_blog_sitemap_entries_cover_index_and_posts():
