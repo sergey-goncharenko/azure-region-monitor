@@ -121,4 +121,11 @@ def test_outcome_follower_records_against_the_source_issue():
     assert "--add-label azure-paused" in follower
     assert "persist-credentials: false" in follower
     assert "Malformed agentic backlog selection metadata." in follower
+    assert "contents: write" in follower
+    assert "Queue one automatic repair pass for failed validation" in follower
+    assert "steps.validation.outputs.check_status != '0'" in follower
+    assert 'event_type: "azure-agentic-pr-rework"' in follower
+    assert 'rework_trigger: "validation-failure"' in follower
+    assert "manage_azure_pr_rework.py automatic-decision" in follower
+    assert "fromdateiso8601" not in follower
     assert "secrets." not in follower

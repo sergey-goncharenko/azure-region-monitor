@@ -10,7 +10,7 @@ on:
     types: [completed]
 
 permissions:
-  contents: read
+  contents: write
   actions: read
   issues: write
   pull-requests: write
@@ -113,6 +113,7 @@ jobs:
       # Quality findings no longer block publication, so they have to reach the reviewer
       # on the pull request itself.
       - name: Publish advisory validation on the generated pull request
+        id: validation
         if: ${{ steps.download.outputs.found == 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
@@ -126,6 +127,7 @@ jobs:
             --name agentic-validation \
             --dir "$RUNNER_TEMP/validation"; then
             echo "That run produced no candidate patch; there is nothing to report."
+            echo "found=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           gh pr list \
@@ -139,11 +141,22 @@ jobs:
             "$RUNNER_TEMP/pulls.json")"
           if [ -z "$pr_number" ]; then
             echo "No open agentic pull request for issue #$ISSUE_NUMBER."
+            echo "found=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           head_sha="$(jq -r --arg re "$selector" \
             'map(select(.headRefName | test($re))) | last | .headRefOid // ""' \
             "$RUNNER_TEMP/pulls.json")"
+          head_ref="$(jq -r --arg re "$selector" \
+            'map(select(.headRefName | test($re))) | last | .headRefName // ""' \
+            "$RUNNER_TEMP/pulls.json")"
+          check_status="$(jq -r '.check_status // ""' \
+            "$RUNNER_TEMP/validation/validation.json")"
+          if [[ ! "$check_status" =~ ^[0-9]+$ ]] || \
+             [[ ! "$head_ref" =~ ^agentic/issue-[1-9][0-9]*(-[0-9a-f]{6,32})?$ ]]; then
+            echo "Malformed agentic validation metadata." >&2
+            exit 2
+          fi
           comment_id="$(gh api \
             "repos/$GITHUB_REPOSITORY/issues/$pr_number/comments" \
             --paginate \
@@ -176,4 +189,94 @@ jobs:
               "repos/$GITHUB_REPOSITORY/check-runs" \
               --input "$RUNNER_TEMP/check-run.json" > /dev/null
           fi
+          echo "found=true" >> "$GITHUB_OUTPUT"
+          echo "pr_number=$pr_number" >> "$GITHUB_OUTPUT"
+          echo "head_ref=$head_ref" >> "$GITHUB_OUTPUT"
+          echo "check_status=$check_status" >> "$GITHUB_OUTPUT"
           echo "Published advisory validation on PR #$pr_number." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Queue one automatic repair pass for failed validation
+        if: ${{ steps.validation.outputs.found == 'true' && steps.validation.outputs.check_status != '0' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ steps.download.outputs.issue_number }}
+          PR_NUMBER: ${{ steps.validation.outputs.pr_number }}
+          HEAD_REF: ${{ steps.validation.outputs.head_ref }}
+          SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+          SOURCE_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          request_id="$SOURCE_RUN_ID-$SOURCE_RUN_ATTEMPT"
+          gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments?per_page=100" \
+            > "$RUNNER_TEMP/rework-comments.json"
+          : > "$RUNNER_TEMP/automatic-rework-decision.txt"
+          python scripts/manage_azure_pr_rework.py automatic-decision \
+            --comments "$RUNNER_TEMP/rework-comments.json" \
+            --request-id "$request_id" \
+            --github-output "$RUNNER_TEMP/automatic-rework-decision.txt" \
+            >> "$GITHUB_STEP_SUMMARY"
+          queue_rework="$(sed -n 's/^queue=//p' \
+            "$RUNNER_TEMP/automatic-rework-decision.txt" | tail -1)"
+          if [ "$queue_rework" != true ]; then
+            exit 0
+          fi
+
+          jq -n \
+            --argjson pr_number "$PR_NUMBER" \
+            '{
+              eligible: true,
+              pr_number: $pr_number,
+              actor: "github-actions",
+              trigger: "validation-failure"
+            }' > "$RUNNER_TEMP/automatic-rework.json"
+          : > "$RUNNER_TEMP/automatic-rework-output.txt"
+          python scripts/manage_azure_pr_rework.py queue-status \
+            --result "$RUNNER_TEMP/automatic-rework.json" \
+            --repository "$GITHUB_REPOSITORY" \
+            --request-id "$request_id" \
+            --run-url "$RUN_URL" \
+            --github-output "$RUNNER_TEMP/automatic-rework-output.txt"
+          comment_id="$(sed -n 's/^comment_id=//p' \
+            "$RUNNER_TEMP/automatic-rework-output.txt" | tail -1)"
+          if [[ ! "$comment_id" =~ ^[1-9][0-9]*$ ]]; then
+            echo "Automatic rework status did not return a comment ID." >&2
+            exit 2
+          fi
+
+          requirements="Repair the failing canonical validation on this pull request while preserving the source issue Objective. Read the current agentic publication validation comment for the exact failure output, add or strengthen a focused regression test, run the repository validation, and push the corrected commit to this same branch."
+          jq -n \
+            --arg target_issue "$ISSUE_NUMBER" \
+            --arg pr_number "$PR_NUMBER" \
+            --arg status_comment_id "$comment_id" \
+            --arg request_id "$request_id" \
+            --arg head_ref "$HEAD_REF" \
+            --arg requirements "$requirements" \
+            '{
+              event_type: "azure-agentic-pr-rework",
+              client_payload: {
+                target_issue: $target_issue,
+                rework_pr: $pr_number,
+                rework_status_comment_id: $status_comment_id,
+                rework_request_id: $request_id,
+                rework_trigger: "validation-failure",
+                rework_actor: "github-actions",
+                rework_head_ref: $head_ref,
+                rework_requirements: $requirements
+              }
+            }' > "$RUNNER_TEMP/automatic-rework-dispatch.json"
+          if ! gh api \
+            --method POST \
+            "repos/$GITHUB_REPOSITORY/dispatches" \
+            --input "$RUNNER_TEMP/automatic-rework-dispatch.json"; then
+            python scripts/manage_azure_pr_rework.py finalize-status \
+              --repository "$GITHUB_REPOSITORY" \
+              --pr-number "$PR_NUMBER" \
+              --comment-id "$comment_id" \
+              --request-id "$request_id" \
+              --outcome dispatch-failed \
+              --run-url "$RUN_URL"
+            exit 1
+          fi
+          echo "Queued one automatic validation repair for PR #$PR_NUMBER." \
+            >> "$GITHUB_STEP_SUMMARY"

@@ -63,7 +63,7 @@ jobs:
             exit 2
           fi
           case "$REWORK_TRIGGER" in
-            slash-command|request-changes) ;;
+            slash-command|request-changes|validation-failure) ;;
             *) echo "Unsupported agentic PR rework trigger." >&2; exit 2 ;;
           esac
           gh pr view "$REWORK_PR" \

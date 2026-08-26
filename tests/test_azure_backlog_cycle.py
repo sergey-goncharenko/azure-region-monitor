@@ -51,6 +51,23 @@ def test_load_rework_context_validates_bounded_requirements(tmp_path):
         backlog_cycle._load_rework_context(path)
 
 
+def test_load_rework_context_accepts_validation_failure_trigger(tmp_path):
+    path = tmp_path / "rework.json"
+    path.write_text(
+        json.dumps(
+            {
+                "pull_request": 98,
+                "trigger": "validation-failure",
+                "requested_by": "github-actions",
+                "requirements": "Repair the failing canonical validation.",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert backlog_cycle._load_rework_context(path)["trigger"] == "validation-failure"
+
+
 def test_cycle_markdown_identifies_docs_as_the_final_alignment_lane():
     rendered = backlog_cycle.render_cycle_markdown(
         {

@@ -102,14 +102,16 @@ Agentic runs expose prompts, outputs, patches, tool/firewall logs, token usage, 
 
 ## Requesting Changes On A Bot PR
 
-Agentic `[agentic]` PRs use normal human review; do not expect the existing Aider rework dispatcher to update their salted `agentic/issue-*` branches. For an Aider fallback PR on `azure-issues/issue-<number>`, repository collaborators can request another Azure-funded coding pass without opening the Actions page:
+Both agentic `[agentic]` PRs and Aider fallback PRs can receive another Azure-funded coding pass without opening the Actions page. The dispatcher routes salted `agentic/issue-*` branches back to the agentic runner and `azure-issues/issue-<number>` branches to Aider:
 
-1. Describe the required bounded correction in the **Request changes** review body, or after `/agent-rework` in a new PR conversation comment.
+1. Describe the required bounded correction in the **Request changes** review body, or begin a submitted review or new PR conversation comment with `/agent-rework`.
 2. Submit the review or comment. The triggering text is capped and carried as trusted acceptance criteria only after write-level permission and PR/source-issue validation; it cannot expand editable paths or override safety controls.
-3. The dispatcher reacts to the slash command when applicable, posts a visible queued-status comment, and starts a targeted run of **Scheduled Azure backlog**.
+3. The dispatcher posts a visible queued-status comment and starts the appropriate agentic or Aider rework runner.
 4. The status comment is updated with the final workflow result and link. A successful code update also refreshes the same PR description and adds the normal completion comment.
 
-The dispatcher accepts only an open, same-repository PR authored by `github-actions[bot]`, targeting the default branch from `azure-issues/issue-<number>`. It verifies the triggering user's current GitHub permission through the repository API and accepts only `write`, `maintain`, or `admin`. The source issue must still be open, labelled `azure-backlog`, and not labelled `azure-paused`. Bot events, fork PRs, arbitrary branches, nonblocking reviews, and comments that merely mention the command later in their text are ignored.
+The dispatcher accepts only an open, same-repository PR authored by `github-actions[bot]`, targeting the default branch from an agentic or Aider issue branch. It verifies the triggering user's current GitHub permission through the repository API and accepts only `write`, `maintain`, or `admin`. The source issue must still be open, labelled `azure-backlog`, and not labelled `azure-paused`. Bot events, fork PRs, arbitrary branches, ordinary nonblocking reviews, and comments that merely mention the command later in their text are ignored.
+
+When the initial scheduled-agent publication gate reports a nonzero `scripts/check.py` result, its deterministic outcome follower queues one automatic `validation-failure` repair pass after publishing the exact advisory output on the PR. The request is keyed to the original run and skipped when a rework is already active, so workflow reruns do not duplicate it. A rework commit can rerun PR validation but cannot recursively schedule another model pass; any remaining failure stays visible for human review.
 
 An active status marker deduplicates repeated review events and commands for the same PR. A marker is considered stale after two hours so a cancelled run cannot block recovery indefinitely. The dispatcher has no Azure secret: it sends a bounded `repository_dispatch` payload to the existing workflow, where Azure credentials remain isolated.
 

@@ -177,11 +177,43 @@ def test_request_changes_review_dispatches_rework():
     )
 
 
+def test_slash_command_in_commented_review_dispatches_rework():
+    result = _resolve(
+        _review_event(
+            "commented",
+            "/agent-rework\nFix the failing RSS authored-excerpt regression.",
+        ),
+        "pull_request_review",
+    )
+
+    assert result["eligible"] is True
+    assert result["trigger"] == "slash-command"
+    assert result["rework_requirements"] == (
+        "Fix the failing RSS authored-excerpt regression."
+    )
+
+
 def test_non_blocking_review_does_not_dispatch_rework():
     result = _resolve(_review_event("commented"), "pull_request_review")
 
     assert result["eligible"] is False
     assert result["reason"] == "The submitted review did not request changes."
+
+
+def test_validation_failure_status_names_github_actions_as_requester():
+    body = pr_rework.running_status_body(
+        {
+            "eligible": True,
+            "pr_number": 51,
+            "actor": "github-actions",
+            "trigger": "validation-failure",
+        },
+        request_id="100-1",
+        run_url=f"https://github.com/{REPOSITORY}/actions/runs/100",
+    )
+
+    assert "Trigger: `validation-failure`" in body
+    assert "Requested by: GitHub Actions validation" in body
 
 
 @pytest.mark.parametrize("permission", ["read", "triage", "none", ""])
@@ -277,6 +309,34 @@ def test_recent_running_status_deduplicates_but_stale_status_does_not():
     assert active_result["eligible"] is False
     assert "already active" in active_result["reason"]
     assert stale_result["eligible"] is True
+
+
+def test_automatic_rework_deduplicates_bot_markers_and_active_requests():
+    same_request = [
+        {
+            "user": {"login": "github-actions[bot]"},
+            "body": "<!-- azure-byok-rework:completed request=100-1 -->",
+            "created_at": (NOW - timedelta(days=1)).isoformat(),
+        }
+    ]
+    spoofed_request = [
+        {
+            "user": {"login": "someone-else"},
+            "body": "<!-- azure-byok-rework:completed request=100-1 -->",
+            "created_at": NOW.isoformat(),
+        }
+    ]
+    active_request = [
+        {
+            "user": {"login": "github-actions[bot]"},
+            "body": "<!-- azure-byok-rework:running request=99-1 -->",
+            "created_at": (NOW - timedelta(minutes=10)).isoformat(),
+        }
+    ]
+
+    assert pr_rework.automatic_rework_decision(same_request, "100-1", NOW)["queue"] is False
+    assert pr_rework.automatic_rework_decision(spoofed_request, "100-1", NOW)["queue"] is True
+    assert pr_rework.automatic_rework_decision(active_request, "100-1", NOW)["queue"] is False
 
 
 def test_status_comment_is_created_and_finalized_idempotently():
@@ -430,6 +490,7 @@ def test_agentic_rework_workflow_bounds_pushes_to_the_reviewed_pull_request():
     assert "push-to-pull-request-branch:" in source
     assert 'required-title-prefix: "[agentic] "' in source
     assert "required-labels: [scheduled-agent]" in source
+    assert "slash-command|request-changes|validation-failure" in source
     assert "if-no-changes: error" in source
     assert "protected-files: fallback-to-issue" in source
     assert "create-pull-request" not in source
