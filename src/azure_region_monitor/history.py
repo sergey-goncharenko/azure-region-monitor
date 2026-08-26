@@ -146,7 +146,9 @@ def update_history(
         change_path=change_history_path,
         previous_entry=previous_entry,
         changes=changes,
-        narrative=build_change_narrative(changes, client=narrative_client, contexts=change_contexts),
+        narrative=build_change_narrative(
+            changes, client=narrative_client, contexts=change_contexts, date=current_date
+        ),
         change_contexts=change_contexts,
     )
     _write_json(history_dir / change_history_path, day_summary)
@@ -265,6 +267,8 @@ def _build_day_summary(
         "modality_counts": _modality_counts(current),
         "change_context_counts": _change_context_counts(change_contexts or {}),
         "narrative": (narrative or {}).get("narrative", ""),
+        "editorial_excerpt": (narrative or {}).get("editorial_excerpt", ""),
+        "social_drafts": (narrative or {}).get("social_drafts", {}),
         "narrative_source": (narrative or {}).get("narrative_source", "rule"),
         "narrative_fallback_reason": (narrative or {}).get("narrative_fallback_reason"),
         "narrative_model_deployment": (narrative or {}).get("narrative_model_deployment"),

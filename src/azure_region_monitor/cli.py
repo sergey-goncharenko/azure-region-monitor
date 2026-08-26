@@ -170,68 +170,8 @@ def _social_drafts(args: argparse.Namespace) -> None:
             select_blog_posts(history_index),
             args.site_url,
             limit=args.limit,
-            client=_build_social_draft_client(),
         )
     )
-
-
-def _build_social_draft_client():
-    if os.environ.get("AI_SOCIAL_ENABLED", "1") == "0":
-        return None
-
-    clients = []
-    try:
-        from azure_region_monitor.social_client import AzureOpenAiTextClient
-
-        clients.append(
-            AzureOpenAiTextClient.from_env(
-                max_output_tokens=int(os.environ.get("AI_SOCIAL_MAX_TOKENS", "1200"))
-            )
-        )
-    except Exception:
-        pass
-
-    token = os.environ.get("GITHUB_MODELS_TOKEN") or os.environ.get("GITHUB_TOKEN")
-    if token and os.environ.get("AI_SOCIAL_ALLOW_GITHUB_FALLBACK", "0") == "1":
-        try:
-            from azure_region_monitor.probes.github_models import (
-                DEFAULT_SUMMARY_MODELS,
-                GitHubModelsClient,
-                GitHubModelsNarrativeClient,
-            )
-
-            models = os.environ.get("AI_SOCIAL_MODEL") or ",".join(DEFAULT_SUMMARY_MODELS)
-            max_tokens = int(os.environ.get("AI_SOCIAL_MAX_TOKENS", "1200"))
-            clients.append(
-                GitHubModelsNarrativeClient(
-                    GitHubModelsClient.from_env(),
-                    models=models,
-                    max_tokens=max_tokens,
-                    temperature=0.7,
-                )
-            )
-        except Exception:
-            pass
-
-    if not clients:
-        return None
-    return _SocialDraftFallbackClient(clients)
-
-
-class _SocialDraftFallbackClient:
-    def __init__(self, clients) -> None:
-        self._clients = clients
-
-    def generate(self, *, system: str, user: str) -> str:
-        last_error: Exception | None = None
-        for client in self._clients:
-            try:
-                return client.generate(system=system, user=user)
-            except Exception as error:
-                last_error = error
-        if last_error is not None:
-            raise last_error
-        return ""
 
 
 def _fetch_history(args: argparse.Namespace) -> None:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from functools import lru_cache
 from importlib import resources
@@ -13,11 +14,17 @@ MAX_EXAMPLES = 4
 _PROMPT_PACKAGE = "azure_region_monitor.prompts"
 _BLOG_SUMMARY_PROMPT = "blog_summary.md"
 _FALLBACK_SYSTEM_PROMPT = """You are the editor of a daily change digest for an Azure regional availability monitor.
-Write a short, SRE-oriented mini blog post using only the structured facts provided.
+Write one evidence-grounded daily editorial package using only the structured facts provided.
 
 Format:
-- First line: a punchy headline, no markdown, no '#'.
-- Then 4 to 6 short paragraphs, separated by blank lines.
+- Return only a JSON object with exactly these string fields:
+  {"narrative": "...", "excerpt": "...", "linkedin": "...", "short_post": "..."}
+- narrative: first line is a punchy headline, no markdown or '#', followed by 4 to 6
+  short paragraphs separated by blank lines.
+- excerpt: one purpose-written, 1-2 sentence summary under 220 characters. Do not truncate
+  the narrative or repeat its headline verbatim.
+- linkedin and short_post: review-only social variants that name the supplied date and state
+  the supplied new availability, regression, and parked unknown counts. Do not include URLs.
 
 Interpret the change classifications: net-new availability means a feature has never been
 seen available in that region before; restored availability means it was available before,
@@ -33,6 +40,10 @@ grounded in the facts.
 Rules: do not invent regions, models, features, dates, numbers, causes, quotas, or SLAs.
 Do not add disclaimers, caveats, sign-offs, or a call to action. Keep it under ~350 words.
 """
+_SOCIAL_EVIDENCE_NOTE = (
+    "Evidence note: these are read-only Azure catalog/list signals; unavailable does not mean "
+    "quota, capacity, deployment failure, or SLA impact."
+)
 
 
 @lru_cache
@@ -280,10 +291,11 @@ class NarrativeClient(Protocol):
 def build_change_narrative(
     changes: list[Change], *, client: NarrativeClient | None = None,
     contexts: Mapping[ChangeKey, ChangeContext] | None = None,
-) -> dict[str, str | None]:
+    date: str | None = None,
+) -> dict[str, Any]:
     """Build a human-readable change narrative with a deterministic fallback.
 
-    Returns a dict with the narrative, source, fallback reason, and model deployment.
+    Returns a dict with the editorial package, source, fallback reason, and model deployment.
     The AI path is only attempted when a client is provided and there are clear
     signals; any failure falls back to the rule-based summary. This function
     never raises.
@@ -292,33 +304,33 @@ def build_change_narrative(
     signals = _clear_signal_changes(changes)
     context_map = contexts or {}
     rule = _rule_summary(changes, signals, context_map)
+    fallback_package = _rule_editorial_package(rule, changes, date)
 
     deployment = _client_deployment(client)
     if client is None:
-        return _rule_result(rule, "no_narrative_client", deployment)
+        return _rule_result(fallback_package, "no_narrative_client", deployment)
     if not signals:
-        return _rule_result(rule, "no_clear_signals", deployment)
+        return _rule_result(fallback_package, "no_clear_signals", deployment)
 
     try:
-        user = _facts_block(signals, context_map)
+        user = _facts_block(changes, signals, context_map, date)
         text = client.generate(system=SYSTEM_PROMPT, user=user).strip()
     except Exception as error:
         return _rule_result(
-            rule,
+            fallback_package,
             "generation_failed",
             deployment,
             metadata=_client_generation_metadata(client),
             generation_error=_generation_error(error),
         )
 
-    if not text:
-        return _rule_result(rule, "empty_generation", deployment, _client_generation_metadata(client))
-    if not _is_supported_narrative(text):
+    package = _parse_editorial_package(text, changes, date)
+    if package is None:
         return _rule_result(
-            rule, "unsupported_generation", deployment, _client_generation_metadata(client)
+            fallback_package, "unsupported_generation", deployment, _client_generation_metadata(client)
         )
     result: dict[str, Any] = {
-        "narrative": text,
+        **package,
         "narrative_source": "ai",
         "narrative_fallback_reason": None,
         "narrative_model_deployment": deployment,
@@ -328,14 +340,14 @@ def build_change_narrative(
 
 
 def _rule_result(
-    narrative: str,
+    package: Mapping[str, Any],
     reason: str,
     deployment: str | None,
     metadata: Mapping[str, object] | None = None,
     generation_error: str | None = None,
 ) -> dict[str, Any]:
     result: dict[str, Any] = {
-        "narrative": narrative,
+        **package,
         "narrative_source": "rule",
         "narrative_fallback_reason": reason,
         "narrative_model_deployment": deployment,
@@ -399,6 +411,94 @@ def _is_supported_narrative(text: str) -> bool:
         and has_impact_section
         and not any(claim in lowered for claim in unsupported_claims)
     )
+
+
+def _parse_editorial_package(
+    text: str, changes: list[Change], date: str | None
+) -> dict[str, Any] | None:
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict) or set(payload) != {"narrative", "excerpt", "linkedin", "short_post"}:
+        return None
+    if not all(isinstance(value, str) and value.strip() for value in payload.values()):
+        return None
+    narrative = payload["narrative"].strip()
+    excerpt = payload["excerpt"].strip()
+    if not _is_supported_narrative(narrative) or len(excerpt) > 220 or _has_unsupported_claim(excerpt):
+        return None
+    if date is not None and not _is_supported_social_package(payload, changes, date):
+        return None
+    return {
+        "narrative": narrative,
+        "editorial_excerpt": excerpt,
+        "social_drafts": {
+            "linkedin": payload["linkedin"].strip(),
+            "short_post": payload["short_post"].strip(),
+        },
+    }
+
+
+def _has_unsupported_claim(text: str) -> bool:
+    lowered = text.lower()
+    return any(
+        claim in lowered
+        for claim in (
+            "quota",
+            "sla",
+            "deployment succeeded",
+            "successful deployment",
+            "deployment success",
+            "eligible",
+            "eligibility",
+            "root cause",
+            "caused by",
+            "because of",
+            "capacity is available",
+            "available capacity",
+            "has capacity",
+        )
+    )
+
+
+def _is_supported_social_package(payload: Mapping[str, Any], changes: list[Change], date: str) -> bool:
+    counts = (
+        f"{sum(change.change_type == 'new_availability' for change in changes):,} new availability",
+        f"{sum(change.change_type == 'regression' for change in changes):,} regressions",
+        f"{_parked_unknown_count(changes):,} parked unknown",
+    )
+    return all(
+        all(fact in text.lower() for fact in (date.lower(), *counts))
+        and not _has_unsupported_claim(text)
+        for text in (payload["linkedin"].lower(), payload["short_post"].lower())
+    )
+
+
+def _rule_editorial_package(
+    narrative: str, changes: list[Change], date: str | None
+) -> dict[str, Any]:
+    new_availability = sum(change.change_type == "new_availability" for change in changes)
+    regressions = sum(change.change_type == "regression" for change in changes)
+    parked_unknown = _parked_unknown_count(changes)
+    daily_counts = (
+        f"{new_availability:,} new availability signals, {regressions:,} regressions, and "
+        f"{parked_unknown:,} parked unknown transitions"
+    )
+    label = date or "Latest scan"
+    excerpt = narrative.split(".", 1)[0].strip() + "."
+    social = (
+        f"{label} recorded {daily_counts}. {narrative}\n\n{_SOCIAL_EVIDENCE_NOTE}"
+    )
+    return {
+        "narrative": narrative,
+        "editorial_excerpt": excerpt,
+        "social_drafts": {"linkedin": social, "short_post": f"{label}: {daily_counts}. {_SOCIAL_EVIDENCE_NOTE}"},
+    }
+
+
+def _parked_unknown_count(changes: list[Change]) -> int:
+    return sum(1 for change in changes if "unknown" in {change.previous, change.current})
 
 
 def _clear_signal_changes(changes: list[Change]) -> list[Change]:
@@ -535,10 +635,18 @@ def _examples(changes: list[Change]) -> str:
 
 
 def _facts_block(
+    changes: list[Change],
     signals: list[Change],
     context_map: Mapping[ChangeKey, ChangeContext],
+    date: str | None,
 ) -> str:
-    lines = ["Change facts (do not invent anything beyond these):"]
+    lines = [
+        "Daily editorial facts (do not invent anything beyond these):",
+        f"date={date or 'not supplied'} | "
+        f"new_availability={sum(change.change_type == 'new_availability' for change in changes)} | "
+        f"regressions={sum(change.change_type == 'regression' for change in changes)} | "
+        f"parked_unknown={_parked_unknown_count(changes)}",
+    ]
     for change in signals[:MAX_FACTS]:
         context = _context_for(change, context_map)
         modality = _modality(change.feature)

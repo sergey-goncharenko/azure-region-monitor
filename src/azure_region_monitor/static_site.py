@@ -13,6 +13,7 @@ from azure_region_monitor.blog import (
     render_blog_index,
     render_blog_post,
     select_blog_posts,
+    split_narrative,
 )
 from azure_region_monitor.history import copy_history_to_api
 from azure_region_monitor.latency_view import (
@@ -1778,21 +1779,12 @@ def _render_narrative_banner(day: dict[str, Any]) -> str:
     source = str(day.get("narrative_source", "rule"))
     label = "AI summary" if source == "ai" else "Auto summary"
 
-    # Split the digest into a headline (first line) plus body paragraphs. AI blog-post
-    # summaries use blank lines between paragraphs; the rule fallback is a single block.
-    blocks = [block.strip() for block in re.split(r"\n\s*\n", narrative) if block.strip()]
-    if source == "ai" and blocks:
-        headline, *rest = blocks
-        # If the model kept everything in one block, treat the first line as the headline.
-        if not rest and "\n" in headline:
-            first, remainder = headline.split("\n", 1)
-            headline, rest = first.strip(), [remainder.strip()]
-        body = "".join(
-            f"<p>{html.escape(paragraph)}</p>" for paragraph in rest if paragraph
-        )
+    headline, paragraphs = split_narrative(narrative, source)
+    if headline:
+        body = "".join(f"<p>{html.escape(paragraph)}</p>" for paragraph in paragraphs)
         content = f'<h3 class="narrative-headline">{html.escape(headline)}</h3>{body}'
     else:
-        content = f"<p>{html.escape(narrative)}</p>"
+        content = "".join(f"<p>{html.escape(paragraph)}</p>" for paragraph in paragraphs)
 
     return f"""<div class="narrative" aria-label="Latest change summary">
         <span class="narrative-badge">{html.escape(label)}</span>

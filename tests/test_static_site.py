@@ -75,6 +75,15 @@ def test_narrative_banner_single_block_ai_splits_first_line_as_headline():
     assert "VM SKUs surged" in html
 
 
+def test_narrative_banner_uses_blog_narrative_split_rules():
+    day = {"narrative": "x" * 200, "narrative_source": "ai"}
+
+    html = _render_narrative_banner(day)
+
+    assert "narrative-headline" not in html
+    assert "<p>" in html
+
+
 def test_narrative_banner_rule_source_stays_single_paragraph():
     day = {"narrative": "Latest scan: 3 new availability signals.", "narrative_source": "rule"}
     html = _render_narrative_banner(day)
