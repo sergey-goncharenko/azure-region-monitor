@@ -63,6 +63,8 @@ def test_failed_check_marks_the_row_and_attaches_the_output():
     report = summarize.report_markdown([PROBE], 1, "boom happened", "")
     assert "action needed - failed" in report
     assert "boom happened" in report
+    assert "attempt one bounded automatic repair pass" in report
+    assert "If no queued-status comment appears" in report
 
 
 def test_long_check_output_is_truncated_from_the_front():

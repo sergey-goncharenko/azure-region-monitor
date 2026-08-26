@@ -88,14 +88,21 @@ def report_markdown(
     lines.extend(["", "### Changed files", ""])
     lines.extend(f"- `{name}`" for name in changed_files)
     if failed:
+        resolution = (
+            "The outcome follower will attempt one bounded automatic repair pass. If no "
+            "queued-status comment appears, comment `/agent-rework <what to change>` on this "
+            "pull request or push the fix yourself."
+            if check_status != 0
+            else "Comment `/agent-rework <what to change>` on this pull request to send it "
+            "back for another bounded pass, or push the fix yourself."
+        )
         lines.extend(
             [
                 "",
                 "### To resolve",
                 "",
-                "Comment `/agent-rework <what to change>` on this pull request to send it back "
-                "for another bounded pass, or push the fix yourself. Merging as-is is also fine "
-                "if you accept the findings above.",
+                resolution,
+                "Merging as-is is also fine if you accept the findings above.",
             ]
         )
     if run_url:
