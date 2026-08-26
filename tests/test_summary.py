@@ -1,3 +1,5 @@
+import json
+
 from azure_region_monitor.models import Change
 from azure_region_monitor.summary import ChangeContext, build_change_narrative, change_key
 
@@ -25,6 +27,27 @@ class _FakeClient:
         if self.error is not None:
             raise self.error
         return self.reply
+
+
+def _editorial_package(
+    date="2026-07-03",
+    new=1,
+    regressions=0,
+    parked=0,
+):
+    counts = f"{new:,} new availability, {regressions:,} regressions, and {parked:,} parked unknown"
+    return json.dumps(
+        {
+            "narrative": (
+                "Regional catalog update\n\n"
+                "A monitored catalog signal changed.\n\n"
+                "What this means for Azure users: review regional placement options."
+            ),
+            "excerpt": "A purpose-written summary of the monitored regional catalog change.",
+            "linkedin": f"{date} recorded {counts} transitions.",
+            "short_post": f"{date} recorded {counts} transitions.",
+        }
+    )
 
 
 def test_rule_summary_when_no_client():
@@ -57,13 +80,15 @@ def test_ai_path_used_when_client_and_signals_present():
         _change("eastus", "aiModels.openai.gpt-5.2025", "unavailable", "available", "new_availability"),
     ]
     client = _FakeClient(
-        reply="East US newly lists openai/gpt-5.\n\nWhat this means for Azure users: review model selection."
+        reply=_editorial_package(date="2026-07-03")
     )
 
-    result = build_change_narrative(changes, client=client)
+    result = build_change_narrative(changes, client=client, date="2026-07-03")
 
     assert result["narrative_source"] == "ai"
-    assert result["narrative"].startswith("East US newly lists openai/gpt-5.")
+    assert result["narrative"].startswith("Regional catalog update")
+    assert result["editorial_excerpt"].startswith("A purpose-written")
+    assert result["social_drafts"]["linkedin"].startswith("2026-07-03")
     assert result["narrative_fallback_reason"] is None
     assert len(client.calls) == 1
     # Facts must be passed to the model.
@@ -163,6 +188,22 @@ def test_ai_empty_reply_falls_back_to_rule():
     result = build_change_narrative(changes, client=client)
 
     assert result["narrative_source"] == "rule"
+
+
+def test_invalid_editorial_package_falls_back_to_rule():
+    changes = [
+        _change("eastus", "aiModels.openai.gpt-5.2025", "unavailable", "available", "new_availability"),
+    ]
+
+    result = build_change_narrative(
+        changes,
+        client=_FakeClient(reply='{"narrative": "missing required fields"}'),
+        date="2026-07-03",
+    )
+
+    assert result["narrative_source"] == "rule"
+    assert result["narrative_fallback_reason"] == "unsupported_generation"
+    assert result["social_drafts"]["linkedin"].startswith("2026-07-03")
 
 
 def test_ai_unsupported_claim_falls_back_with_observable_reason():

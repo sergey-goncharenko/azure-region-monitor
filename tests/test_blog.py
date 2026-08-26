@@ -1,7 +1,3 @@
-import json
-
-import azure_region_monitor.blog as blog
-
 from azure_region_monitor.blog import (
     blog_sitemap_entries,
     render_blog_feed,
@@ -20,8 +16,18 @@ def _history(days):
     return {"days": days}
 
 
-def _day(date, narrative, source="ai", new=0, reg=0, parked=0, highlights=None):
-    return {
+def _day(
+    date,
+    narrative,
+    source="ai",
+    new=0,
+    reg=0,
+    parked=0,
+    highlights=None,
+    excerpt="",
+    social_drafts=None,
+):
+    day = {
         "date": date,
         "narrative": narrative,
         "narrative_source": source,
@@ -29,6 +35,11 @@ def _day(date, narrative, source="ai", new=0, reg=0, parked=0, highlights=None):
         "parked_unknown_changes": parked,
         "highlights": highlights or [],
     }
+    if excerpt:
+        day["editorial_excerpt"] = excerpt
+    if social_drafts is not None:
+        day["social_drafts"] = social_drafts
+    return day
 
 
 def test_split_narrative_ai_headline_and_paragraphs():
@@ -181,6 +192,23 @@ def test_blog_feed_is_valid_rss_with_one_item_per_post():
     assert "2026" in items[0].find("pubDate").text
 
 
+def test_blog_index_and_feed_prefer_persisted_authored_excerpt():
+    posts = select_blog_posts(
+        _history(
+            [
+                _day(
+                    "2026-07-03",
+                    "Headline\n\nA much longer narrative body that should not be mechanically truncated.",
+                    excerpt="A purpose-written excerpt for the index and feed.",
+                )
+            ]
+        )
+    )
+
+    assert "A purpose-written excerpt" in render_blog_index(posts, SITE, STYLE)
+    assert "A purpose-written excerpt" in render_blog_feed(posts, SITE)
+
+
 def test_blog_sitemap_entries_cover_index_and_posts():
     posts = select_blog_posts(
         _history([_day("2026-07-03", "A\n\nbody a"), _day("2026-07-01", "B\n\nbody b")])
@@ -241,150 +269,36 @@ def test_social_drafts_include_review_note_and_platform_drafts():
     assert f"Full digest: {SITE}/blog/2026-07-03.html" in drafts
 
 
-def test_social_drafts_use_valid_ai_copy_and_append_evidence_constraints():
-    class _Client:
-        def __init__(self):
-            self.calls = []
+def test_social_drafts_use_persisted_editorial_package():
+    posts = select_blog_posts(
+        _history(
+            [
+                _day(
+                    "2026-07-03",
+                    "Headline\n\nBody.",
+                    new=1,
+                    social_drafts={
+                        "linkedin": "Persisted LinkedIn editorial copy.",
+                        "short_post": "Persisted short editorial copy.",
+                    },
+                )
+            ]
+        )
+    )
 
-        def generate(self, *, system, user):
-            self.calls.append((system, user))
-            return json.dumps(
-                {
-                    "linkedin": (
-                        "Platform teams can review regional rollout timing and fallback plans from "
-                        "this monitored daily signal. " * 8
-                        + "\n\n2026-07-03 recorded 1 new availability signal, 0 regressions, and "
-                        "0 parked unknown transitions.\n\n"
-                        "Evidence note: these are read-only Azure catalog/list signals; unavailable "
-                        "does not mean quota, capacity, deployment failure, or SLA impact.\n\n"
-                        "https://azwatch.operator.lat/blog/2026-07-03.html"
-                    ),
-                    "short_post": (
-                        "Platform teams can use this monitored daily signal to review rollout timing "
-                        "and fallback plans. 2026-07-03 recorded 1 new availability signal, "
-                        "0 regressions, and 0 parked unknown transitions. Read-only catalog/list "
-                        "evidence; unavailable does not mean quota, capacity, deployment failure, "
-                        "or SLA impact. https://azwatch.operator.lat/blog/2026-07-03.html"
-                    ),
-                }
-            )
+    drafts = render_social_drafts(posts, SITE)
 
-    client = _Client()
-    posts = select_blog_posts(_history([_day("2026-07-03", "Headline\n\nBody.", new=1)]))
-
-    drafts = render_social_drafts(posts, SITE, client=client)
-
-    assert "Source: AI social copy" in drafts
-    assert "2026-07-03 recorded 1 new availability signal, 0 regressions" in drafts
+    assert "Source: Editorial package" in drafts
+    assert "Persisted LinkedIn editorial copy." in drafts
+    assert "Persisted short editorial copy." in drafts
     assert "Signal counts:" not in drafts
-    assert "Evidence note: these are read-only Azure catalog/list signals" in drafts
-    assert len(client.calls) == 1
-    system, user = client.calls[0]
-    assert "Return only a JSON object" in system
-    assert "Structured facts" in user
+    assert f"Full digest: {SITE}/blog/2026-07-03.html" in drafts
 
 
-def test_social_drafts_fall_back_when_ai_copy_omits_daily_evidence():
-    class _Client:
-        def generate(self, *, system, user):
-            return json.dumps(
-                {
-                    "linkedin": (
-                        "Platform teams can review this operational signal before planning a rollout. "
-                        * 12
-                        + " Read-only catalog/list evidence; unavailable does not mean quota, "
-                        "capacity, deployment failure, or SLA impact. "
-                        "https://azwatch.operator.lat/blog/2026-07-03.html"
-                    ),
-                    "short_post": (
-                        "Platform teams can review this operational signal before planning a rollout. "
-                        "Read-only catalog/list evidence; unavailable does not mean quota, capacity, "
-                        "deployment failure, or SLA impact. "
-                        "https://azwatch.operator.lat/blog/2026-07-03.html"
-                    ),
-                }
-            )
-
+def test_social_drafts_use_structured_fallback_for_legacy_history():
     posts = select_blog_posts(_history([_day("2026-07-03", "Headline\n\nBody.", new=1)]))
 
-    drafts = render_social_drafts(posts, SITE, client=_Client())
+    drafts = render_social_drafts(posts, SITE)
 
-    assert "Source: Structured fallback" in drafts
+    assert "Source: Structured legacy fallback" in drafts
     assert "Signal counts:" in drafts
-
-
-def test_social_drafts_fall_back_when_ai_response_is_invalid():
-    class _InvalidClient:
-        def generate(self, *, system, user):
-            return '{"linkedin": "missing short post"}'
-
-    posts = select_blog_posts(_history([_day("2026-07-03", "Headline\n\nBody.", new=1)]))
-
-    drafts = render_social_drafts(posts, SITE, client=_InvalidClient())
-
-    assert "Source: Structured fallback" in drafts
-    assert "Signal counts:" in drafts
-
-
-def test_social_drafts_preserve_compact_ai_evidence_note_without_duplication():
-    class _Client:
-        def generate(self, *, system, user):
-            return json.dumps(
-                {
-                    "linkedin": (
-                        "2026-07-03 recorded 1 new availability signal, 0 regressions, and 0 parked "
-                        "unknown transitions. "
-                        "Platform teams can use this monitored signal to review rollout timing and "
-                        "fallback planning. " * 8
-                        + "Read-only catalog/list evidence; unavailable does not mean quota, capacity, "
-                        "deployment failure, or SLA impact. "
-                        "https://azwatch.operator.lat/blog/2026-07-03.html"
-                    ),
-                    "short_post": (
-                        "2026-07-03 recorded 1 new availability signal, 0 regressions, and 0 parked "
-                        "unknown transitions. Platform teams can use this monitored signal to review "
-                        "rollout timing and fallback planning. Read-only catalog/list evidence: "
-                        "unavailable does not mean quota, capacity, deployment failure, or SLA impact. "
-                        "https://azwatch.operator.lat/blog/2026-07-03.html"
-                    ),
-                }
-            )
-
-    posts = select_blog_posts(_history([_day("2026-07-03", "Headline\n\nBody.", new=1)]))
-
-    drafts = render_social_drafts(posts, SITE, client=_Client())
-
-    assert drafts.count("Evidence note:") == 0
-    assert "Source: AI social copy" in drafts
-
-
-def test_social_facts_compact_large_highlight_arrays():
-    post = {
-        "date": "2026-07-03",
-        "title": "Large rollout",
-        "paragraphs": ["A " * 2_000],
-        "new_availability": 10,
-        "regressions": 5,
-        "parked_unknown": 1,
-        "highlights": [
-            {
-                "region": "eastus",
-                "feature": "vmSkus.standard.d2as.v5",
-                "still_available_regions": [f"region-{index}" for index in range(20)],
-                "same_day_new_regions": [f"new-{index}" for index in range(20)],
-                "unrelated_large_field": "x" * 10_000,
-            }
-        ],
-    }
-
-    facts = json.loads(blog._social_facts(post, "https://example.test/post" ).split("\n", 1)[1])
-
-    assert len(facts["narrative"]) <= 1_601
-    assert facts["highlights"][0]["still_available_regions"] == [
-        "region-0",
-        "region-1",
-        "region-2",
-        "region-3",
-        "region-4",
-    ]
-    assert "unrelated_large_field" not in facts["highlights"][0]

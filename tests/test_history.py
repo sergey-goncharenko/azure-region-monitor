@@ -21,7 +21,24 @@ def test_update_history_writes_daily_snapshot_and_recent_changes(tmp_path):
         }
 
         def generate(self, *, system, user):
-            return "AKS extensions update."
+            return json.dumps(
+                {
+                    "narrative": (
+                        "AKS extension update\n\n"
+                        "The monitored extension catalog changed.\n\n"
+                        "What this means for Azure users: review cluster extension placement."
+                    ),
+                    "excerpt": "A purpose-written AKS extension catalog summary.",
+                    "linkedin": (
+                        "2026-05-10 recorded 1 new availability, 0 regressions, and 0 parked unknown "
+                        "transitions."
+                    ),
+                    "short_post": (
+                        "2026-05-10 recorded 1 new availability, 0 regressions, and 0 parked unknown "
+                        "transitions."
+                    ),
+                }
+            )
 
     history_dir = tmp_path / "history"
     previous_snapshot = tmp_path / "previous.json"
@@ -76,6 +93,8 @@ def test_update_history_writes_daily_snapshot_and_recent_changes(tmp_path):
     assert change_day["parked_unknown_changes"] == 0
     assert change_day["summary_counts"] == {"regions": 1, "features": 1, "checks": 1}
     assert change_day["narrative_model_deployment"] == "gpt-5.4-mini"
+    assert change_day["editorial_excerpt"] == "A purpose-written AKS extension catalog summary."
+    assert change_day["social_drafts"]["linkedin"].startswith("2026-05-10")
     assert change_day["narrative_mcp_status"] == "consulted"
     assert change_day["narrative_grounding_status"] == "microsoft_learn"
     assert change_day["narrative_microsoft_learn_urls"] == [
