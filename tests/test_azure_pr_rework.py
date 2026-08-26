@@ -404,6 +404,7 @@ def test_dispatcher_wires_both_review_paths_without_azure_secrets():
     assert "azure-byok-pr-rework-${{ github.event.issue.number" in workflow
     assert "persist-credentials: false" in workflow
     assert "pull-requests: write" in workflow
+    assert "github.event_name == 'issue_comment'" in workflow
     assert 'aider) event_type="azure-byok-pr-rework" ;;' in workflow
     assert 'agentic) event_type="azure-agentic-pr-rework" ;;' in workflow
     assert 'echo "Unsupported rework lane: $LANE" >&2; exit 1' in workflow
