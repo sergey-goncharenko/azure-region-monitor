@@ -451,9 +451,9 @@ def test_recent_changes_skip_previous_unknown_only_days(tmp_path):
     assert [day["date"] for day in recent_changes["days"]] == ["2026-05-10", "2026-05-08"]
 
 
-def _latency_snapshot(date, p50):
+def _latency_snapshot(date, p50, timestamp=None):
     return {
-        "timestamp": f"{date}T00:00:00Z",
+        "timestamp": timestamp or f"{date}T00:00:00Z",
         "regions": {
             "github-global": {
                 "model-latency": {
@@ -483,20 +483,31 @@ def test_update_history_writes_latency_history(tmp_path):
     assert latency["days"][0]["models"]["openai/gpt-4o"]["p50_ms"] == 1600
 
 
-def test_update_history_latency_upserts_same_date(tmp_path):
+def test_update_history_retains_multiple_latency_snapshots_per_day(tmp_path):
     history_dir = tmp_path / "history"
     snap1 = tmp_path / "s1.json"
-    snap1.write_text(json.dumps(_latency_snapshot("2026-06-16", 1600)), encoding="utf-8")
+    snap1.write_text(
+        json.dumps(_latency_snapshot("2026-06-16", 1600, "2026-06-16T08:00:00Z")),
+        encoding="utf-8",
+    )
     snap2 = tmp_path / "s2.json"
-    snap2.write_text(json.dumps(_latency_snapshot("2026-06-16", 1900)), encoding="utf-8")
+    snap2.write_text(
+        json.dumps(_latency_snapshot("2026-06-16", 1900, "2026-06-16T12:00:00Z")),
+        encoding="utf-8",
+    )
 
     update_history(snap1, history_dir)
     update_history(snap2, history_dir)
 
     latency = json.loads((history_dir / "latency-history.json").read_text(encoding="utf-8"))
-    dates = [day["date"] for day in latency["days"]]
-    assert dates == ["2026-06-16"]
-    assert latency["days"][0]["models"]["openai/gpt-4o"]["p50_ms"] == 1900
+    assert [day["timestamp"] for day in latency["days"]] == [
+        "2026-06-16T12:00:00+00:00",
+        "2026-06-16T08:00:00+00:00",
+    ]
+    assert [day["models"]["openai/gpt-4o"]["p50_ms"] for day in latency["days"]] == [
+        1900,
+        1600,
+    ]
 
 
 def test_update_history_latency_skips_snapshot_without_latency(tmp_path):

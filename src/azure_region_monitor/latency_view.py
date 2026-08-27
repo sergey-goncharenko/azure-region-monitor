@@ -176,13 +176,15 @@ def _ranks_from_metrics(metrics: dict[str, Any] | None) -> dict[str, int]:
 
 
 def _latest_previous_day(history: dict[str, Any] | None) -> dict[str, Any] | None:
-    """Return the most recent latency-history day that precedes the newest one."""
+    """Return the latency snapshot that precedes the newest one."""
 
     days = history.get("days", []) if isinstance(history, dict) else []
     valid = [day for day in days if isinstance(day, dict) and day.get("date")]
     if len(valid) < 2:
         return None
-    ordered = sorted(valid, key=lambda day: str(day["date"]), reverse=True)
+    ordered = sorted(
+        valid, key=lambda day: str(day.get("timestamp") or day["date"]), reverse=True
+    )
     return ordered[1]
 
 
@@ -262,7 +264,9 @@ def build_latency_series(history: dict[str, Any] | None) -> dict[str, list[dict[
     days = history.get("days", []) if isinstance(history, dict) else []
     valid_days = [day for day in days if isinstance(day, dict) and day.get("date")]
     series: dict[str, list[dict[str, Any]]] = {}
-    for day in sorted(valid_days, key=lambda item: str(item["date"])):
+    for day in sorted(
+        valid_days, key=lambda item: str(item.get("timestamp") or item["date"])
+    ):
         models = day.get("models")
         if not isinstance(models, dict):
             continue

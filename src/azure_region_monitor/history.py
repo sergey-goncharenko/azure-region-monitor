@@ -30,7 +30,7 @@ from azure_region_monitor.summary import (
 
 RECENT_CHANGE_DAYS = 10
 CHANGE_HIGHLIGHTS = 10
-LATENCY_HISTORY_DAYS = 60
+LATENCY_HISTORY_SNAPSHOTS = 60
 # A CDN blip must not abort the deploy, but a sustained outage still has to fail loudly:
 # silently skipping the fetch would republish the history index with only today's day.
 HISTORY_FETCH_ATTEMPTS = 3
@@ -185,22 +185,22 @@ def _update_latency_history(
 ) -> None:
     path = history_dir / "latency-history.json"
     existing = _read_json(path) or {}
-    days_by_date = {
-        str(day.get("date")): day
+    entries_by_timestamp = {
+        _latency_entry_timestamp(day): day
         for day in existing.get("days", [])
-        if isinstance(day, dict) and day.get("date")
+        if isinstance(day, dict) and _latency_entry_timestamp(day)
     }
-    if not days_by_date:
-        days_by_date.update(_backfill_latency_history(history_dir))
+    if not entries_by_timestamp:
+        entries_by_timestamp.update(_backfill_latency_history(history_dir))
 
     entry = _latency_history_entry(snapshot, current_date)
     if entry is not None:
-        days_by_date[current_date] = entry
+        entries_by_timestamp[_latency_entry_timestamp(entry)] = entry
 
-    days = sorted(days_by_date.values(), key=lambda day: str(day["date"]), reverse=True)
+    days = sorted(entries_by_timestamp.values(), key=_latency_entry_timestamp, reverse=True)
     _write_json(
         path,
-        {"generated_at": generated_at, "days": days[:LATENCY_HISTORY_DAYS]},
+        {"generated_at": generated_at, "days": days[:LATENCY_HISTORY_SNAPSHOTS]},
     )
 
 
@@ -209,7 +209,11 @@ def _latency_history_entry(snapshot: Snapshot, date: str) -> dict[str, Any] | No
     regional = extract_regional_latency_metrics(snapshot)
     if not metrics and not regional:
         return None
-    entry: dict[str, Any] = {"date": date, "models": metrics}
+    entry: dict[str, Any] = {
+        "date": date,
+        "timestamp": _normalize_timestamp(snapshot.timestamp).isoformat(),
+        "models": metrics,
+    }
     if regional:
         entry["regional"] = regional
     return entry
@@ -220,7 +224,7 @@ def _backfill_latency_history(history_dir: Path) -> dict[str, dict[str, Any]]:
     if not snapshots_dir.exists():
         return {}
     result: dict[str, dict[str, Any]] = {}
-    for gz_path in sorted(snapshots_dir.glob("*.json.gz"))[-LATENCY_HISTORY_DAYS:]:
+    for gz_path in sorted(snapshots_dir.glob("*.json.gz"))[-LATENCY_HISTORY_SNAPSHOTS:]:
         try:
             snapshot = _load_history_snapshot(gz_path)
         except (OSError, ValueError):
@@ -228,8 +232,14 @@ def _backfill_latency_history(history_dir: Path) -> dict[str, dict[str, Any]]:
         date = _snapshot_date(snapshot)
         entry = _latency_history_entry(snapshot, date)
         if entry is not None:
-            result[date] = entry
+            result[_latency_entry_timestamp(entry)] = entry
     return result
+
+
+def _latency_entry_timestamp(entry: dict[str, Any]) -> str:
+    """Use a snapshot timestamp when available while retaining legacy daily entries."""
+
+    return str(entry.get("timestamp") or entry.get("date") or "")
 
 
 def _build_day_summary(

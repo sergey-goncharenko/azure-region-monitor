@@ -306,3 +306,28 @@ def test_previous_ranks_empty_without_enough_history():
     assert previous_regional_ranks({"days": [{"date": "2026-06-18", "models": {}}]}) == {}
 
 
+def test_previous_leaderboard_rank_uses_prior_snapshot_from_same_day():
+    from azure_region_monitor.latency_view import previous_leaderboard_ranks
+
+    history = {
+        "days": [
+            {
+                "date": "2026-06-18",
+                "timestamp": "2026-06-18T08:00:00+00:00",
+                "models": {
+                    "openai/gpt-5.6": {"p50_ms": 1200},
+                    "openai/gpt-5.1": {"p50_ms": 900},
+                },
+            },
+            {
+                "date": "2026-06-18",
+                "timestamp": "2026-06-18T12:00:00+00:00",
+                "models": {
+                    "openai/gpt-5.6": {"p50_ms": 800},
+                    "openai/gpt-5.1": {"p50_ms": 1000},
+                },
+            },
+        ]
+    }
+
+    assert previous_leaderboard_ranks(history) == {"openai/gpt-5.1": 1, "openai/gpt-5.6": 2}
