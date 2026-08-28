@@ -1,5 +1,6 @@
 from azure_region_monitor.blog import (
     blog_sitemap_entries,
+    executive_summary,
     render_blog_feed,
     render_blog_index,
     render_blog_post,
@@ -89,6 +90,38 @@ def test_select_blog_posts_filters_and_sorts_newest_first():
     assert [p["date"] for p in posts] == ["2026-07-03", "2026-07-01"]
     assert posts[0]["headline"] == "Newer day"
     assert posts[0]["slug"] == "blog/2026-07-03.html"
+
+
+def test_executive_summary_aggregates_multiple_published_days():
+    summary = executive_summary(
+        [
+            _day("2026-07-03", "Newer\n\nBody.", new=4, reg=1),
+            _day("2026-07-01", "Older\n\nBody.", new=2, reg=3),
+        ]
+    )
+
+    assert "2 published change days (2026-07-01 through 2026-07-03)" in summary
+    assert "6 new availability signals and 4 regressions" in summary
+    assert "more newly listed availability than regressions" in summary
+    assert "quota or deployment results" in summary
+
+
+def test_blog_index_and_posts_render_the_executive_summary():
+    posts = select_blog_posts(
+        _history(
+            [
+                _day("2026-07-03", "Newer\n\nBody.", new=2),
+                _day("2026-07-01", "Older\n\nBody.", reg=1),
+            ]
+        )
+    )
+
+    index = render_blog_index(posts, SITE, STYLE)
+    post = render_blog_post(posts[0], None, posts[1], SITE, STYLE)
+
+    assert 'aria-label="Executive summary"' in index
+    assert 'aria-label="Executive summary"' in post
+    assert "2 new availability signals and 1 regression" in index
 
 
 def test_select_blog_posts_handles_empty_or_missing():

@@ -93,7 +93,46 @@ def select_blog_posts(history_index: dict[str, Any] | None) -> list[dict[str, An
             }
         )
     posts.sort(key=lambda post: post["date"], reverse=True)
+    trend = executive_summary(days)
+    for post in posts:
+        post["executive_summary"] = trend
     return posts
+
+
+def executive_summary(days: list[dict[str, Any]]) -> str:
+    """Summarize the multi-day direction of published availability signals."""
+
+    published_days = [
+        day
+        for day in days
+        if str(day.get("date", "")).strip()
+        and isinstance(day.get("change_type_counts"), dict)
+    ]
+    if len(published_days) < 2:
+        return ""
+
+    dates = sorted(str(day["date"]).strip() for day in published_days)
+    new_availability = sum(
+        _as_int(day["change_type_counts"].get("new_availability"))
+        for day in published_days
+    )
+    regressions = sum(
+        _as_int(day["change_type_counts"].get("regression"))
+        for day in published_days
+    )
+    if new_availability > regressions:
+        direction = "The longer-term signal is more newly listed availability than regressions."
+    elif regressions > new_availability:
+        direction = "The longer-term signal is more regressions than newly listed availability."
+    else:
+        direction = "The longer-term signal is balanced between newly listed availability and regressions."
+    return (
+        f"Across {len(published_days):,} published change days ({dates[0]} through {dates[-1]}), "
+        f"the monitor recorded {new_availability:,} new availability signals and "
+        f"{regressions:,} {'regression' if regressions == 1 else 'regressions'}. "
+        f"{direction} These are read-only catalog/list signals, "
+        "not quota or deployment results."
+    )
 
 
 def _excerpt(post: dict[str, Any]) -> str:
@@ -371,6 +410,8 @@ def _nav() -> str:
 
 def render_blog_index(posts: list[dict[str, Any]], site_url: str, style_block: str) -> str:
     canonical = f"{site_url}/{BLOG_DIR}/"
+    trend = str(posts[0].get("executive_summary", "")) if posts else ""
+    trend_section = _render_executive_summary(trend)
     if posts:
         cards = "\n".join(_render_index_card(post) for post in posts)
         body_inner = f'<div class="blog-list">{cards}</div>'
@@ -391,6 +432,7 @@ def render_blog_index(posts: list[dict[str, Any]], site_url: str, style_block: s
       deprecations, and latency shifts — written from the monitor's structured evidence.
       Subscribe via the <a href="/blog/feed.xml">RSS feed</a>.
     </div>
+    {trend_section}
     <section class="panel" aria-label="Daily change posts">
       {body_inner}
     </section>"""
@@ -440,6 +482,7 @@ def render_blog_post(
         paragraphs = f"<p>{html.escape(post['title'])}</p>"
     highlights = _render_highlights(post.get("highlights", []))
     prev_next = _render_prev_next(newer, older)
+    trend_section = _render_executive_summary(str(post.get("executive_summary", "")))
     body = f"""    <header>
       <div>
         <h1 class="blog-post-title">{html.escape(headline)}</h1>
@@ -453,6 +496,7 @@ def render_blog_post(
     <article class="panel blog-post">
       <div class="blog-post-counts">{_counts_line(post)}</div>
       <div class="blog-post-body">{paragraphs}</div>
+      {trend_section}
       {highlights}
     </article>
     {prev_next}
@@ -470,6 +514,17 @@ def render_blog_post(
         body,
         page_type="article",
         structured_data=_blog_post_json_ld(post, canonical),
+    )
+
+
+def _render_executive_summary(summary: str) -> str:
+    if not summary:
+        return ""
+    return (
+        '<section class="note" aria-label="Executive summary">'
+        "<strong>Executive summary</strong>"
+        f"<p>{html.escape(summary)}</p>"
+        "</section>"
     )
 
 

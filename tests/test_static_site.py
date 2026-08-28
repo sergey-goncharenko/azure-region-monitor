@@ -8,6 +8,7 @@ from azure_region_monitor.static_site import (
     _region_country_name,
     _region_short_label,
     _render_narrative_banner,
+    _render_recent_changes_panel,
     _render_region_header,
     _sort_regions,
     _style_block,
@@ -82,6 +83,31 @@ def test_narrative_banner_uses_blog_narrative_split_rules():
 
     assert "narrative-headline" not in html
     assert "<p>" in html
+
+
+def test_recent_changes_panel_renders_multi_day_executive_summary():
+    html = _render_recent_changes_panel(
+        {
+            "days": [
+                {
+                    "date": "2026-07-03",
+                    "narrative": "Newer\n\nBody.",
+                    "narrative_source": "ai",
+                    "change_type_counts": {"new_availability": 2, "regression": 0},
+                },
+                {
+                    "date": "2026-07-01",
+                    "narrative": "Older\n\nBody.",
+                    "narrative_source": "ai",
+                    "change_type_counts": {"new_availability": 0, "regression": 1},
+                },
+            ]
+        }
+    )
+
+    assert 'aria-label="Executive summary"' in html
+    assert "Across 2 published change days (2026-07-01 through 2026-07-03)" in html
+    assert "2 new availability signals and 1 regression" in html
 
 
 def test_narrative_banner_rule_source_stays_single_paragraph():

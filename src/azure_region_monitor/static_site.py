@@ -12,6 +12,7 @@ from azure_region_monitor.blog import (
     render_blog_feed,
     render_blog_index,
     render_blog_post,
+    executive_summary,
     select_blog_posts,
     split_narrative,
 )
@@ -1747,6 +1748,15 @@ def _render_recent_changes_panel(recent_changes: dict[str, Any] | None) -> str:
         return ""
 
     narrative_banner = _render_narrative_banner(days[0])
+    trend = executive_summary(days)
+    trend_banner = (
+        '<div class="note" role="note" aria-label="Executive summary">'
+        "<strong>Executive summary</strong>"
+        f"<p>{html.escape(trend)}</p>"
+        "</div>"
+        if trend
+        else ""
+    )
     rows = "\n".join(_render_recent_change_row(day) for day in days[:10])
     return f"""<section class="panel" aria-label="Recent availability changes">
       <div class="panel-header">
@@ -1754,6 +1764,7 @@ def _render_recent_changes_panel(recent_changes: dict[str, Any] | None) -> str:
         <div class="panel-subtitle">Today plus previous clear signal days; unknown transitions are parked</div>
       </div>
       {narrative_banner}
+      {trend_banner}
       <div class="table-wrap">
         <table>
           <thead>
