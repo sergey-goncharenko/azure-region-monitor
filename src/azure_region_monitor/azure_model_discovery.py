@@ -66,7 +66,17 @@ def select_regional_standard_models(
         ):
             best_by_name[name] = (version, regions)
 
-    selected = sorted(best_by_name.items(), key=lambda entry: entry[0])[:max_models]
+    # The deployment cap must favor current model generations. Alphabetical ordering
+    # previously filled the cap with GPT-4 variants before newer GPT-5 releases.
+    selected = sorted(
+        best_by_name.items(),
+        key=lambda entry: (
+            _model_generation_rank(entry[0]),
+            _version_rank(entry[1][0], len(entry[1][1])),
+            entry[0],
+        ),
+        reverse=True,
+    )[:max_models]
     return [
         {
             "name": name,
@@ -110,3 +120,16 @@ def _version_rank(version: str, region_count: int) -> tuple:
     # Newer version wins; ties break on the number of regions offering it.
     digits = tuple(int(part) for part in re.findall(r"\d+", version))
     return (digits, region_count)
+
+
+def _model_generation_rank(name: str) -> tuple[int, int, int]:
+    """Rank current GPT generations ahead of older and non-GPT model families."""
+
+    lowered = name.lower()
+    match = re.match(r"gpt-(\d+)(?:\.(\d+))?", lowered)
+    if match:
+        return (2, int(match.group(1)), int(match.group(2) or 0))
+    match = re.match(r"o(\d+)", lowered)
+    if match:
+        return (1, int(match.group(1)), 0)
+    return (0, 0, 0)

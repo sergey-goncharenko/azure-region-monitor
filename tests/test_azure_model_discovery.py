@@ -60,16 +60,16 @@ def test_picks_newest_version_per_model():
     assert selected[0]["version"] == "2024-11-20"
 
 
-def test_respects_max_models_and_is_deterministic():
+def test_prioritizes_current_models_when_capping_deployments():
     by_region = {
         "eastus": [
             _model("gpt-4o", "2024-11-20", ["Standard"]),
-            _model("gpt-4.1", "2025-04-14", ["Standard"]),
-            _model("gpt-5", "2025-08-07", ["Standard"]),
+            _model("gpt-5.1", "2025-11-13", ["Standard"]),
+            _model("gpt-5.6", "2026-08-21", ["Standard"]),
         ],
     }
     selected = select_regional_standard_models(by_region, max_models=2)
-    assert [m["name"] for m in selected] == ["gpt-4.1", "gpt-4o"]  # sorted by name, capped
+    assert [m["name"] for m in selected] == ["gpt-5.6", "gpt-5.1"]
 
 
 def test_handles_empty_and_garbage():
