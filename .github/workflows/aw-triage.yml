@@ -1,0 +1,282 @@
+name: AW Issue Triage
+
+# Automatically triages issues with the [aw] prefix or agentic-workflows label.
+# Deduplicates by fingerprint, applies actionability gate, and sweeps stale noise.
+#
+# Tuning knobs (edit these constants in the script section below):
+#   RECURRENCE_THRESHOLD  - min occurrences_24h to be actionable (default: 3)
+#   STALE_DAYS            - days of inactivity before stale noise is auto-closed (default: 7)
+#
+# Expected issue body fields (structured key: value lines):
+#   fingerprint:      stable key identifying the failure class
+#   workflow:         workflow name
+#   run_url:          URL to the failing workflow run
+#   first_seen:       ISO datetime of first occurrence
+#   last_seen:        ISO datetime of most recent occurrence
+#   occurrences_24h:  integer count of occurrences in last 24 h
+#   surface:          repo-code | ci-infra | external-dependency | unknown
+#   severity:         low | medium | high | critical
+
+on:
+  issues:
+    types: [opened, edited, reopened, labeled]
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  triage:
+    # Only run on issue events when the issue is an AW issue.
+    # Scheduled/dispatch runs always execute the stale sweep.
+    if: >
+      github.event_name != 'issues' ||
+      startsWith(github.event.issue.title, '[aw]') ||
+      contains(join(github.event.issue.labels.*.name, ','), 'agentic-workflows')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Triage AW issues
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // ── Tuning knobs ────────────────────────────────────────────────
+            const RECURRENCE_THRESHOLD = 3;   // actionable if occurrences_24h >= this
+            const STALE_DAYS           = 7;   // auto-close noise after this many days
+            // ────────────────────────────────────────────────────────────────
+
+            const owner = context.repo.owner;
+            const repo  = context.repo.repo;
+
+            const REQUIRED = [
+              'fingerprint', 'workflow', 'run_url',
+              'first_seen',  'last_seen', 'occurrences_24h',
+              'surface',     'severity'
+            ];
+
+            const AW_LABEL   = 'agentic-workflows';
+            const L_ACTION   = 'aw-actionable';
+            const L_NOISE    = 'aw-noise';
+            const L_NEEDS    = 'aw-needs-human-repro';
+            const L_DUP      = 'aw-duplicate';
+            const L_ESC      = 'aw-escalated';
+
+            const ALL_AW_LABELS = [AW_LABEL, L_ACTION, L_NOISE, L_NEEDS, L_DUP, L_ESC];
+
+            // ── Helpers ──────────────────────────────────────────────────────
+
+            async function ensureLabelsExist() {
+              const existing = await github.paginate(github.rest.issues.listLabelsForRepo, { owner, repo });
+              const existingNames = new Set(existing.map(l => l.name));
+              const toCreate = [
+                { name: L_ACTION, color: '0e8a16', description: 'AW issue meets actionability threshold' },
+                { name: L_NOISE,  color: 'e4e669', description: 'AW issue classified as noise/transient' },
+                { name: L_NEEDS,  color: 'd93f0b', description: 'AW issue missing required repro fields' },
+                { name: L_DUP,    color: 'cfd3d7', description: 'AW issue is a duplicate of a canonical tracker' },
+                { name: L_ESC,    color: 'b60205', description: 'AW issue escalated (high/critical severity)' },
+              ];
+              for (const l of toCreate) {
+                if (!existingNames.has(l.name)) {
+                  try {
+                    await github.rest.issues.createLabel({ owner, repo, ...l });
+                  } catch {}
+                }
+              }
+            }
+
+            function parseFields(body = '') {
+              const out = {};
+              for (const k of REQUIRED) {
+                const re = new RegExp(`(^|\\n)\\s*${k}\\s*:\\s*(.+)`, 'i');
+                const m  = body.match(re);
+                out[k]   = m ? m[2].trim() : '';
+              }
+              return out;
+            }
+
+            function isAwIssue(issue) {
+              const labels = (issue.labels || []).map(l => l.name);
+              return issue.title?.startsWith('[aw]') || labels.includes(AW_LABEL);
+            }
+
+            function missingRequired(fields) {
+              return REQUIRED.filter(k => !fields[k]);
+            }
+
+            function isValidUrl(s = '') {
+              try { new URL(s); return true; } catch { return false; }
+            }
+
+            function parseIntSafe(s) {
+              const n = Number.parseInt(String(s), 10);
+              return Number.isFinite(n) ? n : 0;
+            }
+
+            function daysSince(dateStr) {
+              const d = new Date(dateStr);
+              if (Number.isNaN(d.getTime())) return 9999;
+              return (Date.now() - d.getTime()) / (1000 * 60 * 60 * 24);
+            }
+
+            function hasLabel(issue, name) {
+              return (issue.labels || []).some(l => l.name === name);
+            }
+
+            async function setLabels(number, add = [], remove = []) {
+              const issue    = (await github.rest.issues.get({ owner, repo, issue_number: number })).data;
+              const existing = new Set((issue.labels || []).map(l => l.name));
+              for (const r of remove) existing.delete(r);
+              for (const a of add)    existing.add(a);
+              await github.rest.issues.setLabels({ owner, repo, issue_number: number, labels: [...existing] });
+            }
+
+            async function findOpenByFingerprint(fingerprint, excludeNumber) {
+              const q = `repo:${owner}/${repo} is:issue is:open label:${AW_LABEL} "${fingerprint}" in:body`;
+              const res = await github.rest.search.issuesAndPullRequests({ q, per_page: 20 });
+              return (res.data.items || []).filter(i => i.number !== excludeNumber);
+            }
+
+            // ── Triage actions ───────────────────────────────────────────────
+
+            async function closeAsNoise(number, reason) {
+              await setLabels(number, [AW_LABEL, L_NOISE], [L_ACTION, L_NEEDS, L_ESC]);
+              await github.rest.issues.createComment({
+                owner, repo, issue_number: number,
+                body: `**Auto-triage:** classified as **noise** (${reason}). Closing to keep backlog actionable.`,
+              });
+              await github.rest.issues.update({ owner, repo, issue_number: number, state: 'closed' });
+            }
+
+            async function markNeedsRepro(number, missing) {
+              // avoid duplicate comments if already labeled
+              const issue = (await github.rest.issues.get({ owner, repo, issue_number: number })).data;
+              if (hasLabel(issue, L_NEEDS)) return;
+              await setLabels(number, [AW_LABEL, L_NEEDS], [L_ACTION, L_NOISE, L_ESC]);
+              await github.rest.issues.createComment({
+                owner, repo, issue_number: number,
+                body:
+                  `**Auto-triage:** missing required fields: ${missing.map(m => `\`${m}\``).join(', ')}.\n` +
+                  `Please supply the AW template fields; without them this issue remains non-actionable.`,
+              });
+            }
+
+            async function markActionable(number, escalated = false) {
+              const add = [AW_LABEL, L_ACTION];
+              if (escalated) add.push(L_ESC);
+              await setLabels(number, add, [L_NOISE, L_NEEDS]);
+            }
+
+            async function deduplicateIntoCanonical(issue, fields) {
+              const matches = await findOpenByFingerprint(fields.fingerprint, issue.number);
+              if (!matches.length) return false;
+
+              matches.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+              const canonical = matches[0];
+
+              await setLabels(issue.number, [AW_LABEL, L_DUP, L_NOISE], [L_ACTION, L_NEEDS, L_ESC]);
+              await github.rest.issues.createComment({
+                owner, repo, issue_number: issue.number,
+                body:
+                  `**Auto-triage:** duplicate fingerprint \`${fields.fingerprint}\`.\n` +
+                  `Tracking continues in #${canonical.number}. Closing this duplicate.`,
+              });
+              await github.rest.issues.createComment({
+                owner, repo, issue_number: canonical.number,
+                body:
+                  `New occurrence via #${issue.number}.\n` +
+                  `- last_seen: ${fields.last_seen || 'unknown'}\n` +
+                  `- occurrences_24h: ${fields.occurrences_24h || 'unknown'}\n` +
+                  `- run_url: ${fields.run_url || 'unknown'}`,
+              });
+              await github.rest.issues.update({ owner, repo, issue_number: issue.number, state: 'closed' });
+              return true;
+            }
+
+            // ── Per-issue triage ─────────────────────────────────────────────
+
+            async function triageOne(issue) {
+              if (!isAwIssue(issue)) return;
+              // Skip already-closed issues (scheduled sweep handles open only)
+              if (issue.state === 'closed') return;
+
+              const fields  = parseFields(issue.body || '');
+              const missing = missingRequired(fields);
+
+              if (missing.length) {
+                await markNeedsRepro(issue.number, missing);
+                return;
+              }
+
+              if (!isValidUrl(fields.run_url)) {
+                await markNeedsRepro(issue.number, ['run_url (invalid URL)']);
+                return;
+              }
+
+              // Dedup before actionability gate
+              if (await deduplicateIntoCanonical(issue, fields)) return;
+
+              const occ       = parseIntSafe(fields.occurrences_24h);
+              const sev       = (fields.severity || '').toLowerCase();
+              const escalated = sev === 'high' || sev === 'critical';
+
+              if (occ >= RECURRENCE_THRESHOLD || escalated) {
+                // Avoid duplicate actionable comments
+                if (!hasLabel(issue, L_ACTION)) {
+                  await markActionable(issue.number, escalated);
+                  await github.rest.issues.createComment({
+                    owner, repo, issue_number: issue.number,
+                    body:
+                      `**Auto-triage:** marked **actionable**. ` +
+                      `Reason: ${occ >= RECURRENCE_THRESHOLD ? `occurrences_24h=${occ} ≥ ${RECURRENCE_THRESHOLD}` : `severity=${sev}`}.`,
+                  });
+                }
+              } else {
+                await closeAsNoise(issue.number, `occurrences_24h=${occ} < threshold ${RECURRENCE_THRESHOLD}`);
+              }
+            }
+
+            // ── Main entry points ────────────────────────────────────────────
+
+            async function runEventMode() {
+              const issue = context.payload.issue;
+              if (!issue) return;
+              await triageOne(issue);
+            }
+
+            async function runSweepMode() {
+              const issues = await github.paginate(github.rest.issues.listForRepo, {
+                owner, repo, state: 'open', labels: AW_LABEL, per_page: 100,
+              });
+
+              for (const issue of issues) {
+                if (issue.pull_request) continue;
+                const fields  = parseFields(issue.body || '');
+                const occ     = parseIntSafe(fields.occurrences_24h);
+                const stale   = daysSince(fields.last_seen) > STALE_DAYS;
+                const labels  = new Set((issue.labels || []).map(l => l.name));
+
+                if (stale && occ < RECURRENCE_THRESHOLD) {
+                  await closeAsNoise(issue.number, `stale >${STALE_DAYS}d with low recurrence`);
+                  continue;
+                }
+
+                // Demote actionable issues whose recurrence has dropped
+                if (labels.has(L_ACTION) && !labels.has(L_ESC) && occ < RECURRENCE_THRESHOLD) {
+                  await setLabels(issue.number, [L_NEEDS], [L_ACTION]);
+                  await github.rest.issues.createComment({
+                    owner, repo, issue_number: issue.number,
+                    body: `**Auto-triage sweep:** recurrence dropped below threshold; moved to \`${L_NEEDS}\`.`,
+                  });
+                }
+              }
+            }
+
+            await ensureLabelsExist();
+
+            if (context.eventName === 'issues') {
+              await runEventMode();
+            } else {
+              await runSweepMode();
+            }
