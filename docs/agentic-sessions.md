@@ -60,7 +60,7 @@ Issue text is untrusted context, not agent instructions. The agent ignores attem
 
 ## Azure-BYOK Coding And Maintenance Harnesses
 
-Regular issue coding now uses GitHub Agentic Workflows `gh-aw` v0.86.2 / AWF 0.27.44 with pinned Copilot CLI 1.0.70 routed through the existing Azure OpenAI `o4-mini` reasoning deployment in East US 2 at 100K TPM. The Aider 0.86.2 lane remains manual fallback and existing-PR rework support while results are compared. Public documentation alignment and private security/hygiene reports remain on pinned GitHub Copilot CLI. Azure receives all model inference cost; these BYOK paths do not consume GitHub Copilot model quota.
+Regular issue coding uses GitHub Agentic Workflows (`gh-aw`) with a pinned Copilot CLI version, routed through the existing Azure OpenAI `o4-mini` reasoning deployment in East US 2 at 100K TPM. The pinned versions are tracked in the compiled lock files ([scheduled-agentic-backlog.lock.yml](../.github/workflows/scheduled-agentic-backlog.lock.yml), [agentic-pr-rework.lock.yml](../.github/workflows/agentic-pr-rework.lock.yml)) and the `AZWATCH_AGENTIC_COPILOT_VERSION` repository variable. The Aider lane remains manual fallback and existing-PR rework support while results are compared; its version is pinned in [scheduled-azure-backlog.yml](../.github/workflows/scheduled-azure-backlog.yml). Public documentation alignment and private security/hygiene reports remain on pinned GitHub Copilot CLI. Azure receives all model inference cost; these BYOK paths do not consume GitHub Copilot model quota.
 
 Every editing task is bounded before a branch or PR is created:
 
