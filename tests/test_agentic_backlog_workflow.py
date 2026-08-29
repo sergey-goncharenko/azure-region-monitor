@@ -25,7 +25,7 @@ def test_agentic_backlog_is_the_only_daily_issue_coding_schedule():
     source = SOURCE.read_text(encoding="utf-8")
     fallback = AIDER_FALLBACK.read_text(encoding="utf-8")
 
-    assert 'cron: "0 7 * * *"' in source
+    assert 'cron: "23 6 * * *"' in source
     assert "  schedule:" not in fallback
     assert "repository_dispatch:" in fallback
     assert "workflow_dispatch:" in fallback

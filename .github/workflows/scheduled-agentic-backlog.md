@@ -3,7 +3,7 @@ name: Scheduled agentic backlog
 description: Compare GitHub Agentic Workflows with the current Azure-funded issue coding lane.
 on:
   schedule:
-    - cron: "0 7 * * *"
+    - cron: "23 6 * * *"
   workflow_dispatch:
     inputs:
       target_issue:

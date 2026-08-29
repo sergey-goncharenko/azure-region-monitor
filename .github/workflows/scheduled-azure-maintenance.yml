@@ -2,8 +2,8 @@ name: Scheduled Azure documentation alignment
 
 on:
   schedule:
-    # Runs after the 07:00 UTC issue backlog window.
-    - cron: "0 9 * * *"
+    # Runs after the 06:23 UTC issue backlog window.
+    - cron: "41 8 * * *"
   workflow_dispatch:
     inputs:
       dry_run:

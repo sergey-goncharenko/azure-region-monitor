@@ -27,6 +27,13 @@ permissions:
   id-token: write
   models: read
 
+# Scheduled dispatch has drifted by up to 12 hours, so a late run can still be
+# merging and deploying when the next day fires. Queue instead of overlapping:
+# cancelling would abort a deploy midway and leave the live snapshot half-updated.
+concurrency:
+  group: daily-scan
+  cancel-in-progress: false
+
 jobs:
   aks-extensions:
     uses: ./.github/workflows/regional-probe-run.yml

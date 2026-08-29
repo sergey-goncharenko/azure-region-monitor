@@ -257,7 +257,7 @@ def test_public_maintenance_workflow_runs_documentation_only():
         encoding="utf-8"
     )
 
-    assert 'cron: "0 9 * * *"' in workflow
+    assert 'cron: "41 8 * * *"' in workflow
     assert "run_azure_maintenance_cycle.py" in workflow
     assert "run_azure_byok_task.py" in workflow
     assert "--session-set docs" in workflow
@@ -274,7 +274,7 @@ def test_private_analysis_template_keeps_reports_out_of_public_repository():
         REPO_ROOT / ".github/private-reporting/scheduled-private-analysis.yml"
     ).read_text(encoding="utf-8")
 
-    assert 'cron: "0 10 * * *"' in workflow
+    assert 'cron: "52 9 * * *"' in workflow
     assert "repository: sergey-goncharenko/azure-region-monitor" in workflow
     assert "--session-set reports" in workflow
     assert "run_azure_byok_report.py" in workflow

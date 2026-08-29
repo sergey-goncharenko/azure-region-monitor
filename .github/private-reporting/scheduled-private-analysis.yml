@@ -3,7 +3,7 @@ name: Scheduled private Azure analysis
 on:
   schedule:
     # Runs after public documentation alignment while keeping reports private.
-    - cron: "0 10 * * *"
+    - cron: "52 9 * * *"
   workflow_dispatch:
     inputs:
       dry_run:
