@@ -1,0 +1,101 @@
+name: AW Historical Issue Cleanup (One-time)
+
+# One-time workflow to close historical duplicate/noise AW issues.
+# Run once manually after the aw-triage workflow is in place.
+# Safe to re-run: all actions are idempotent (commenting on already-closed issues is harmless).
+
+on:
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Close historical duplicate and noise AW issues
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo  = context.repo.repo;
+
+            async function commentAndClose(number, body, reason) {
+              // Check current state first to keep the run idempotent
+              const issue = (await github.rest.issues.get({ owner, repo, issue_number: number })).data;
+              if (issue.state !== 'closed') {
+                await github.rest.issues.createComment({ owner, repo, issue_number: number, body });
+                await github.rest.issues.update({
+                  owner, repo, issue_number: number, state: 'closed', state_reason: reason
+                });
+              }
+            }
+
+            async function commentOnceIfNotPresent(number, body, marker) {
+              // Guard: only post if the marker string is not already in any existing comment
+              const comments = await github.paginate(github.rest.issues.listComments, {
+                owner, repo, issue_number: number, per_page: 100
+              });
+              const alreadyPosted = comments.some(c => c.body && c.body.includes(marker));
+              if (!alreadyPosted) {
+                await github.rest.issues.createComment({ owner, repo, issue_number: number, body });
+              }
+            }
+
+            // ── Duplicates of #106 (Failed jobs: Agentic PR rework) ─────────
+            await commentAndClose(93,
+              'Closing as duplicate of #106. Same failure class (`[aw] Failed jobs: Agentic PR rework`). ' +
+              'Please continue tracking recurrence and remediation in #106.',
+              'duplicate');
+
+            await commentAndClose(90,
+              'Closing as duplicate of #106. Same failure class (`[aw] Failed jobs: Agentic PR rework`). ' +
+              'Please continue tracking recurrence and remediation in #106.',
+              'duplicate');
+
+            // ── Duplicates of #79 (incomplete-result class) ──────────────────
+            await commentAndClose(86,
+              'Closing as duplicate of #79 (incomplete-result class). Keeping one canonical issue for ' +
+              'this fingerprint to avoid backlog noise. Please append new occurrences there with run URL + timestamp.',
+              'duplicate');
+
+            await commentAndClose(82,
+              'Closing as duplicate of #79 (incomplete-result class). Keeping one canonical issue for ' +
+              'this fingerprint to avoid backlog noise. Please append new occurrences there with run URL + timestamp.',
+              'duplicate');
+
+            // ── Non-actionable noise ─────────────────────────────────────────
+            await commentAndClose(84,
+              'Closing as non-actionable noise: the title/body are generic (`Detection Runs`) and do not ' +
+              'identify a stable failure fingerprint. Per the ' +
+              '[AW issue policy](https://github.com/' + owner + '/' + repo + '/blob/main/docs/aw-issue-policy.md), ' +
+              'issues without `fingerprint`, `run_url`, and `occurrences_24h` fields are classified as noise. ' +
+              'Reopen only with a concrete workflow, failing step, run URL, and normalized error signature.',
+              'not_planned');
+
+            // ── Canonical tracker notices ────────────────────────────────────
+            const CANONICAL_MARKER = 'Canonical tracker notice:';
+
+            await commentOnceIfNotPresent(106,
+              '**Canonical tracker notice:** This is the canonical open issue for the ' +
+              '`[aw] Failed jobs: Agentic PR rework` failure class. ' +
+              'Issues #93 and #90 have been closed as duplicates pointing here. ' +
+              'New occurrences should update this issue (run URL + timestamp) rather than opening new issues.',
+              CANONICAL_MARKER);
+
+            await commentOnceIfNotPresent(79,
+              '**Canonical tracker notice:** This is the canonical open issue for the ' +
+              '`[aw] incomplete-result` failure class. ' +
+              'Issues #86 and #82 have been closed as duplicates pointing here. ' +
+              'New occurrences should update this issue (run URL + timestamp) rather than opening new issues.',
+              CANONICAL_MARKER);
+
+            await commentOnceIfNotPresent(105,
+              '**Canonical tracker notice:** This is the canonical open issue for the ' +
+              '`[aw] Agentic PR rework is missing required tool` failure class. ' +
+              'New occurrences of this failure should update this issue rather than opening new issues.',
+              CANONICAL_MARKER);
+
+            console.log('Historical cleanup complete.');
