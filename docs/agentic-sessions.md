@@ -94,6 +94,8 @@ Every generated PR includes a reviewer-facing rationale in its description:
 - the agent's concise final decision, evidence, implementation summary, alternatives/risks, and validation notes;
 - the exact changed files and deterministic checks run.
 
+When a change needs visual review, the agent must put the visual evidence where reviewers can inspect it inline, such as a concise PR comment with rendered images or a Markdown-friendly comparison. Do not make reviewers download and open a standalone HTML preview to understand a proposed design; include a short caption and the decision the visual supports.
+
 Agentic issue PRs use safe-output metadata and GitHub Actions audit artifacts. Aider fallback PRs retain their deterministic reviewer summary plus sanitized visible chat/diff output. Copilot maintenance uses the latest visible `assistant.message`. Opaque/encrypted reasoning and private chain-of-thought are excluded; secret-like values are redacted.
 
 When an initial issue session intentionally makes no edit, reaches its outer budget, or fails deterministic scope/validation checks, no PR is required. Deterministic outer code creates or replaces one stable `Azure BYOK agent note` comment on the source issue with the bounded outcome, final visible summary when available, model/token metadata, and workflow link. Later runs replace that note instead of adding daily comment noise. Non-recurring no-PR issues receive `azure-paused` automatically so the next daily cycle advances to newer work; a maintainer can refine, close, or explicitly unpause them. Recurring monitor issues remain eligible. Requested PR rework is stricter: no repository change, failed validation, or an empty cumulative PR diff fails the rework workflow and cannot be published as success.
