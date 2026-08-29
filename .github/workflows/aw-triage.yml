@@ -81,7 +81,9 @@ jobs:
                 if (!existingNames.has(l.name)) {
                   try {
                     await github.rest.issues.createLabel({ owner, repo, ...l });
-                  } catch {}
+                  } catch (err) {
+                    console.warn(`Could not create label "${l.name}": ${err.message}`);
+                  }
                 }
               }
             }
@@ -264,10 +266,10 @@ jobs:
 
                 // Demote actionable issues whose recurrence has dropped
                 if (labels.has(L_ACTION) && !labels.has(L_ESC) && occ < RECURRENCE_THRESHOLD) {
-                  await setLabels(issue.number, [L_NEEDS], [L_ACTION]);
+                  await setLabels(issue.number, [L_NOISE], [L_ACTION]);
                   await github.rest.issues.createComment({
                     owner, repo, issue_number: issue.number,
-                    body: `**Auto-triage sweep:** recurrence dropped below threshold; moved to \`${L_NEEDS}\`.`,
+                    body: `**Auto-triage sweep:** recurrence dropped below threshold; removed \`${L_ACTION}\` and added \`${L_NOISE}\`.`,
                   });
                 }
               }

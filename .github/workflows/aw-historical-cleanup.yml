@@ -25,11 +25,22 @@ jobs:
             async function commentAndClose(number, body, reason) {
               // Check current state first to keep the run idempotent
               const issue = (await github.rest.issues.get({ owner, repo, issue_number: number })).data;
-              await github.rest.issues.createComment({ owner, repo, issue_number: number, body });
               if (issue.state !== 'closed') {
+                await github.rest.issues.createComment({ owner, repo, issue_number: number, body });
                 await github.rest.issues.update({
                   owner, repo, issue_number: number, state: 'closed', state_reason: reason
                 });
+              }
+            }
+
+            async function commentOnceIfNotPresent(number, body, marker) {
+              // Guard: only post if the marker string is not already in any existing comment
+              const comments = await github.paginate(github.rest.issues.listComments, {
+                owner, repo, issue_number: number, per_page: 100
+              });
+              const alreadyPosted = comments.some(c => c.body && c.body.includes(marker));
+              if (!alreadyPosted) {
+                await github.rest.issues.createComment({ owner, repo, issue_number: number, body });
               }
             }
 
@@ -65,27 +76,26 @@ jobs:
               'not_planned');
 
             // ── Canonical tracker notices ────────────────────────────────────
-            await github.rest.issues.createComment({ owner, repo, issue_number: 106,
-              body:
-                '**Canonical tracker notice:** This is the canonical open issue for the ' +
-                '`[aw] Failed jobs: Agentic PR rework` failure class. ' +
-                'Issues #93 and #90 have been closed as duplicates pointing here. ' +
-                'New occurrences should update this issue (run URL + timestamp) rather than opening new issues.'
-            });
+            const CANONICAL_MARKER = 'Canonical tracker notice:';
 
-            await github.rest.issues.createComment({ owner, repo, issue_number: 79,
-              body:
-                '**Canonical tracker notice:** This is the canonical open issue for the ' +
-                '`[aw] incomplete-result` failure class. ' +
-                'Issues #86 and #82 have been closed as duplicates pointing here. ' +
-                'New occurrences should update this issue (run URL + timestamp) rather than opening new issues.'
-            });
+            await commentOnceIfNotPresent(106,
+              '**Canonical tracker notice:** This is the canonical open issue for the ' +
+              '`[aw] Failed jobs: Agentic PR rework` failure class. ' +
+              'Issues #93 and #90 have been closed as duplicates pointing here. ' +
+              'New occurrences should update this issue (run URL + timestamp) rather than opening new issues.',
+              CANONICAL_MARKER);
 
-            await github.rest.issues.createComment({ owner, repo, issue_number: 105,
-              body:
-                '**Canonical tracker notice:** This is the canonical open issue for the ' +
-                '`[aw] Agentic PR rework is missing required tool` failure class. ' +
-                'New occurrences of this failure should update this issue rather than opening new issues.'
-            });
+            await commentOnceIfNotPresent(79,
+              '**Canonical tracker notice:** This is the canonical open issue for the ' +
+              '`[aw] incomplete-result` failure class. ' +
+              'Issues #86 and #82 have been closed as duplicates pointing here. ' +
+              'New occurrences should update this issue (run URL + timestamp) rather than opening new issues.',
+              CANONICAL_MARKER);
+
+            await commentOnceIfNotPresent(105,
+              '**Canonical tracker notice:** This is the canonical open issue for the ' +
+              '`[aw] Agentic PR rework is missing required tool` failure class. ' +
+              'New occurrences of this failure should update this issue rather than opening new issues.',
+              CANONICAL_MARKER);
 
             console.log('Historical cleanup complete.');
