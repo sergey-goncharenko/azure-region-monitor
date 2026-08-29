@@ -308,6 +308,12 @@ safe-outputs:
     # No new PR exists to carry a REQUEST_CHANGES review, so protected-file edits
     # divert to a human review issue instead of reaching the branch.
     protected-files: fallback-to-issue
+  # Reviewers routinely ask for follow-up work that belongs in the backlog rather than
+  # in this PR. Without this the agent can only report the request as a missing tool.
+  create-issue:
+    max: 1
+    title-prefix: "[azure-backlog] "
+    labels: [azure-backlog, scheduled-agent]
   threat-detection:
     max-ai-credits: 200
     prompt: |
@@ -327,6 +333,13 @@ safe-outputs:
           python -m pip install "httpx>=0.27,<1" "pytest>=8.2,<9" "ruff>=0.6,<1"
           patch_file="$(find /tmp/gh-aw/threat-detection -maxdepth 1 -type f -name 'aw*.patch' -print -quit)"
           if [ -z "$patch_file" ]; then
+            # Filing the reviewer's follow-up request as a backlog issue is a legitimate
+            # no-code outcome; any other empty rework is not.
+            if jq -e '[.items[]? | select(.type == "create_issue")] | length > 0' \
+                 /tmp/gh-aw/agent_output.json > /dev/null 2>&1; then
+              echo "No code change was required; the reviewer's follow-up request was filed as a backlog issue."
+              exit 0
+            fi
             echo "A rework that changes nothing is a failure, not a success." >&2
             exit 1
           fi
@@ -385,3 +398,5 @@ The reviewed pull request branch is already checked out. Amend that existing wor
 Commit your corrections onto the checked-out branch once `pytest`, `ruff check .`, and `git diff --check` have passed on your final edit, then call `push_to_pull_request_branch` exactly once with `pull_request_number` set to the task's `rework.pull_request` value. A verified sandbox interpreter-selection failure is not a reason to discard completed work; report it accurately and let the independent CPython 3.11 gate decide. Summarise which reviewer requirements you addressed, the causal link to the changed behavior, changed files, and only validation actually observed in tool output.
 
 A rework that changes nothing is a failure. If the reviewer requirements cannot be satisfied safely, or the requested change would violate the trust, scope, or status-semantics rules above, do not push: report the blocking reason instead so the run fails visibly for a human.
+
+When the reviewer asks for follow-up work that belongs in a later scheduled session rather than in this pull request, call `create_issue` exactly once instead of pushing. State the requested outcome, why it is out of scope for this PR, and the acceptance criteria a future session would need. Filing that issue is the complete result for such a request; do not also invent a code change to justify a push.

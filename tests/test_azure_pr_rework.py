@@ -515,14 +515,22 @@ def test_agentic_rework_workflow_bounds_pushes_to_the_reviewed_pull_request():
     assert '"protected_files_policy":"fallback-to-issue"' in lock
 
 
-def test_agentic_rework_status_follower_closes_the_dispatcher_comment():
-    follower = (REPO_ROOT / ".github/workflows/agentic-pr-rework-status.yml").read_text(
-        encoding="utf-8"
-    )
+def test_agentic_rework_can_file_follow_up_backlog_work_without_a_code_change():
+    source = (REPO_ROOT / ".github/workflows/agentic-pr-rework.md").read_text(encoding="utf-8")
+    lock = (REPO_ROOT / ".github/workflows/agentic-pr-rework.lock.yml").read_text(encoding="utf-8")
 
-    assert 'workflows: ["Agentic PR rework"]' in follower
-    assert "persist-credentials: false" in follower
-    assert "agentic-rework-status" in follower
-    assert "Malformed agentic rework status identifiers." in follower
-    assert "finalize-status" in follower
-    assert "secrets." not in follower
+    assert "create-issue:" in source
+    assert 'title-prefix: "[azure-backlog] "' in source
+    assert "labels: [azure-backlog, scheduled-agent]" in source
+    assert "max: 1" in source
+    assert '"title_prefix":"[azure-backlog] "' in lock
+    # A no-code rework still fails unless the reviewer's request was filed as an issue.
+    assert 'select(.type == "create_issue")' in source
+    assert "A rework that changes nothing is a failure, not a success." in source
+    assert "call `create_issue` exactly once instead of pushing" in source
+
+
+def test_no_dead_workflow_run_follower_for_the_bot_dispatched_rework():
+    # workflow_run never fires for a run attributed to github-actions[bot], and the
+    # conclusion job finalizes the status comment instead.
+    assert not (REPO_ROOT / ".github/workflows/agentic-pr-rework-status.yml").exists()
