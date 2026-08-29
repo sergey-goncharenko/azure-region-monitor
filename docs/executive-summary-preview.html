@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Executive summary visual draft</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: system-ui, sans-serif;
+      color: #172033;
+      background: #eef2f7;
+    }
+    body {
+      margin: 0;
+      padding: 2rem;
+    }
+    main {
+      max-width: 72rem;
+      margin: auto;
+    }
+    h1, h2, h3 {
+      margin-top: 0;
+    }
+    .intro {
+      max-width: 50rem;
+      line-height: 1.5;
+    }
+    .comparison {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 1.5rem;
+      margin: 2rem 0 3rem;
+    }
+    .example {
+      background: #fff;
+      border: 1px solid #c9d3e0;
+      border-radius: 0.75rem;
+      padding: 1.25rem;
+      box-shadow: 0 0.15rem 0.5rem #17203314;
+    }
+    .label {
+      color: #526175;
+      font-size: 0.8rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .note {
+      margin: 1rem 0;
+      padding: 1rem;
+      border-left: 0.3rem solid #1261a0;
+      border-radius: 0.25rem;
+      background: #eaf4fc;
+      line-height: 1.5;
+    }
+    .note strong {
+      display: block;
+      margin-bottom: 0.25rem;
+    }
+    .muted {
+      color: #526175;
+    }
+    .row {
+      display: grid;
+      grid-template-columns: 1fr auto auto;
+      gap: 0.75rem;
+      padding: 0.75rem 0;
+      border-top: 1px solid #dbe3ed;
+    }
+    @media (max-width: 44rem) {
+      body {
+        padding: 1rem;
+      }
+      .comparison {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Executive summary visual draft</h1>
+    <p class="intro">
+      This review artifact shows the proposed presentation of the new longer-term
+      availability signal. Sample counts are illustrative; the live dashboard and blog
+      calculate them from published read-only catalog/list evidence.
+    </p>
+
+    <h2>Home page: Recent Availability Signals</h2>
+    <div class="comparison">
+      <section class="example" aria-label="Home page before">
+        <p class="label">Before</p>
+        <h3>Recent Availability Signals</h3>
+        <p class="muted">Today plus previous clear signal days; unknown transitions are parked</p>
+        <div class="row"><span>2026-07-03</span><span>2 new</span><span>0 regressions</span></div>
+        <div class="row"><span>2026-07-01</span><span>0 new</span><span>1 regression</span></div>
+      </section>
+      <section class="example" aria-label="Home page after">
+        <p class="label">After</p>
+        <h3>Recent Availability Signals</h3>
+        <p class="muted">Today plus previous clear signal days; unknown transitions are parked</p>
+        <aside class="note">
+          <strong>Executive summary</strong>
+          Across 2 published change days (2026-07-01 through 2026-07-03), the monitor
+          recorded 2 new availability signals and 1 regression. The longer-term signal is
+          more newly listed availability than regressions. These are read-only catalog/list
+          signals, not quota or deployment results.
+        </aside>
+        <div class="row"><span>2026-07-03</span><span>2 new</span><span>0 regressions</span></div>
+        <div class="row"><span>2026-07-01</span><span>0 new</span><span>1 regression</span></div>
+      </section>
+    </div>
+
+    <h2>Daily blog: individual post and index</h2>
+    <div class="comparison">
+      <section class="example" aria-label="Blog before">
+        <p class="label">Before</p>
+        <h3>New regional availability signals</h3>
+        <p class="muted">3 July 2026 · 2 new availability · 0 regressions</p>
+        <p>Daily narrative and highlights describe the individual scan.</p>
+      </section>
+      <section class="example" aria-label="Blog after">
+        <p class="label">After</p>
+        <h3>New regional availability signals</h3>
+        <p class="muted">3 July 2026 · 2 new availability · 0 regressions</p>
+        <p>Daily narrative and highlights describe the individual scan.</p>
+        <aside class="note">
+          <strong>Executive summary</strong>
+          The same multi-day signal appears after the daily narrative, providing context
+          without changing the meaning of the post-level evidence.
+        </aside>
+      </section>
+    </div>
+  </main>
+</body>
+</html>
