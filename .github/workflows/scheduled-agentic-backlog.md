@@ -90,6 +90,23 @@ jobs:
             --open-pulls "$RUNNER_TEMP/open-pulls.json" \
             --output /tmp/gh-aw/agent/task.json \
             --github-output "$GITHUB_OUTPUT"
+      - name: Ask maintainers to clarify malformed issue objectives
+        id: objective-questions
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          python scripts/request_azure_backlog_objectives.py \
+            --manifest /tmp/gh-aw/agent/task.json \
+            --repository "$GITHUB_REPOSITORY" \
+            --run-url "$RUN_URL"
+      - name: Report objective clarification failure
+        if: ${{ steps.objective-questions.outcome == 'failure' }}
+        run: |
+          echo "::warning::Could not comment on one or more malformed backlog issues; a later run will retry."
+          echo "Objective clarification comments failed; malformed issues remain listed in the stable backlog status." \
+            >> "$GITHUB_STEP_SUMMARY"
       - name: Publish stable backlog status
         env:
           GH_TOKEN: ${{ github.token }}

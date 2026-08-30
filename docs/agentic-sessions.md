@@ -48,7 +48,7 @@ Use `azure-unknowns` only when the issue should run conditionally against the la
 
 Agentic PR branches start with `agentic/issue-<number>` and receive a collision-avoidance suffix. Aider fallback branches remain `azure-issues/issue-<number>`. Before starting a model, deterministic filtering skips any issue that already has an open PR from either lane.
 
-Every non-dry-run backlog workflow updates one stable `[agent-status] Scheduled Azure backlog` issue labelled `azure-agent-status` with the latest workflow link and open, queue-eligible, malformed-template, deferred-without-unknown-evidence, open-PR-blocked, paused, and selected counts. When no runnable task remains, no model is started and the status issue receives one concise comment with the reason. Selected runs continue to use source-issue notes and draft PRs for detailed outcomes.
+Every non-dry-run backlog workflow updates one stable `[agent-status] Scheduled Azure backlog` issue labelled `azure-agent-status` with the latest workflow link and open, queue-eligible, malformed-template, deferred-without-unknown-evidence, open-PR-blocked, paused, and selected counts. A malformed backlog issue also receives one idempotent bot question asking a maintainer to add or expand the exact `### Objective` section; later runs do not duplicate that comment. When no runnable task remains, no model is started and the status issue receives one concise comment with the reason. Selected runs continue to use source-issue notes and draft PRs for detailed outcomes.
 
 ## Comments, Parent Issues, And Sub-Issues
 

@@ -72,6 +72,11 @@ def test_agentic_backlog_preserves_deterministic_selection_without_write_scope()
     assert "allowed-files:" not in source
     assert '"allowed_files"' not in lock
     assert "publish_azure_backlog_status.py" in source
+    assert "request_azure_backlog_objectives.py" in source
+    assert "Ask maintainers to clarify malformed issue objectives" in source
+    assert "id: objective-questions" in source
+    assert "steps.objective-questions.outcome == 'failure'" in source
+    assert "a later run will retry" in source
     assert "issues: write" in source
 
 
