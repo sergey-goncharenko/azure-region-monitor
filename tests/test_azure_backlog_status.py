@@ -22,6 +22,8 @@ def _manifest(selected: int = 0):
             "backlog_count": 8,
             "paused_count": 8 - selected,
             "eligible_count": selected,
+            "malformed_issue_count": 0,
+            "malformed_issues": [],
             "selected_count": selected,
             "eligible_issues": ([{"number": 55, "title": "Improve filters"}] if selected else []),
             "deferred_no_unknown_evidence_count": 0,
@@ -60,6 +62,22 @@ def test_render_status_explains_unknown_evidence_defer():
     assert "1 issue awaits current `unknown` evidence" in rendered
     assert "Deferred without current unknown evidence: 1" in rendered
     assert "#48: Investigate unknowns" in rendered
+
+
+def test_render_status_explains_malformed_issue_template():
+    manifest = _manifest()
+    manifest["status"].update(
+        eligible_count=1,
+        eligible_issues=[{"number": 107, "title": "Add visual evidence"}],
+        malformed_issue_count=1,
+        malformed_issues=[{"number": 107, "title": "Add visual evidence"}],
+    )
+
+    rendered = backlog_status.render_status(manifest, "https://example.test/run/4")
+
+    assert "1 issue is missing the required `### Objective` field" in rendered
+    assert "Malformed issue templates: 1" in rendered
+    assert "#107: Add visual evidence" in rendered
 
 
 def test_render_status_points_selected_runs_to_audit():

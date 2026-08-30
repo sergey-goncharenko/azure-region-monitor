@@ -40,11 +40,15 @@ def _issue_lines(items: object) -> list[str]:
 
 def _no_task_outcome(status: dict[str, Any]) -> str:
     eligible = int(status.get("eligible_count", 0) or 0)
+    malformed = int(status.get("malformed_issue_count", 0) or 0)
     deferred = int(status.get("deferred_no_unknown_evidence_count", 0) or 0)
     blocked = int(status.get("blocked_open_pr_count", 0) or 0)
     if eligible == 0:
         return "No agent session started because no queue-eligible backlog issue was available."
     reasons = []
+    if malformed:
+        noun = "issue is" if malformed == 1 else "issues are"
+        reasons.append(f"{malformed} {noun} missing the required `### Objective` field")
     if deferred:
         noun = "issue awaits" if deferred == 1 else "issues await"
         reasons.append(f"{deferred} {noun} current `unknown` evidence")
@@ -73,6 +77,7 @@ def render_status(manifest: dict[str, Any], run_url: str) -> str:
         f"- Latest run: {run_url or 'not available'}",
         f"- Open backlog issues: {int(status.get('backlog_count', 0) or 0)}",
         f"- Queue-eligible issues: {int(status.get('eligible_count', 0) or 0)}",
+        f"- Malformed issue templates: {int(status.get('malformed_issue_count', 0) or 0)}",
         "- Deferred without current unknown evidence: "
         f"{int(status.get('deferred_no_unknown_evidence_count', 0) or 0)}",
         f"- Blocked by open coding PRs: {int(status.get('blocked_open_pr_count', 0) or 0)}",
@@ -84,6 +89,10 @@ def render_status(manifest: dict[str, Any], run_url: str) -> str:
         "## Queue-eligible issues",
         "",
         *_issue_lines(status.get("eligible_issues")),
+        "",
+        "## Malformed issue templates",
+        "",
+        *_issue_lines(status.get("malformed_issues")),
         "",
         "## Deferred without current unknown evidence",
         "",
@@ -200,6 +209,7 @@ def publish_status(manifest: dict[str, Any], repository: str, run_url: str) -> i
                 f"{int(status.get('backlog_count', 0) or 0)} backlog issue(s), "
                 f"{int(status.get('paused_count', 0) or 0)} paused, "
                 f"{int(status.get('eligible_count', 0) or 0)} queue-eligible, "
+                f"{int(status.get('malformed_issue_count', 0) or 0)} malformed, "
                 f"{int(status.get('deferred_no_unknown_evidence_count', 0) or 0)} "
                 "deferred without current unknown evidence, "
                 f"{int(status.get('blocked_open_pr_count', 0) or 0)} blocked by an open PR. "

@@ -95,6 +95,11 @@ def _backlog_status(issues_path: Path, tasks: list[dict[str, Any]]) -> dict[str,
     backlog = []
     paused = []
     eligible = []
+    malformed = []
+    issue_parser = _load_module("azure_backlog_status_issues", "run_azure_issue_agent.py")
+    parsed_numbers = {
+        issue["number"] for issue in issue_parser._load_issues(issues_path)
+    }
     for issue in issues:
         if not isinstance(issue, dict):
             continue
@@ -111,14 +116,21 @@ def _backlog_status(issues_path: Path, tasks: list[dict[str, Any]]) -> dict[str,
             continue
         item = {"number": number, "title": title}
         backlog.append(item)
-        (paused if "azure-paused" in names else eligible).append(item)
+        if "azure-paused" in names:
+            paused.append(item)
+        else:
+            eligible.append(item)
+            if number not in parsed_numbers:
+                malformed.append(item)
     return {
         "backlog_count": len(backlog),
         "paused_count": len(paused),
         "eligible_count": len(eligible),
+        "malformed_issue_count": len(malformed),
         "selected_count": len(tasks),
         "paused_issues": paused,
         "eligible_issues": eligible,
+        "malformed_issues": malformed,
         "selected_categories": [str(task.get("category", "")) for task in tasks],
     }
 
@@ -341,9 +353,13 @@ def render_cycle_markdown(cycle: dict[str, Any]) -> str:
             ]
         )
     if not cycle["tasks"]:
+        malformed = int(status.get("malformed_issue_count", 0)) if isinstance(status, dict) else 0
         deferred = int(status.get("deferred_no_unknown_evidence_count", 0)) if isinstance(status, dict) else 0
         reason = (
-            f"{deferred} queue-eligible issue(s) require current `unknown` evidence, but the "
+            f"{malformed} queue-eligible issue(s) are missing the required `### Objective` "
+            "template field."
+            if malformed
+            else f"{deferred} queue-eligible issue(s) require current `unknown` evidence, but the "
             "live snapshot has no unknown group to investigate."
             if deferred
             else "No runnable issue was selected. Review `azure-paused` labels or add a new "

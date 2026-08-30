@@ -162,6 +162,34 @@ def test_empty_cycle_reports_all_paused_backlog_issues(monkeypatch, tmp_path):
     assert "Paused issues: 2" in rendered
 
 
+def test_malformed_backlog_issue_reports_missing_objective(tmp_path):
+    issues_path = tmp_path / "issues.json"
+    issues_path.write_text(
+        json.dumps(
+            [
+                {
+                    "number": 107,
+                    "title": "[azure-backlog] Add visual evidence",
+                    "body": "## Requested outcome\n\nAdd before-and-after screenshots.",
+                    "labels": [{"name": "azure-backlog"}],
+                    "url": "https://example.test/issues/107",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    cycle = backlog_cycle.build_cycle(issues_path, 1)
+    rendered = backlog_cycle.render_cycle_markdown(cycle)
+
+    assert cycle["status"]["eligible_count"] == 1
+    assert cycle["status"]["malformed_issue_count"] == 1
+    assert cycle["status"]["malformed_issues"] == [
+        {"number": 107, "title": "[azure-backlog] Add visual evidence"}
+    ]
+    assert "missing the required `### Objective`" in rendered
+
+
 def test_unknown_issue_without_live_unknowns_reports_defer_reason(monkeypatch, tmp_path):
     issues_path = tmp_path / "issues.json"
     issues_path.write_text(

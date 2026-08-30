@@ -400,3 +400,19 @@ Commit your corrections onto the checked-out branch once `pytest`, `ruff check .
 A rework that changes nothing is a failure. If the reviewer requirements cannot be satisfied safely, or the requested change would violate the trust, scope, or status-semantics rules above, do not push: report the blocking reason instead so the run fails visibly for a human.
 
 When the reviewer asks for follow-up work that belongs in a later scheduled session rather than in this pull request, call `create_issue` exactly once instead of pushing. State the requested outcome, why it is out of scope for this PR, and the acceptance criteria a future session would need. Filing that issue is the complete result for such a request; do not also invent a code change to justify a push.
+
+The scheduled selector parses a strict issue template. The follow-up issue body must use these exact headings and place the actionable outcome under `### Objective`:
+
+```markdown
+### Priority
+
+Normal
+
+### Objective
+
+<the outcome a future session must deliver>
+
+### Context or acceptance evidence
+
+<why it is separate and the observable acceptance criteria>
+```

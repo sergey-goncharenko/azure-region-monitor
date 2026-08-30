@@ -528,6 +528,10 @@ def test_agentic_rework_can_file_follow_up_backlog_work_without_a_code_change():
     assert 'select(.type == "create_issue")' in source
     assert "A rework that changes nothing is a failure, not a success." in source
     assert "call `create_issue` exactly once instead of pushing" in source
+    assert "The scheduled selector parses a strict issue template." in source
+    assert "### Priority" in source
+    assert "### Objective" in source
+    assert "### Context or acceptance evidence" in source
 
 
 def test_no_dead_workflow_run_follower_for_the_bot_dispatched_rework():
