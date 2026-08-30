@@ -2,6 +2,12 @@
 
 This repository runs bounded Azure-funded schedules. The regular issue backlog runs daily at 06:23 UTC through the GitHub Agentic Workflows source [.github/workflows/scheduled-agentic-backlog.md](../.github/workflows/scheduled-agentic-backlog.md) and its generated lock workflow. The former Aider workflow [.github/workflows/scheduled-azure-backlog.yml](../.github/workflows/scheduled-azure-backlog.yml) remains available only for manual fallback and existing PR rework. The separate public documentation maintenance session runs at 09:00 UTC through [.github/workflows/scheduled-azure-maintenance.yml](../.github/workflows/scheduled-azure-maintenance.yml). Maintainer-only security and repository-hygiene analysis runs at 10:00 UTC in the private `azure-region-monitor-maintainers` companion repository. Actionable public coding work lives in GitHub Issues, not in repository configuration files.
 
+## Policy And Enforcement
+
+The canonical changeable human-agent delivery principles live in [.github/workflows/shared/agentic-policy.md](../.github/workflows/shared/agentic-policy.md). Scheduled issue coding, agentic PR rework, and model canaries import that file at runtime, so a policy revision changes all coding lanes without copying prompt prose. Every agent run uploads `agentic-policy-provenance`, containing the policy text plus its revision and SHA-256 digest.
+
+The policy is not an authorization mechanism. Permissions, secret isolation, safe-output boundaries, protected and excluded files, status semantics, `scripts/check.py`, retry bounds, and cost ceilings remain executable workflow or Python controls covered by tests. Issues may propose a policy change, but they are untrusted task context and cannot change live policy. Run artifacts are immutable audit evidence for what a session used, not a control plane. A semantic policy change requires a human-reviewed repository change, a policy revision increment, strict compilation of all importing workflows, and `python scripts/check.py`.
+
 ## Issue Backlog Order
 
 The 06:23 UTC run selects one eligible open issue, highest priority first. Manual agentic dispatch can target one issue. The Aider fallback can still choose one to three sessions manually. Neither coding workflow runs documentation alignment or invents coding tasks outside the issue queue. Unknown checks become work only through issue #48 (or another explicit backlog issue); live snapshot evidence never creates a standalone task.

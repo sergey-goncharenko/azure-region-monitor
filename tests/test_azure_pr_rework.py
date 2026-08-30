@@ -498,7 +498,7 @@ def test_agentic_rework_workflow_bounds_pushes_to_the_reviewed_pull_request():
     assert "allowed-files:" not in source
     assert "A rework that changes nothing is a failure, not a success." in source
     assert "A source behavior change requires a focused regression test" in source
-    assert "run `pytest`, `ruff check .`, and `git diff --check` directly" in source
+    assert "Run `pytest`, `ruff check .`, and `git diff --check` directly" in source
     assert "independent publication gate" in source
     assert "conclusion:" in source
     assert "Finalize the rework status comment" in source

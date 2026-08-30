@@ -84,6 +84,9 @@ def test_agentic_backlog_gates_prs_on_full_validation_and_safe_outputs():
     source = SOURCE.read_text(encoding="utf-8")
     lock = LOCK.read_text(encoding="utf-8")
     check_script = (REPO_ROOT / "scripts" / "check.py").read_text(encoding="utf-8")
+    policy = (
+        REPO_ROOT / ".github/workflows/shared/agentic-policy.md"
+    ).read_text(encoding="utf-8")
 
     # Only security and patch integrity block publication. Quality findings ride along
     # with the draft PR, because a discarded run leaves the same issue at the queue head.
@@ -108,8 +111,8 @@ def test_agentic_backlog_gates_prs_on_full_validation_and_safe_outputs():
     assert '"--preview", "--select", "E117"' in check_script
     assert '"--select", "B018"' in check_script
     assert '"git", "diff", "--check"' in check_script
-    assert "causal chain from the source issue or exact live error" in source
-    assert "do not substitute an adjacent consistency cleanup" in source
+    assert "Identify a causal chain from the Objective or exact observed failure" in policy
+    assert "Do not substitute adjacent cleanup" in policy
     assert "an imperfect draft is reviewable and repairable" in source
     assert "this is a noop run" in source
     assert "protected-files: request_review" in source

@@ -1,5 +1,7 @@
 # AW Issue Policy
 
+This is the specialized operating policy for automated workflow-signal issues. It is subordinate to the repository's canonical [Human-Agent CI/CD Policy](../.github/workflows/shared/agentic-policy.md) and does not replace its authorization or delivery principles.
+
 `[aw]`-prefixed issues with the `agentic-workflows` label are **operational signals** produced by automated agentic workflows. They are **not backlog items by default** and must pass an actionability gate before engineering attention is warranted.
 
 ## Actionability gate

@@ -19,6 +19,7 @@ The dashboard is deployed to Azure Static Web Apps. Focused modality workflows c
 
 ## Working Process
 
+- Changeable human-agent CI/CD principles live only in `.github/workflows/shared/agentic-policy.md`. The scheduled, rework, and canary coding workflows import it and upload its revision plus SHA-256 digest with each agent run. Change policy through a human-reviewed repository change and increment its revision; issues may propose changes and artifacts may prove what ran, but neither is authoritative. Keep permissions, secret isolation, safe-output boundaries, protected paths, status semantics, validation, retries, and cost ceilings enforced in workflow/Python code with tests.
 - Prefer read-only Azure catalog/listing probes before create/delete lifecycle probes.
 - Keep probe semantics explicit in docs and UI. A status should say what evidence produced it, not imply stronger deployment guarantees than we have tested.
 - When adding a modality, update all of these together: probe code, CLI registration, focused workflow, full workflow, snapshot merge categories, dashboard grouping, tests, README, and `docs/poc-deployment.md`.
