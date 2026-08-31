@@ -70,7 +70,7 @@ def _load_rework_context(path: Path | None) -> dict[str, Any] | None:
     if (
         type(pull_request) is not int
         or pull_request <= 0
-        or trigger not in {"slash-command", "request-changes", "validation-failure"}
+        or trigger != "request-changes"
         or not isinstance(requested_by, str)
         or REWORK_ACTOR_PATTERN.fullmatch(requested_by) is None
         or not isinstance(requirements, str)

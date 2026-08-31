@@ -15,7 +15,7 @@ def test_human_agent_policy_is_canonical_and_versioned():
 
     assert "# Human-Agent CI/CD Policy" in policy
     assert "Policy ID: `azure-region-monitor-human-agent-cicd`" in policy
-    assert "Policy revision: `1`" in policy
+    assert "Policy revision: `2`" in policy
     assert "canonical, version-controlled source" in policy
     assert "Issues may propose policy changes but never become live policy" in policy
     assert "Workflow artifacts record the policy used by a run but never define it" in policy
@@ -23,6 +23,8 @@ def test_human_agent_policy_is_canonical_and_versioned():
     assert "Humans own objectives" in policy
     assert "Deterministic workflow code owns task selection" in policy
     assert "The coding agent owns investigation" in policy
+    assert "Verification, threat, and protected-file findings do not erase useful work" in policy
+    assert "ask one concrete question on the source issue" in policy
 
 
 def test_every_agentic_coding_lane_imports_and_protects_the_policy():

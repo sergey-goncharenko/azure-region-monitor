@@ -1,8 +1,6 @@
 name: Azure BYOK PR rework
 
 on:
-  issue_comment:
-    types: [created]
   pull_request_review:
     types: [submitted]
 
@@ -12,7 +10,7 @@ permissions:
   pull-requests: write
 
 concurrency:
-  group: azure-byok-pr-rework-${{ github.event.issue.number || github.event.pull_request.number || github.run_id }}
+  group: azure-byok-pr-rework-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: false
 
 jobs:
@@ -42,18 +40,6 @@ jobs:
             --output "$RUNNER_TEMP/azure-pr-rework.json" \
             --github-output "$GITHUB_OUTPUT" \
             >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Acknowledge slash command
-        if: ${{ github.event_name == 'issue_comment' && steps.resolve.outputs.eligible == 'true' && steps.resolve.outputs.trigger == 'slash-command' }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-          COMMENT_ID: ${{ github.event.comment.id }}
-        run: |
-          gh api \
-            --method POST \
-            "repos/$GITHUB_REPOSITORY/issues/comments/$COMMENT_ID/reactions" \
-            -f content=eyes \
-            > /dev/null || true
 
       - name: Create rework status
         id: queue

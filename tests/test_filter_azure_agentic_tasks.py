@@ -141,7 +141,46 @@ def test_agent_summary_states_the_publication_gate_before_the_task():
     summary = agentic_filter.agent_task_summary(_manifest(53))
 
     assert summary.index("Publication gate") < summary.index("Issue queue selection")
+    assert "Publish a coherent change as a draft" in summary
+    assert "ask one concrete question on the source issue" in summary
     assert "ships with a `tests/test_*.py` change" in summary
     assert "`pytest` and `ruff` are " in summary
     assert "no commits were found" in summary
     assert "staging source and tests together" in summary
+
+
+def test_agent_summary_surfaces_recent_human_comments_without_bot_noise():
+    manifest = _manifest(107)
+    manifest["tasks"][0]["evidence"] = {
+        "objective": "Produce visual evidence for static-site changes.",
+        "github_issue_context": {
+            "issue": {
+                "comments": [
+                    {
+                        "author": "github-actions[bot]",
+                        "body": "Automated failure note.",
+                    },
+                    {
+                        "author": "maintainer-user",
+                        "body": (
+                            "Split rendering from the trusted comment publisher and preserve "
+                            "the read-only token boundary."
+                        ),
+                    },
+                    {
+                        "author": "github-actions[bot]",
+                        "body": "Automated status note.",
+                    },
+                ]
+            }
+        },
+    }
+
+    summary = agentic_filter.agent_task_summary(manifest)
+
+    assert "Recent issue comments" in summary
+    assert "Comment by @maintainer-user" in summary
+    assert "Split rendering from the trusted comment publisher" in summary
+    assert "Automated failure note" not in summary
+    assert "Automated status note" not in summary
+    assert "cannot expand the Objective" in summary

@@ -18,7 +18,6 @@ LANE_BRANCH_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("aider", BRANCH_PATTERN),
     ("agentic", AGENTIC_BRANCH_PATTERN),
 )
-COMMAND_PATTERN = re.compile(r"^\s*/agent-rework(?:\s|$)")
 LOGIN_PATTERN = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$")
 REQUEST_ID_PATTERN = re.compile(r"^[1-9][0-9]*-[1-9][0-9]*$")
 ALLOWED_PERMISSIONS = {"admin", "maintain", "write"}
@@ -30,7 +29,7 @@ COMPLETED_MARKER = "<!-- azure-byok-rework:completed"
 ACTIVE_REQUEST_TTL = timedelta(hours=2)
 MAX_GITHUB_REQUEST_ATTEMPTS = 3
 MAX_REWORK_REQUIREMENTS_CHARS = 4_000
-REWORK_TRIGGERS = {"slash-command", "request-changes", "validation-failure"}
+REWORK_TRIGGERS = {"request-changes"}
 
 
 class GitHubReworkClient(Protocol):
@@ -197,10 +196,8 @@ def _labels(value: object) -> set[str]:
     return labels
 
 
-def _bounded_rework_requirements(value: object, trigger: str) -> str:
+def _bounded_rework_requirements(value: object) -> str:
     text = value if isinstance(value, str) else ""
-    if trigger == "slash-command":
-        text = COMMAND_PATTERN.sub("", text, count=1)
     text = "".join(
         character for character in text.replace("\r\n", "\n")
         if character in "\n\t" or ord(character) >= 32
@@ -256,19 +253,7 @@ def _trigger_details(
     payload: dict[str, Any], event_name: str
 ) -> tuple[str, int, str] | dict[str, Any]:
     if event_name == "issue_comment":
-        if payload.get("action") != "created":
-            return _result("Only newly created PR comments can request rework.")
-        issue = payload.get("issue")
-        comment = payload.get("comment")
-        if not isinstance(issue, dict) or not isinstance(issue.get("pull_request"), dict):
-            return _result("The comment is not attached to a pull request.")
-        body = comment.get("body") if isinstance(comment, dict) else None
-        if not isinstance(body, str) or not COMMAND_PATTERN.match(body):
-            return _result("The comment does not begin with /agent-rework.")
-        number = issue.get("number")
-        if not isinstance(number, int) or number <= 0:
-            return _result("The pull request number is invalid.")
-        return "slash-command", number, body
+        return _result("PR comments are context only; submit a Request changes review to rework.")
 
     if event_name == "pull_request_review":
         if payload.get("action") != "submitted":
@@ -277,16 +262,12 @@ def _trigger_details(
         pull = payload.get("pull_request")
         state = review.get("state", "") if isinstance(review, dict) else ""
         body = review.get("body", "") if isinstance(review, dict) else ""
-        explicit_command = isinstance(body, str) and COMMAND_PATTERN.match(body)
-        if not explicit_command and (
-            not isinstance(state, str) or state.lower() != "changes_requested"
-        ):
+        if not isinstance(state, str) or state.lower() != "changes_requested":
             return _result("The submitted review did not request changes.")
         number = pull.get("number") if isinstance(pull, dict) else None
         if not isinstance(number, int) or number <= 0:
             return _result("The pull request number is invalid.")
-        trigger = "slash-command" if explicit_command else "request-changes"
-        return trigger, number, body if isinstance(body, str) else ""
+        return "request-changes", number, body if isinstance(body, str) else ""
 
     return _result("This GitHub event is not supported for PR rework.")
 
@@ -371,7 +352,7 @@ def resolve_rework_event(
         lane=lane,
         base_branch=default_branch,
         head_ref=head_ref,
-        rework_requirements=_bounded_rework_requirements(feedback, trigger_kind),
+        rework_requirements=_bounded_rework_requirements(feedback),
     )
 
 
@@ -396,14 +377,13 @@ def running_status_body(result: dict[str, Any], request_id: str, run_url: str) -
         raise ValueError("The PR rework actor is invalid.")
     if trigger not in REWORK_TRIGGERS:
         raise ValueError("The PR rework trigger is invalid.")
-    requester = "GitHub Actions validation" if trigger == "validation-failure" else f"@{actor}"
     return "\n".join(
         [
             f"{ACTIVE_MARKER} request={request_id} -->",
             "Azure BYOK rework was queued.",
             "",
             f"- Trigger: `{trigger}`",
-            f"- Requested by: {requester}",
+            f"- Requested by: @{actor}",
             f"- [Dispatcher run]({run_url})",
             "",
             "The existing PR branch will be updated only after bounded scope and validation checks pass.",
@@ -528,38 +508,6 @@ def _result_file(path: Path) -> dict[str, Any]:
     return payload
 
 
-def automatic_rework_decision(
-    comments: list[dict[str, Any]],
-    request_id: str,
-    now: datetime | None = None,
-) -> dict[str, object]:
-    """Return whether failed validation should queue its single repair pass."""
-
-    _validate_request_id(request_id)
-    request_marker = f"request={request_id}"
-    for comment in comments:
-        body = comment.get("body")
-        if (
-            _login(comment.get("user")).lower() == BOT_LOGIN
-            and isinstance(body, str)
-            and request_marker in body
-            and (ACTIVE_MARKER in body or COMPLETED_MARKER in body)
-        ):
-            return {
-                "queue": False,
-                "reason": f"Automatic repair request {request_id} was already recorded.",
-            }
-    if _active_rework_exists(comments, now or datetime.now(timezone.utc)):
-        return {
-            "queue": False,
-            "reason": "A PR rework request is already active; automatic repair was not duplicated.",
-        }
-    return {
-        "queue": True,
-        "reason": "No active or previously recorded repair request blocks automatic rework.",
-    }
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(description="Manage Azure BYOK PR rework events.")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -579,11 +527,6 @@ def main() -> None:
     queue.add_argument("--run-url", required=True)
     queue.add_argument("--github-output", type=Path, required=True)
 
-    automatic = subparsers.add_parser("automatic-decision")
-    automatic.add_argument("--comments", type=Path, required=True)
-    automatic.add_argument("--request-id", required=True)
-    automatic.add_argument("--github-output", type=Path, required=True)
-
     finalize = subparsers.add_parser("finalize-status")
     finalize.add_argument("--repository", required=True)
     finalize.add_argument("--pr-number", type=int, required=True)
@@ -593,17 +536,6 @@ def main() -> None:
     finalize.add_argument("--run-url", required=True)
 
     args = parser.parse_args()
-
-    if args.command == "automatic-decision":
-        comments = json.loads(args.comments.read_text(encoding="utf-8"))
-        if not isinstance(comments, list) or not all(
-            isinstance(comment, dict) for comment in comments
-        ):
-            raise ValueError("The PR comments file is invalid.")
-        decision = automatic_rework_decision(comments, args.request_id)
-        _write_github_outputs(args.github_output, decision)
-        print(decision["reason"])
-        return
 
     client = GitHubApiClient.from_env(args.repository)
 

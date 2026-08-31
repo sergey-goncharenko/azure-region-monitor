@@ -76,8 +76,8 @@ def report_markdown(
         MARKER,
         "## Agentic publication validation",
         "",
-        "**Advisory only.** Nothing below blocks this pull request. Publication is stopped "
-        "only by a security finding or a patch that will not apply, and neither happened here.",
+        "This draft is published even when checks report findings. Review or repair every "
+        "finding before marking the pull request ready.",
         "",
         "| Check | Result |",
         "| --- | --- |",
@@ -88,21 +88,13 @@ def report_markdown(
     lines.extend(["", "### Changed files", ""])
     lines.extend(f"- `{name}`" for name in changed_files)
     if failed:
-        resolution = (
-            "The outcome follower will attempt one bounded automatic repair pass. If no "
-            "queued-status comment appears, comment `/agent-rework <what to change>` on this "
-            "pull request or push the fix yourself."
-            if check_status != 0
-            else "Comment `/agent-rework <what to change>` on this pull request to send it "
-            "back for another bounded pass, or push the fix yourself."
-        )
         lines.extend(
             [
                 "",
-                "### To resolve",
+                "### Review before ready",
                 "",
-                resolution,
-                "Merging as-is is also fine if you accept the findings above.",
+                "Push a fix or leave an ordinary review or source-issue comment with the "
+                "decision and evidence. This report does not start another agent run.",
             ]
         )
     if run_url:

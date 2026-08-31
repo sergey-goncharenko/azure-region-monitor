@@ -65,7 +65,7 @@ jobs:
             exit 2
           fi
           case "$REWORK_TRIGGER" in
-            slash-command|request-changes|validation-failure) ;;
+            request-changes) ;;
             *) echo "Unsupported agentic PR rework trigger." >&2; exit 2 ;;
           esac
           gh pr view "$REWORK_PR" \
@@ -320,7 +320,7 @@ safe-outputs:
   threat-detection:
     max-ai-credits: 200
     prompt: |
-      Reject patches that do not directly address the trusted reviewer requirements recorded in the task. Also reject unrelated bulk edits, generated snapshot edits, weakened status semantics, disabled tests, hidden network behavior, or changes that conflate provider-specific contracts.
+      Flag patches that do not directly address the trusted reviewer requirements recorded in the task. Also flag unrelated bulk edits, generated snapshot edits, weakened status semantics, disabled tests, hidden network behavior, or changes that conflate provider-specific contracts. Findings require human review.
     post-steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:

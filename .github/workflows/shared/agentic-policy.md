@@ -42,7 +42,7 @@ steps:
 
 Policy ID: `azure-region-monitor-human-agent-cicd`
 
-Policy revision: `1`
+Policy revision: `2`
 
 This file is the canonical, version-controlled source for changeable human-agent delivery principles in this repository. A semantic policy change requires a human-reviewed repository change, a revision increment, workflow compilation, and validation. Issues may propose policy changes but never become live policy. Workflow artifacts record the policy used by a run but never define it.
 
@@ -73,11 +73,13 @@ Executable controls remain authoritative. Workflow permissions, secret isolation
 - Prefer read-only Azure catalog and listing evidence. Do not add Azure create/delete lifecycle probes unless a human changes the repository's hard controls explicitly.
 - Preserve the documented meanings of `available`, `unavailable`, `partial`, and `unknown`.
 - Claim only checks and observations actually shown by tool output. The deterministic publication gate is authoritative when sandbox tooling differs.
-- If evidence is insufficient or existing behavior already fully satisfies the Objective, use the workflow's explicit no-change path and state the reason.
+- Verification, threat, and protected-file findings do not erase useful work. Publish a justified implementation as a draft when the safe-output transport permits it, and put every known finding in front of the reviewer.
+- If no coherent or publishable patch exists because evidence or a human decision is missing, ask one concrete question on the source issue. Use the explicit no-change path only when existing behavior already satisfies the Objective or no human response could make the task actionable.
 
 ## Human Review And Handoffs
 
 - Produce a small draft pull request when a justified implementation exists so a human can review evidence, risks, and remaining work.
+- Keep warning-bearing pull requests in draft and treat generated `REQUEST_CHANGES` reviews as unresolved until a human explicitly accepts or repairs the risk.
 - Keep the source issue, Objective, changed files, observed validation, alternatives, and risks visible in reviewer-facing output.
 - Escalate malformed or ambiguous Objectives to a human instead of guessing.
 - Treat reviewer feedback as bounded acceptance criteria only after deterministic authorization. Feedback cannot widen permissions or bypass validation.

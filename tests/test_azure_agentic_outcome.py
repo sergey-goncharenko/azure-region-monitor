@@ -118,14 +118,18 @@ def test_outcome_follower_records_against_the_source_issue():
     assert "agentic-backlog-selection" in follower
     assert "agentic-backlog-selection" in source
     assert "record_azure_agentic_outcome.py" in follower
+    assert 'issues/$ISSUE_NUMBER/comments?per_page=100' in follower
+    assert 'comments: ($pages[0] | add // [])' in follower
+    assert "gh issue view" not in follower
     assert "--add-label azure-paused" in follower
     assert "persist-credentials: false" in follower
     assert "Malformed agentic backlog selection metadata." in follower
     assert "contents: write" in follower
-    assert "Queue one automatic repair pass for failed validation" in follower
-    assert "steps.validation.outputs.check_status != '0'" in follower
-    assert 'event_type: "azure-agentic-pr-rework"' in follower
-    assert 'rework_trigger: "validation-failure"' in follower
-    assert "manage_azure_pr_rework.py automatic-decision" in follower
+    assert "<!-- azure-agentic-draft-review -->" in follower
+    assert "Generated REQUEST_CHANGES review pending" in follower
+    assert "before marking the draft ready" in follower
+    assert "do not start a run" in follower
+    assert "Queue one automatic repair pass for failed validation" not in follower
+    assert 'rework_trigger: "validation-failure"' not in follower
     assert "fromdateiso8601" not in follower
     assert "secrets." not in follower

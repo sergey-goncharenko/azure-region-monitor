@@ -43,13 +43,13 @@ def test_checks_report_passing_rows_too():
 def test_report_names_the_right_test_file_and_says_nothing_is_blocked():
     report = summarize.report_markdown([PROBE], 0, "", "https://example.invalid/run/1")
     assert report.startswith(summarize.MARKER)
-    assert "Advisory only" in report
+    assert "draft is published even when checks report findings" in report
     assert "tests/test_model_latency.py" in report
     assert "static_site" not in report
     # The green row must stay visible, otherwise a reader cannot tell a passing suite
     # from a broken one.
     assert "pass - all green" in report
-    assert "/agent-rework" in report
+    assert "before marking the pull request ready" in report
     assert "https://example.invalid/run/1" in report
 
 
@@ -63,8 +63,8 @@ def test_failed_check_marks_the_row_and_attaches_the_output():
     report = summarize.report_markdown([PROBE], 1, "boom happened", "")
     assert "action needed - failed" in report
     assert "boom happened" in report
-    assert "attempt one bounded automatic repair pass" in report
-    assert "If no queued-status comment appears" in report
+    assert "Review before ready" in report
+    assert "does not start another agent run" in report
 
 
 def test_long_check_output_is_truncated_from_the_front():

@@ -90,7 +90,7 @@ class FakeClient:
         return copy.deepcopy(self.status_comment)
 
 
-def _comment_event(body: str = "/agent-rework") -> dict:
+def _comment_event(body: str = "Please retain provider-specific behavior.") -> dict:
     return {
         "action": "created",
         "sender": {"login": ACTOR, "type": "User"},
@@ -122,48 +122,13 @@ def _resolve(payload: dict, event_name: str, client: FakeClient | None = None):
     )
 
 
-def test_slash_command_dispatches_same_repo_bot_pr():
+def test_pr_comment_is_context_only_and_does_not_dispatch():
     result = _resolve(_comment_event(), "issue_comment")
 
-    assert result == {
-        "eligible": True,
-        "reason": (
-            "Eligible collaborator feedback will be dispatched to the existing Azure BYOK "
-            "runner."
-        ),
-        "trigger": "slash-command",
-        "pr_number": 51,
-        "target_issue": 48,
-        "actor": ACTOR,
-        "lane": "aider",
-        "base_branch": "main",
-        "head_ref": "azure-issues/issue-48",
-        "rework_requirements": (
-            "Address the current requested changes on this pull request within the existing "
-            "derived scope. Do not report successful rework without a validated branch change."
-        ),
-    }
-
-
-def test_slash_command_captures_only_bounded_requirement_text():
-    result = _resolve(
-        _comment_event("/agent-rework\nUse a provider-specific helper and retain Azure behavior."),
-        "issue_comment",
-    )
-
-    assert result["rework_requirements"] == (
-        "Use a provider-specific helper and retain Azure behavior."
-    )
-
-
-def test_slash_command_must_be_the_first_comment_token():
-    result = _resolve(
-        _comment_event("Please run /agent-rework after checking this."),
-        "issue_comment",
-    )
-
     assert result["eligible"] is False
-    assert result["reason"] == "The comment does not begin with /agent-rework."
+    assert result["reason"] == (
+        "PR comments are context only; submit a Request changes review to rework."
+    )
 
 
 def test_request_changes_review_dispatches_rework():
@@ -177,20 +142,16 @@ def test_request_changes_review_dispatches_rework():
     )
 
 
-def test_slash_command_in_commented_review_dispatches_rework():
+def test_commented_review_does_not_dispatch_rework():
     result = _resolve(
         _review_event(
             "commented",
-            "/agent-rework\nFix the failing RSS authored-excerpt regression.",
+            "Fix the failing RSS authored-excerpt regression.",
         ),
         "pull_request_review",
     )
 
-    assert result["eligible"] is True
-    assert result["trigger"] == "slash-command"
-    assert result["rework_requirements"] == (
-        "Fix the failing RSS authored-excerpt regression."
-    )
+    assert result["eligible"] is False
 
 
 def test_non_blocking_review_does_not_dispatch_rework():
@@ -200,47 +161,31 @@ def test_non_blocking_review_does_not_dispatch_rework():
     assert result["reason"] == "The submitted review did not request changes."
 
 
-def test_validation_failure_status_names_github_actions_as_requester():
-    body = pr_rework.running_status_body(
-        {
-            "eligible": True,
-            "pr_number": 51,
-            "actor": "github-actions",
-            "trigger": "validation-failure",
-        },
-        request_id="100-1",
-        run_url=f"https://github.com/{REPOSITORY}/actions/runs/100",
-    )
-
-    assert "Trigger: `validation-failure`" in body
-    assert "Requested by: GitHub Actions validation" in body
-
-
 @pytest.mark.parametrize("permission", ["read", "triage", "none", ""])
 def test_requester_requires_write_level_permission(permission: str):
     client = FakeClient()
     client.permission = permission
 
-    result = _resolve(_comment_event(), "issue_comment", client)
+    result = _resolve(_review_event(), "pull_request_review", client)
 
     assert result["eligible"] is False
     assert "write-level" in result["reason"]
 
 
 def test_bot_or_confused_deputy_event_is_rejected():
-    bot_event = _comment_event()
+    bot_event = _review_event()
     bot_event["sender"] = {"login": "github-actions[bot]", "type": "Bot"}
     bot_result = pr_rework.resolve_rework_event(
         bot_event,
-        event_name="issue_comment",
+        event_name="pull_request_review",
         repository=REPOSITORY,
         actor="github-actions[bot]",
         client=FakeClient(),
         now=NOW,
     )
     mismatched_result = pr_rework.resolve_rework_event(
-        _comment_event(),
-        event_name="issue_comment",
+        _review_event(),
+        event_name="pull_request_review",
         repository=REPOSITORY,
         actor="different-user",
         client=FakeClient(),
@@ -268,7 +213,7 @@ def test_only_expected_bot_pull_request_shape_is_eligible(mutation, reason_fragm
     client = FakeClient()
     mutation(client.pull)
 
-    result = _resolve(_comment_event(), "issue_comment", client)
+    result = _resolve(_review_event(), "pull_request_review", client)
 
     assert result["eligible"] is False
     assert reason_fragment in result["reason"]
@@ -286,7 +231,7 @@ def test_source_issue_must_remain_eligible(issue_update):
     client = FakeClient()
     client.issue.update(issue_update)
 
-    result = _resolve(_comment_event(), "issue_comment", client)
+    result = _resolve(_review_event(), "pull_request_review", client)
 
     assert result["eligible"] is False
     assert "source issue" in result["reason"].lower()
@@ -302,46 +247,18 @@ def test_recent_running_status_deduplicates_but_stale_status_does_not():
         }
     ]
 
-    active_result = _resolve(_comment_event(), "issue_comment", client)
+    active_result = _resolve(_review_event(), "pull_request_review", client)
     client.comments[0]["created_at"] = (NOW - timedelta(hours=3)).isoformat()
-    stale_result = _resolve(_comment_event(), "issue_comment", client)
+    stale_result = _resolve(_review_event(), "pull_request_review", client)
 
     assert active_result["eligible"] is False
     assert "already active" in active_result["reason"]
     assert stale_result["eligible"] is True
 
 
-def test_automatic_rework_deduplicates_bot_markers_and_active_requests():
-    same_request = [
-        {
-            "user": {"login": "github-actions[bot]"},
-            "body": "<!-- azure-byok-rework:completed request=100-1 -->",
-            "created_at": (NOW - timedelta(days=1)).isoformat(),
-        }
-    ]
-    spoofed_request = [
-        {
-            "user": {"login": "someone-else"},
-            "body": "<!-- azure-byok-rework:completed request=100-1 -->",
-            "created_at": NOW.isoformat(),
-        }
-    ]
-    active_request = [
-        {
-            "user": {"login": "github-actions[bot]"},
-            "body": "<!-- azure-byok-rework:running request=99-1 -->",
-            "created_at": (NOW - timedelta(minutes=10)).isoformat(),
-        }
-    ]
-
-    assert pr_rework.automatic_rework_decision(same_request, "100-1", NOW)["queue"] is False
-    assert pr_rework.automatic_rework_decision(spoofed_request, "100-1", NOW)["queue"] is True
-    assert pr_rework.automatic_rework_decision(active_request, "100-1", NOW)["queue"] is False
-
-
 def test_status_comment_is_created_and_finalized_idempotently():
     client = FakeClient()
-    result = _resolve(_comment_event(), "issue_comment", client)
+    result = _resolve(_review_event(), "pull_request_review", client)
     dispatcher_url = f"https://github.com/{REPOSITORY}/actions/runs/100"
     task_url = f"https://github.com/{REPOSITORY}/actions/runs/101"
 
@@ -393,18 +310,17 @@ def test_status_finalizer_refuses_another_pr_or_request():
         )
 
 
-def test_dispatcher_wires_both_review_paths_without_azure_secrets():
+def test_dispatcher_wires_request_changes_without_azure_secrets():
     workflow = (REPO_ROOT / ".github/workflows/azure-pr-rework.yml").read_text(
         encoding="utf-8"
     )
 
-    assert "issue_comment:" in workflow
+    assert "issue_comment:" not in workflow
     assert "pull_request_review:" in workflow
     assert "types: [submitted]" in workflow
-    assert "azure-byok-pr-rework-${{ github.event.issue.number" in workflow
+    assert "azure-byok-pr-rework-${{ github.event.pull_request.number" in workflow
     assert "persist-credentials: false" in workflow
     assert "pull-requests: write" in workflow
-    assert "github.event_name == 'issue_comment'" in workflow
     assert 'aider) event_type="azure-byok-pr-rework" ;;' in workflow
     assert 'agentic) event_type="azure-agentic-pr-rework" ;;' in workflow
     assert 'echo "Unsupported rework lane: $LANE" >&2; exit 1' in workflow
@@ -443,7 +359,7 @@ def test_both_lanes_resolve_to_their_own_runner(head_ref: str, lane: str):
     client = FakeClient()
     client.pull["head"]["ref"] = head_ref
 
-    result = _resolve(_comment_event(), "issue_comment", client)
+    result = _resolve(_review_event(), "pull_request_review", client)
 
     assert result["eligible"] is True
     assert result["lane"] == lane
@@ -466,7 +382,7 @@ def test_branches_outside_either_lane_are_rejected(head_ref: str):
     client = FakeClient()
     client.pull["head"]["ref"] = head_ref
 
-    result = _resolve(_comment_event(), "issue_comment", client)
+    result = _resolve(_review_event(), "pull_request_review", client)
 
     assert result["eligible"] is False
     assert result["reason"] == "The pull request branch is not an Azure issue branch."
@@ -491,7 +407,9 @@ def test_agentic_rework_workflow_bounds_pushes_to_the_reviewed_pull_request():
     assert "push-to-pull-request-branch:" in source
     assert 'required-title-prefix: "[agentic] "' in source
     assert "required-labels: [scheduled-agent]" in source
-    assert "slash-command|request-changes|validation-failure" in source
+    assert "request-changes) ;;" in source
+    assert "slash-command" not in source
+    assert "validation-failure" not in source
     assert "if-no-changes: error" in source
     assert "protected-files: fallback-to-issue" in source
     assert "create-pull-request" not in source
@@ -512,7 +430,7 @@ def test_agentic_rework_workflow_bounds_pushes_to_the_reviewed_pull_request():
     assert rework_agent == scheduled_agent
     assert '"agent_model":"${{ vars.AZWATCH_AGENTIC_MODEL }}"' in lock
     assert 'GH_AW_ALLOWED_BOTS: "github-actions[bot]"' in lock
-    assert '"protected_files_policy":"fallback-to-issue"' in lock
+    assert '\\"protected_files_policy\\":\\"fallback-to-issue\\"' in lock
 
 
 def test_agentic_rework_can_file_follow_up_backlog_work_without_a_code_change():
@@ -523,7 +441,7 @@ def test_agentic_rework_can_file_follow_up_backlog_work_without_a_code_change():
     assert 'title-prefix: "[azure-backlog] "' in source
     assert "labels: [azure-backlog, scheduled-agent]" in source
     assert "max: 1" in source
-    assert '"title_prefix":"[azure-backlog] "' in lock
+    assert '\\"title_prefix\\":\\"[azure-backlog] \\"' in lock
     # A no-code rework still fails unless the reviewer's request was filed as an issue.
     assert 'select(.type == "create_issue")' in source
     assert "A rework that changes nothing is a failure, not a success." in source

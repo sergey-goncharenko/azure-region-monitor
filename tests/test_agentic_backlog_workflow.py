@@ -11,7 +11,7 @@ def test_agentic_backlog_source_and_compiled_lock_are_committed():
     source = SOURCE.read_text(encoding="utf-8")
     assert SOURCE.is_file()
     assert LOCK.is_file()
-    assert "compiler_version\":\"v0.86.2" in LOCK.read_text(encoding="utf-8")
+    assert "compiler_version\":\"v0.87.10" in LOCK.read_text(encoding="utf-8")
     assert "actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1" in source
     assert "actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065" not in source
     # gh-aw v0.86 stopped setting merge=ours on generated locks, so a lock conflict is
@@ -88,9 +88,11 @@ def test_agentic_backlog_gates_prs_on_full_validation_and_safe_outputs():
         REPO_ROOT / ".github/workflows/shared/agentic-policy.md"
     ).read_text(encoding="utf-8")
 
-    # Only security and patch integrity block publication. Quality findings ride along
-    # with the draft PR, because a discarded run leaves the same issue at the queue head.
+    # Findings ride along with the draft PR, because discarding reviewable work leaves
+    # the same issue at the queue head. Only transport/integrity failures stop publication.
     assert "git apply \"$patch_file\"" in source
+    assert "git ls-files --others --exclude-standard" in source
+    assert "sort -u > \"$RUNNER_TEMP/validation/changed-files.txt\"" in source
     assert "The scripts/check*.py validators are the gate itself" in source
     assert "python scripts/check.py > \"$RUNNER_TEMP/validation/check.log\"" in source
     assert "summarize_agentic_validation.py" in source
@@ -105,7 +107,8 @@ def test_agentic_backlog_gates_prs_on_full_validation_and_safe_outputs():
     assert '"git commit:*"' in source
     assert "no commits were found" in source
     assert "`pytest` and `ruff` are not importable" in source or "not importable from your sandbox" in source
-    assert "Never abandon completed work because a command was denied" in source
+    assert "Publish even when validation or threat detection reports findings" in source
+    assert "Never weaken a check or hide a finding" in source
     assert '"-m", "pytest"' in check_script
     assert '"-m", "ruff", "check", "."' in check_script
     assert '"--preview", "--select", "E117"' in check_script
@@ -113,15 +116,27 @@ def test_agentic_backlog_gates_prs_on_full_validation_and_safe_outputs():
     assert '"git", "diff", "--check"' in check_script
     assert "Identify a causal chain from the Objective or exact observed failure" in policy
     assert "Do not substitute adjacent cleanup" in policy
-    assert "an imperfect draft is reviewable and repairable" in source
+    assert "draft PR, warning label, and generated `REQUEST_CHANGES` review" in source
     assert "this is a noop run" in source
     assert "protected-files: request_review" in source
+    assert "continue-on-error: true" in source
+    assert "add-comment:" in source
+    assert 'target: "*"' in source
+    assert "required-labels: [azure-backlog]" in source
+    assert "call `add_comment` exactly once" in source
+    assert "no command is required" in source
+    assert "not configured to publish `.github/workflows/**`" in source
     assert "fallback-as-issue: false" in source
     assert "if-no-changes: error" in source
     assert "data/**" in source
     assert "public/api/**" in source
     assert "public/*.html" in source
-    assert '"protected_files_policy":"request_review"' in lock
+    assert '\\"protected_files_policy\\":\\"request_review\\"' in lock
+    assert (
+        '\\"add_comment\\":{\\"max\\":1,\\"required_labels\\":[\\"azure-backlog\\"],'
+        '\\"target\\":\\"*\\"}' in lock
+    )
+    assert 'GH_AW_DETECTION_CONTINUE_ON_ERROR: "true"' in lock
     assert "GH_AW_SAFE_OUTPUTS_HANDLER_CONFIG" in lock
 
 
@@ -146,8 +161,8 @@ def test_agentic_backlog_pins_ripgrep_before_generated_installers():
         for index in range(len(lock))
         if lock.startswith("- name: Install ripgrep\n", index)
     ]
-    assert len(preflights) == len(generated_installers) == 2
-    assert all(preflight < installer for preflight, installer in zip(preflights, generated_installers))
+    assert len(preflights) == 2
+    assert generated_installers == []
 
 
 def test_ruff_rule_selection_is_pinned_against_tool_version_drift():

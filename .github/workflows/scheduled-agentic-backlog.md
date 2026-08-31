@@ -238,6 +238,10 @@ steps:
 
 safe-outputs:
   max-patch-size: 1024
+  add-comment:
+    target: "*"
+    required-labels: [azure-backlog]
+    max: 1
   create-pull-request:
     title-prefix: "[agentic] "
     labels: [scheduled-agent]
@@ -257,6 +261,7 @@ safe-outputs:
       - public/*.html
     protected-files: request_review
   threat-detection:
+    continue-on-error: true
     steps:
       - name: Install pinned ripgrep
         if: always() && steps.detection_guard.outputs.run_detection == 'true'
@@ -290,15 +295,14 @@ safe-outputs:
           "${bin_dir}/rg" --version
     max-ai-credits: 200
     prompt: |
-      Reject patches that do not directly address the trusted Objective or cited live error evidence. Also reject unrelated bulk edits, generated snapshot edits, weakened status semantics, disabled tests, hidden network behavior, or changes that conflate provider-specific contracts.
+      Flag patches that do not directly address the trusted Objective or cited live error evidence. Also flag unrelated bulk edits, generated snapshot edits, weakened status semantics, disabled tests, hidden network behavior, or changes that conflate provider-specific contracts. Findings require human review but should not erase a coherent draft.
     post-steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
         with:
           python-version: "3.11"
-      # Blocking checks protect the repository. Quality findings are advisory and travel
-      # with the draft pull request, because a discarded run leaves the same issue at the
-      # front of the queue and produces nothing a human can review.
+      # Deterministic checks record findings for the draft. Patch application and edits to
+      # the validation entrypoint remain transport/integrity failures.
       - name: Apply candidate patch and record advisory validation
         shell: bash
         run: |
@@ -312,7 +316,10 @@ safe-outputs:
             exit 0
           fi
           git apply "$patch_file"
-          git diff --name-only > "$RUNNER_TEMP/validation/changed-files.txt"
+          {
+            git diff --name-only
+            git ls-files --others --exclude-standard
+          } | sort -u > "$RUNNER_TEMP/validation/changed-files.txt"
           if grep -Eq '^scripts/check(_[a-z]+)?\.py$' "$RUNNER_TEMP/validation/changed-files.txt"; then
             echo "The scripts/check*.py validators are the gate itself and are not agent-editable." >&2
             exit 1
@@ -351,12 +358,12 @@ The imported **Human-Agent CI/CD Policy** is normative for trust, evidence, impl
 - Use `rg -F` for literal searches. Do not retry malformed expressions or out-of-range reads.
 - If roughly forty tool calls pass without a justified edit, call `noop` and identify the missing evidence.
 - Before publishing, review the final diff, then run `git checkout -b agentic/issue-<issue_number>`, `git add -A`, and one `git commit` with a concise single-line subject. The safe output rejects an uncommitted tree with "no commits were found".
-- If a command is denied, use an allowed equivalent. Call `missing_tool` only when no configured tool can complete the task, and never alongside `create_pull_request` or `noop`.
-- Stop immediately after the single terminal `create_pull_request` or `noop` call.
+- If a command is denied, use an allowed equivalent. Call `missing_tool` only when no configured tool can complete the task, and never alongside `create_pull_request`, `add_comment`, or `noop`.
+- Stop immediately after the single terminal `create_pull_request`, `add_comment`, or `noop` call.
 
 ## Required result
 
-If you implemented a safe correction, commit it on `agentic/issue-<issue_number>` and call `create_pull_request` exactly once. Publish even when something still looks unresolved: an imperfect draft is reviewable and repairable, an abandoned run is not. Never abandon completed work because a command was denied or a tool was missing - say so in the PR body and publish anyway. State plainly what you observed failing. Reserve `noop` for the case where no change is justified at all.
+If you implemented a coherent correction, commit it on `agentic/issue-<issue_number>` and call `create_pull_request` exactly once. Publish even when validation or threat detection reports findings: the draft PR, warning label, and generated `REQUEST_CHANGES` review keep the evidence visible for a human decision. Never weaken a check or hide a finding to make publication look clean.
 
 When you do publish:
 
@@ -366,4 +373,8 @@ When you do publish:
 - explain source-issue queue selection, the causal link from Objective/evidence to changed behavior, implementation, alternatives and risks, changed files, and only validation actually observed in tool output;
 - include a closing keyword only when `recurring` is false.
 
-Call `noop` exactly once, with a concise reason, only when no safe change is justified, the task is already satisfied, or the evidence required to act is unavailable. Never create a placeholder PR.
+If no coherent or publishable patch exists because the Objective is ambiguous, a human decision is required, or the required change cannot use the configured safe-output permissions, call `add_comment` exactly once on source issue #<issue_number>. Ask one concrete question and summarize the relevant evidence. An ordinary human reply is included in a later scheduled attempt; no command is required.
+
+The current safe-output credential is not configured to publish `.github/workflows/**`. If the required outcome necessarily changes a workflow file, use `add_comment` to ask whether a human should own that protected change or provide an approved workflow-capable GitHub App. Do not create a known-unpublishable commit.
+
+Call `noop` exactly once, with a concise reason, only when the task is already satisfied or no human response could make it actionable. Never create a placeholder PR.

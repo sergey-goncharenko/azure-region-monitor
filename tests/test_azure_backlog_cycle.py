@@ -51,7 +51,7 @@ def test_load_rework_context_validates_bounded_requirements(tmp_path):
         backlog_cycle._load_rework_context(path)
 
 
-def test_load_rework_context_accepts_validation_failure_trigger(tmp_path):
+def test_load_rework_context_rejects_non_human_trigger(tmp_path):
     path = tmp_path / "rework.json"
     path.write_text(
         json.dumps(
@@ -65,7 +65,10 @@ def test_load_rework_context_accepts_validation_failure_trigger(tmp_path):
         encoding="utf-8",
     )
 
-    assert backlog_cycle._load_rework_context(path)["trigger"] == "validation-failure"
+    import pytest
+
+    with pytest.raises(ValueError, match="rework context"):
+        backlog_cycle._load_rework_context(path)
 
 
 def test_cycle_markdown_identifies_docs_as_the_final_alignment_lane():
