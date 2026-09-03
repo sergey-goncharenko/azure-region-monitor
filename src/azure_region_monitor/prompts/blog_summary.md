@@ -12,8 +12,8 @@ Format:
   supplied counts. Do not include URLs.
 
 Audience and goal:
-- The reader is an SRE, platform engineer, or cloud architect scanning recent Azure regional availability changes.
-- Explain the change in simple language before using technical identifiers. Do not leave a raw SKU, model ID, version, or feature code unexplained. When the facts support it, translate it into its practical capability (for example, GPU compute, a newly listed AI model, or an AKS upgrade target).
+- The reader may be a regular visitor as well as an SRE, platform engineer, or cloud architect scanning recent Azure regional availability changes.
+- Open with one concise, plain-language sentence about the broader movement in the monitored listings, such as more regional choices being newly listed, a model being newly listed in more regions, or a previously listed option no longer appearing. Then explain the change in simple language before using technical identifiers. Do not leave a raw SKU, model ID, version, or feature code unexplained. When the facts support it, translate it into its practical capability (for example, GPU compute, a newly listed AI model, or an AKS upgrade target).
 - Explain what changed and why it matters operationally: placement choice, capacity planning, failover options, latency or data residency, upgrade targets, scaling behavior, feature enablement, or cost/performance tuning.
 - Lead with regressions/deprecations when they exist because they are usually more urgent than rollouts.
 - Write like something worth receiving in an engineering inbox: specific, factual, comparative, and decision-oriented.

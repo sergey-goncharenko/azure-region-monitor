@@ -30,12 +30,13 @@ Interpret the change classifications: net-new availability means a feature has n
 seen available in that region before; restored availability means it was available before,
 then disappeared, and is now back; deprecation candidate means a stable availability signal
 has disappeared for the first time; recurring disappearance means it has gone missing before.
-Explain the practical impact for SREs in simple language, such as placement choice, capacity,
-cost, scale, latency, upgrade paths, or feature enablement. Do not leave a raw SKU, model ID,
-version, or feature code unexplained; translate it into a practical capability only when the
-facts support that interpretation. End with a short final paragraph beginning "What this means
-for Azure users:" that states the practical decision or planning impact. Keep every claim
-grounded in the facts.
+Start with one plain-language sentence that explains the broader movement in the monitored Azure
+listings for a visitor who does not know the monitored products. Then explain the practical impact
+for SREs in simple language, such as placement choice, capacity, cost, scale, latency, upgrade
+paths, or feature enablement. Do not leave a raw SKU, model ID, version, or feature code
+unexplained; translate it into a practical capability only when the facts support that
+interpretation. End with a short final paragraph beginning "What this means for Azure users:" that
+states the practical decision or planning impact. Keep every claim grounded in the facts.
 
 Rules: do not invent regions, models, features, dates, numbers, causes, quotas, or SLAs.
 Do not add disclaimers, caveats, sign-offs, or a call to action. Keep it under ~350 words.
@@ -528,6 +529,7 @@ def _rule_summary(
         f"{_plural(len(regressions), 'regression')} across {len(regions)} "
         f"{_plural(len(regions), 'region')}."
     ]
+    parts.append(_plain_language_overview(new_avail, regressions))
     # Regressions first: a delisting/deprecation is the more consequential signal.
     parts.extend(_opinionated_sentences(regressions, "regression", context_map))
     parts.extend(_opinionated_sentences(new_avail, "new_availability", context_map))
@@ -536,6 +538,33 @@ def _rule_summary(
         "catalog/list signals before changing production deployments."
     )
     return " ".join(parts)
+
+
+def _plain_language_overview(new_avail: list[Change], regressions: list[Change]) -> str:
+    """Describe the overall movement before the modality-specific technical detail."""
+
+    if new_avail and regressions:
+        movement = (
+            f"the monitor now has {len(new_avail)} newly listed "
+            f"{_plural(len(new_avail), 'option')} and no longer has {len(regressions)} "
+            f"previously listed {_plural(len(regressions), 'option')}"
+        )
+    elif new_avail:
+        movement = (
+            f"the monitor now has {len(new_avail)} newly listed "
+            f"{_plural(len(new_avail), 'option')}"
+        )
+    else:
+        movement = (
+            f"the monitor no longer has {len(regressions)} previously listed "
+            f"{_plural(len(regressions), 'option')}"
+        )
+    return (
+        "In everyday terms, "
+        + movement
+        + " across the regions it observed. These catalog changes can affect where "
+        "teams plan workloads or select services."
+    )
 
 
 def _opinionated_sentences(
@@ -558,7 +587,7 @@ def _opinionated_sentences(
         sentences.append(
             f"{modality}: {_interpretation(modality, change_type)} "
             f"({len(group)} {_plural(len(group), 'signal')}; {breakdown}). "
-            f"SRE impact: {impact}. {datapoints} Examples: {_examples(group)}."
+            f"Practical impact. SRE impact: {impact}. {datapoints} Examples: {_examples(group)}."
         )
     return sentences
 

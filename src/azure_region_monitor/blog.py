@@ -122,15 +122,26 @@ def executive_summary(days: list[dict[str, Any]]) -> str:
     )
     if new_availability > regressions:
         direction = "The longer-term signal is more newly listed availability than regressions."
+        visitor_impact = (
+            "For visitors, that suggests the monitor is newly listing more regional options."
+        )
     elif regressions > new_availability:
         direction = "The longer-term signal is more regressions than newly listed availability."
+        visitor_impact = (
+            "For visitors, that suggests the monitor no longer lists some regional options and "
+            "placement plans may need more alternatives."
+        )
     else:
         direction = "The longer-term signal is balanced between newly listed availability and regressions."
+        visitor_impact = (
+            "For visitors, that suggests the regional menu is changing in both directions rather "
+            "than simply expanding."
+        )
     return (
         f"Across {len(published_days):,} published change days ({dates[0]} through {dates[-1]}), "
         f"the monitor recorded {new_availability:,} new availability signals and "
         f"{regressions:,} {'regression' if regressions == 1 else 'regressions'}. "
-        f"{direction} These are read-only catalog/list signals, "
+        f"{direction} {visitor_impact} These are read-only catalog/list signals, "
         "not quota or deployment results."
     )
 
