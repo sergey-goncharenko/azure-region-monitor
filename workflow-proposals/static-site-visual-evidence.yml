@@ -121,8 +121,11 @@ jobs:
               .map((path) => relative(join(evidenceDir, root), path)),
           ])));
           const pagePaths = [...new Set(Object.values(pathsByRoot).flat())].sort();
-          const screenshotPath = (label, path) =>
-            join(evidenceDir, label, `${path.replace(/[^A-Za-z0-9]+/g, "_")}.png`);
+          const screenshotPath = (label, path) => {
+            const suffix = createHash("sha256").update(path).digest("hex").slice(0, 12);
+            const safe = path.replace(/[^A-Za-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+            return join(evidenceDir, label, `${safe}-${suffix}.png`);
+          };
           const browser = await chromium.launch({ headless: true });
           for (const [label, port] of [["before", 4173], ["after", 4174]]) {
             const sourceRoot = label === "before" ? "before-site" : "after-site";
