@@ -94,7 +94,17 @@ jobs:
           "$GITHUB_WORKSPACE/.venv/bin/python" -m http.server 4174 \
             --directory "$EVIDENCE_DIR/after-site" >"$RUNNER_TEMP/after-site.log" 2>&1 &
           after_pid=$!
-          trap 'kill "$before_pid" "$after_pid"' EXIT
+          trap 'kill "$before_pid" "$after_pid" 2>/dev/null || true' EXIT
+
+          for port in 4173 4174; do
+            for _ in $(seq 1 50); do
+              if curl --fail --silent "http://127.0.0.1:${port}/index.html" >/dev/null; then
+                break
+              fi
+              sleep 0.1
+            done
+            curl --fail --silent "http://127.0.0.1:${port}/index.html" >/dev/null
+          done
 
           cat >"$browser_dir/capture.mjs" <<'NODE'
           import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
