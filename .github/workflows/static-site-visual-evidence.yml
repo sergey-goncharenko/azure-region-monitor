@@ -1,0 +1,196 @@
+name: Static site visual evidence
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - "src/azure_region_monitor/**"
+      - "docs/**/*.html"
+      - "data/snapshots/latest.json"
+      - "data/diffs/latest.json"
+      - "data/history/**"
+      - ".github/workflows/static-site-visual-evidence.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: static-site-visual-evidence-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out pull request head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+
+      - name: Check out pull request base
+        uses: actions/checkout@v4
+        with:
+          path: ${{ runner.temp }}/static-site-base
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Build comparable static sites
+        env:
+          BASE_DIR: ${{ runner.temp }}/static-site-base
+          HEAD_DIR: ${{ github.workspace }}
+          EVIDENCE_DIR: ${{ runner.temp }}/static-site-evidence
+        run: |
+          set -euo pipefail
+          # The head data is intentionally used for both builds: screenshots show
+          # rendering changes, not a changed monitor snapshot or history payload.
+          for path in data/snapshots/latest.json data/diffs/latest.json data/history; do
+            rm -rf "$BASE_DIR/$path"
+            if [ -e "$HEAD_DIR/$path" ]; then
+              mkdir -p "$(dirname "$BASE_DIR/$path")"
+              cp -a "$HEAD_DIR/$path" "$BASE_DIR/$path"
+            fi
+          done
+
+          python -m venv "$BASE_DIR/.venv"
+          "$BASE_DIR/.venv/bin/python" -m pip install "$BASE_DIR"
+          "$BASE_DIR/.venv/bin/azure-region-monitor" build-static \
+            --output "$EVIDENCE_DIR/before-site"
+
+          python -m venv "$HEAD_DIR/.venv"
+          "$HEAD_DIR/.venv/bin/python" -m pip install "$HEAD_DIR"
+          "$HEAD_DIR/.venv/bin/azure-region-monitor" build-static \
+            --output "$EVIDENCE_DIR/after-site"
+
+      - name: Cache Playwright tooling
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/ms-playwright
+            .cache/static-site-browser/node_modules
+          key: ${{ runner.os }}-node22-static-site-visual-evidence-playwright-v1-55-0
+
+      - name: Capture paired screenshots
+        env:
+          EVIDENCE_DIR: ${{ runner.temp }}/static-site-evidence
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          browser_dir="$GITHUB_WORKSPACE/.cache/static-site-browser"
+          mkdir -p "$browser_dir"
+          if [ ! -f "$browser_dir/node_modules/playwright/package.json" ] || \
+             ! grep -q '"version": "1.55.0"' "$browser_dir/node_modules/playwright/package.json"; then
+            npm install --prefix "$browser_dir" --no-save playwright@1.55.0
+          fi
+          npx --prefix "$browser_dir" playwright install chromium
+
+          "$GITHUB_WORKSPACE/.venv/bin/python" -m http.server 4173 \
+            --directory "$EVIDENCE_DIR/before-site" >"$RUNNER_TEMP/before-site.log" 2>&1 &
+          before_pid=$!
+          "$GITHUB_WORKSPACE/.venv/bin/python" -m http.server 4174 \
+            --directory "$EVIDENCE_DIR/after-site" >"$RUNNER_TEMP/after-site.log" 2>&1 &
+          after_pid=$!
+          trap 'kill "$before_pid" "$after_pid" 2>/dev/null || true' EXIT
+
+          for port in 4173 4174; do
+            for _ in $(seq 1 50); do
+              if curl --fail --silent "http://127.0.0.1:${port}/index.html" >/dev/null; then
+                break
+              fi
+              sleep 0.1
+            done
+            curl --fail --silent "http://127.0.0.1:${port}/index.html" >/dev/null
+          done
+
+          cat >"$browser_dir/capture.mjs" <<'NODE'
+          import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+          import { createHash } from "node:crypto";
+          import { join, relative } from "node:path";
+          import { chromium } from "playwright";
+
+          const evidenceDir = process.env.EVIDENCE_DIR;
+          const roots = ["before-site", "after-site"];
+
+          async function htmlFiles(root) {
+            const entries = await readdir(root, { withFileTypes: true });
+            const files = await Promise.all(entries.map(async (entry) => {
+              const path = join(root, entry.name);
+              if (entry.isDirectory()) return htmlFiles(path);
+              return entry.isFile() && entry.name.endsWith(".html") ? [path] : [];
+            }));
+            return files.flat();
+          }
+
+          const pathsByRoot = Object.fromEntries(await Promise.all(roots.map(async (root) => [
+            root,
+            (await htmlFiles(join(evidenceDir, root)))
+              .map((path) => relative(join(evidenceDir, root), path)),
+          ])));
+          const pagePaths = [...new Set(Object.values(pathsByRoot).flat())].sort();
+          const screenshotPath = (label, path) => {
+            const suffix = createHash("sha256").update(path).digest("hex").slice(0, 12);
+            const safe = path.replace(/[^A-Za-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+            return join(evidenceDir, label, `${safe}-${suffix}.png`);
+          };
+          const browser = await chromium.launch({ headless: true });
+          for (const [label, port] of [["before", 4173], ["after", 4174]]) {
+            const sourceRoot = label === "before" ? "before-site" : "after-site";
+            await mkdir(join(evidenceDir, label), { recursive: true });
+            const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+            for (const path of pagePaths) {
+              if (!pathsByRoot[sourceRoot].includes(path)) continue;
+              const response = await page.goto(`http://127.0.0.1:${port}/${path}`, {
+                waitUntil: "networkidle",
+              });
+              if (!response || !response.ok()) {
+                throw new Error(`${label}/${path} returned ${response?.status() ?? "no response"}`);
+              }
+              await page.screenshot({
+                fullPage: true,
+                path: screenshotPath(label, path),
+              });
+            }
+            await page.close();
+          }
+          await browser.close();
+          const comparison = await Promise.all(pagePaths.map(async (path) => {
+            const before = screenshotPath("before", path);
+            const after = screenshotPath("after", path);
+            if (!pathsByRoot["before-site"].includes(path)) return { path, status: "added" };
+            if (!pathsByRoot["after-site"].includes(path)) return { path, status: "removed" };
+            const [beforeImage, afterImage] = await Promise.all([readFile(before), readFile(after)]);
+            return {
+              path,
+              status: beforeImage.equals(afterImage) ? "unchanged" : "changed",
+              before_sha256: createHash("sha256").update(beforeImage).digest("hex"),
+              after_sha256: createHash("sha256").update(afterImage).digest("hex"),
+            };
+          }));
+          await writeFile(join(evidenceDir, "manifest.json"), JSON.stringify({
+            base_sha: process.env.BASE_SHA,
+            head_sha: process.env.HEAD_SHA,
+            pages: pagePaths,
+            comparison,
+            viewport: { width: 1440, height: 1000 },
+          }, null, 2) + "\n");
+          NODE
+          node "$browser_dir/capture.mjs"
+
+      - name: Upload paired visual evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: static-site-visual-evidence-pr-${{ github.event.pull_request.number }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/static-site-evidence
+          if-no-files-found: error
+          retention-days: 14
