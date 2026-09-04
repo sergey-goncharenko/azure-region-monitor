@@ -72,6 +72,14 @@ jobs:
           "$HEAD_DIR/.venv/bin/azure-region-monitor" build-static \
             --output "$EVIDENCE_DIR/after-site"
 
+      - name: Cache Playwright tooling
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/ms-playwright
+            .cache/static-site-browser/node_modules
+          key: ${{ runner.os }}-static-site-visual-evidence-playwright-v1-55-0
+
       - name: Capture paired screenshots
         env:
           EVIDENCE_DIR: ${{ runner.temp }}/static-site-evidence
@@ -79,7 +87,7 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
-          browser_dir="$RUNNER_TEMP/static-site-browser"
+          browser_dir="$GITHUB_WORKSPACE/.cache/static-site-browser"
           mkdir -p "$browser_dir"
           npm install --prefix "$browser_dir" --no-save playwright@1.55.0
           npx --prefix "$browser_dir" playwright install --with-deps chromium
