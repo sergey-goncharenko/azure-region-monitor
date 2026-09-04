@@ -103,6 +103,7 @@ def test_executive_summary_aggregates_multiple_published_days():
     assert "2 published change days (2026-07-01 through 2026-07-03)" in summary
     assert "6 new availability signals and 4 regressions" in summary
     assert "more newly listed availability than regressions" in summary
+    assert "monitor is newly listing more regional options" in summary
     assert "quota or deployment results" in summary
 
 

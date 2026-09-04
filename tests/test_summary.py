@@ -113,6 +113,7 @@ def test_ai_prompt_requires_plain_language_and_azure_user_impact_section():
     system, _user = client.calls[0]
     assert "simple language" in system
     assert "raw SKU, model ID, version, or feature code unexplained" in system
+    assert "broader movement in the monitored Azure" in system
     assert 'beginning "What this means for Azure users:"' in system
 
 
@@ -278,6 +279,23 @@ def test_rule_summary_is_opinionated_about_rollout_and_deprecation():
     # Modality is the sentence prefix and regions are named.
     assert "Azure AI models:" in narrative
     assert "eastus" in narrative and "westeurope" in narrative
+
+
+def test_rule_summary_starts_with_a_plain_language_azure_movement():
+    changes = [
+        _change("eastus", "aiModels.openai.gpt-5.2025", "unavailable", "available", "new_availability"),
+        _change("westeurope", "vmSkus.standard.d2as.v5", "available", "unavailable", "regression"),
+    ]
+
+    narrative = build_change_narrative(changes, client=None)["narrative"]
+
+    assert (
+        "In everyday terms, the monitor now has 1 newly listed option and no longer has 1 "
+        "previously listed option"
+        in narrative
+    )
+    assert "These catalog changes can affect where teams plan workloads or select services." in narrative
+    assert narrative.index("In everyday terms") < narrative.index("Azure AI models:")
 
 
 def test_rule_summary_frames_latency_additions_and_removals():
