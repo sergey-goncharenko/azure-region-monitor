@@ -335,6 +335,19 @@ def test_daily_scan_runs_github_model_latency_on_schedule():
     assert 'regions: "github-global"' in workflow
 
 
+def test_daily_scan_tracks_the_entire_regional_ai_model_catalog():
+    workflow = (REPO_ROOT / ".github/workflows/daily-scan.yml").read_text(
+        encoding="utf-8"
+    )
+    ai_models_job = workflow.split("  ai-models:\n", 1)[1].split(
+        "  container-apps:\n", 1
+    )[0]
+
+    assert 'probes: "ai-model-catalog-cli"' in ai_models_job
+    assert "discover_regions: true" in ai_models_job
+    assert 'ai_model_features: "all"' in ai_models_job
+
+
 def test_dashboard_workflows_retain_social_drafts_for_review():
     for path in (
         REPO_ROOT / ".github/workflows/daily-scan.yml",

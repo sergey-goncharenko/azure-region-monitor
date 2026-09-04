@@ -122,6 +122,31 @@ def test_ai_model_probe_treats_unsupported_catalog_region_as_empty_catalog():
     )
 
 
+def test_ai_model_probe_auto_discovers_future_cross_publisher_rollouts():
+    def cli_runner(command: list[str]) -> subprocess.CompletedProcess[str]:
+        region = command[command.index("--location") + 1]
+        model = (
+            '{"kind":"OpenAI","model":{"name":"gpt-6","version":"test-version",'
+            '"publisher":"OpenAI"}}'
+            if region == "eastus"
+            else '{"kind":"Anthropic","model":{"name":"claude-fable-5-1","version":"1",'
+            '"publisher":"Anthropic"}}'
+        )
+        return subprocess.CompletedProcess(command, 0, stdout=f"[{model}]", stderr="")
+
+    snapshot = run_probes(
+        ["eastus", "swedencentral"],
+        [AiModelCatalogCliProbe(cli_runner=cli_runner)],
+    )
+
+    gpt_6 = "aiModels.openai.gpt-6.test-version"
+    claude_fable = "aiModels.anthropic.claude-fable-5-1.1"
+    assert snapshot.regions["eastus"]["ai"][gpt_6].status == "available"
+    assert snapshot.regions["swedencentral"]["ai"][gpt_6].status == "unavailable"
+    assert snapshot.regions["eastus"]["ai"][claude_fable].status == "unavailable"
+    assert snapshot.regions["swedencentral"]["ai"][claude_fable].status == "available"
+
+
 def test_parse_ai_model_features_defaults_to_all_models():
     assert parse_ai_model_features(None) == []
     assert parse_ai_model_features("all") == []
