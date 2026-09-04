@@ -93,9 +93,7 @@ jobs:
              ! grep -q '"version": "1.55.0"' "$browser_dir/node_modules/playwright/package.json"; then
             npm install --prefix "$browser_dir" --no-save playwright@1.55.0
           fi
-          if ! compgen -G "$HOME/.cache/ms-playwright/chromium-*" > /dev/null; then
-            npx --prefix "$browser_dir" playwright install --with-deps chromium
-          fi
+          npx --prefix "$browser_dir" playwright install chromium
 
           "$GITHUB_WORKSPACE/.venv/bin/python" -m http.server 4173 \
             --directory "$EVIDENCE_DIR/before-site" >"$RUNNER_TEMP/before-site.log" 2>&1 &
