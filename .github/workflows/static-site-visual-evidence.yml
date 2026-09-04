@@ -1,8 +1,4 @@
-name: Static site visual evidence (proposal)
-
-# Promote this file to .github/workflows/ after human review. It is deliberately
-# independent from pr-validation so rendering evidence cannot delay the primary
-# repository validation lane.
+name: Static site visual evidence
 on:
   pull_request:
     types: [opened, synchronize, reopened]
@@ -12,7 +8,7 @@ on:
       - "data/snapshots/latest.json"
       - "data/diffs/latest.json"
       - "data/history/**"
-      - "workflow-proposals/static-site-visual-evidence.yml"
+      - ".github/workflows/static-site-visual-evidence.yml"
 
 permissions:
   contents: read
