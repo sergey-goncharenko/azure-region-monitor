@@ -75,9 +75,7 @@ jobs:
       - name: Cache Playwright tooling
         uses: actions/cache@v4
         with:
-          path: |
-            ~/.cache/ms-playwright
-            .cache/static-site-browser/node_modules
+          path: ~/.cache/ms-playwright
           key: ${{ runner.os }}-node22-static-site-visual-evidence-playwright-v1-55-0
 
       - name: Capture paired screenshots
