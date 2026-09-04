@@ -75,7 +75,9 @@ jobs:
       - name: Cache Playwright tooling
         uses: actions/cache@v4
         with:
-          path: ~/.cache/ms-playwright
+          path: |
+            ~/.cache/ms-playwright
+            .cache/static-site-browser/node_modules
           key: ${{ runner.os }}-node22-static-site-visual-evidence-playwright-v1-55-0
 
       - name: Capture paired screenshots
@@ -87,7 +89,10 @@ jobs:
           set -euo pipefail
           browser_dir="$GITHUB_WORKSPACE/.cache/static-site-browser"
           mkdir -p "$browser_dir"
-          npm install --prefix "$browser_dir" --no-save playwright@1.55.0
+          if [ ! -f "$browser_dir/node_modules/playwright/package.json" ] || \
+             ! grep -q '"version": "1.55.0"' "$browser_dir/node_modules/playwright/package.json"; then
+            npm install --prefix "$browser_dir" --no-save playwright@1.55.0
+          fi
           npx --prefix "$browser_dir" playwright install --with-deps chromium
 
           "$GITHUB_WORKSPACE/.venv/bin/python" -m http.server 4173 \
