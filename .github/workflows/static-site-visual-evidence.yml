@@ -78,7 +78,7 @@ jobs:
           path: |
             ~/.cache/ms-playwright
             .cache/static-site-browser/node_modules
-          key: ${{ runner.os }}-static-site-visual-evidence-playwright-v1-55-0
+          key: ${{ runner.os }}-node22-static-site-visual-evidence-playwright-v1-55-0
 
       - name: Capture paired screenshots
         env:
