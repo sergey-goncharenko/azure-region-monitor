@@ -6,6 +6,7 @@ import pytest
 
 from azure_region_monitor import history
 from azure_region_monitor.history import fetch_history, update_history
+from azure_region_monitor.models import Change
 
 
 def test_update_history_writes_daily_snapshot_and_recent_changes(tmp_path):
@@ -92,6 +93,13 @@ def test_update_history_writes_daily_snapshot_and_recent_changes(tmp_path):
     assert change_day["change_type_counts"]["new_availability"] == 1
     assert change_day["parked_unknown_changes"] == 0
     assert change_day["summary_counts"] == {"regions": 1, "features": 1, "checks": 1}
+    assert change_day["change_modality_counts"] == {
+        "AKS extensions": {
+            "new_availability": 1,
+            "regression": 0,
+            "status_change": 0,
+        }
+    }
     assert change_day["narrative_model_deployment"] == "gpt-5.4-mini"
     assert change_day["editorial_excerpt"] == "A purpose-written AKS extension catalog summary."
     assert change_day["social_drafts"]["linkedin"].startswith("2026-05-10")
@@ -339,7 +347,7 @@ def test_update_history_parks_unknown_transitions_out_of_highlights(tmp_path):
     assert change_day["highlights"] == []
 
 
-def test_recent_changes_include_today_and_previous_change_days(tmp_path):
+def test_recent_changes_include_latest_daily_records(tmp_path):
     history_dir = tmp_path / "history"
     previous_change_days = []
     for index in range(12):
@@ -399,7 +407,7 @@ def test_recent_changes_include_today_and_previous_change_days(tmp_path):
     ]
 
 
-def test_recent_changes_skip_previous_unknown_only_days(tmp_path):
+def test_recent_changes_keep_previous_unknown_only_days(tmp_path):
     history_dir = tmp_path / "history"
     (history_dir / "index.json").parent.mkdir(parents=True)
     (history_dir / "index.json").write_text(
@@ -448,7 +456,63 @@ def test_recent_changes_skip_previous_unknown_only_days(tmp_path):
 
     recent_changes = update_history(snapshot_path, history_dir)
 
-    assert [day["date"] for day in recent_changes["days"]] == ["2026-05-10", "2026-05-08"]
+    assert [day["date"] for day in recent_changes["days"]] == [
+        "2026-05-10",
+        "2026-05-09",
+        "2026-05-08",
+    ]
+
+
+def test_highlights_represent_each_direction_and_modality_before_repeating():
+    changes = [
+        *[
+            Change(
+                region=f"region-{index}",
+                service="ai",
+                feature="aiModels.openai.gpt-5.2025",
+                previous="available",
+                current="unavailable",
+                change_type="regression",
+            )
+            for index in range(5)
+        ],
+        Change(
+            region="eastus",
+            service="compute",
+            feature="vmSkus.standard.d2s.v5",
+            previous="available",
+            current="unavailable",
+            change_type="regression",
+        ),
+        Change(
+            region="eastus2",
+            service="ai",
+            feature="aiModels.openai.gpt-6.1",
+            previous="unavailable",
+            current="available",
+            change_type="new_availability",
+        ),
+        Change(
+            region="westus3",
+            service="compute",
+            feature="vmSkus.standard.d4s.v6",
+            previous="unavailable",
+            current="available",
+            change_type="new_availability",
+        ),
+    ]
+
+    highlights = history._highlight_changes(changes)
+
+    assert [
+        (change.change_type, history._feature_category(change.feature))
+        for change in highlights[:4]
+    ] == [
+        ("regression", "Azure AI models"),
+        ("regression", "VM SKUs"),
+        ("new_availability", "Azure AI models"),
+        ("new_availability", "VM SKUs"),
+    ]
 
 
 def _latency_snapshot(date, p50, timestamp=None):

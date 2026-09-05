@@ -85,29 +85,119 @@ def test_narrative_banner_uses_blog_narrative_split_rules():
     assert "<p>" in html
 
 
-def test_recent_changes_panel_renders_multi_day_executive_summary():
+def test_recent_changes_panel_leads_with_daily_summary_and_weekly_context():
     html = _render_recent_changes_panel(
         {
             "days": [
                 {
                     "date": "2026-07-03",
+                    "previous_date": "2026-07-02",
                     "narrative": "Newer\n\nBody.",
                     "narrative_source": "ai",
-                    "change_type_counts": {"new_availability": 2, "regression": 0},
+                    "change_type_counts": {
+                        "new_availability": 12,
+                        "regression": 3,
+                        "status_change": 1,
+                    },
+                    "parked_unknown_changes": 1,
+                    "change_context_counts": {
+                        "net_new_availability": 10,
+                        "restored_availability": 2,
+                        "deprecation_candidate": 3,
+                    },
                 },
                 {
-                    "date": "2026-07-01",
+                    "date": "2026-07-02",
                     "narrative": "Older\n\nBody.",
                     "narrative_source": "ai",
-                    "change_type_counts": {"new_availability": 0, "regression": 1},
+                    "change_type_counts": {"new_availability": 2, "regression": 1},
                 },
             ]
         }
     )
 
-    assert 'aria-label="Executive summary"' in html
-    assert "Across 2 published change days (2026-07-01 through 2026-07-03)" in html
-    assert "2 new availability signals and 1 regression" in html
+    assert 'aria-label="Daily executive summary"' in html
+    assert "What changed on 2026-07-03" in html
+    assert "Compared with 2026-07-02" in html
+    assert "New listings rose from 2 to 12" in html
+    assert "3 deprecation candidates" in html
+    assert "7-day context" in html
+    assert "Across 2 published change days" not in html
+    assert '<details class="narrative"' in html
+
+
+def test_high_volume_auto_summary_is_secondary_to_scannable_daily_brief():
+    legacy_digest = (
+        "Latest scan: 453 new availability signals and 41 regressions across 39 regions. "
+        "Azure AI models: models/versions delisted (31 signals). Examples: australiaeast. "
+        "VM SKUs: VM sizes withdrawn (10 signals). Examples: indiasouthcentral. "
+        "Azure AI models: newer models/versions rolling out (29 signals; 29 net-new listings). "
+        "Examples: eastus · model (openai.gpt-6-astra.2026-09-03). "
+        "VM SKUs: VM sizes now offered (424 signals; 424 net-new listings). "
+        "Examples: centraluseuap · VM size (ng16ads.v620.v1). "
+        "What this means for Azure users: review placement and fallback plans."
+    )
+    html = _render_recent_changes_panel(
+        {
+            "days": [
+                {
+                    "date": "2026-09-05",
+                    "previous_date": "2026-09-04",
+                    "narrative": legacy_digest,
+                    "narrative_source": "rule",
+                    "change_type_counts": {
+                        "new_availability": 453,
+                        "regression": 41,
+                        "status_change": 129,
+                    },
+                    "parked_unknown_changes": 0,
+                    "change_context_counts": {
+                        "net_new_availability": 451,
+                        "restored_availability": 2,
+                        "deprecation_candidate": 41,
+                    },
+                    "highlights": [
+                        {
+                            "change_type": "regression",
+                            "modality": "Azure AI models",
+                            "feature": "aiModels.moonshotai.kimi-k3.2026-07-29",
+                            "feature_coverage_delta": -31,
+                            "region": "australiaeast",
+                        },
+                        {
+                            "change_type": "regression",
+                            "modality": "VM SKUs",
+                            "feature": "vmSkus.standard.m128dms.v2",
+                            "feature_coverage_delta": -1,
+                            "region": "indiasouthcentral",
+                        },
+                    ],
+                },
+                {
+                    "date": "2026-09-04",
+                    "narrative": "Previous scan.",
+                    "narrative_source": "rule",
+                    "change_type_counts": {
+                        "new_availability": 90,
+                        "regression": 0,
+                        "status_change": 0,
+                    },
+                },
+            ]
+        }
+    )
+
+    assert html.index("Daily executive summary") < html.index('<details class="narrative"')
+    assert "New listings rose from 90 to 453" in html
+    assert "Regressions rose from 0 to 41" in html
+    assert "41 deprecation candidates" in html
+    assert "Kimi K3 model from Moonshot AI (version 2026-07-29)" in html
+    assert "Standard M128dms V2 VM size" in html
+    assert "GPT-6 Astra model from OpenAI (version 2026-09-03)" in html
+    assert "7-day context" in html
+    assert '<details class="narrative" aria-label="Detailed change digest">' in html
+    assert '<details class="narrative" open' not in html
+    assert html.count("<p>") >= 5
 
 
 def test_narrative_banner_rule_source_stays_single_paragraph():
@@ -431,7 +521,7 @@ def test_build_static_site_copies_history_and_renders_recent_changes(tmp_path):
     index_html = (output_dir / "index.html").read_text(encoding="utf-8")
 
     assert "Recent Availability Signals" in index_html
-    assert "unknown transitions are parked" in index_html
+    assert "Latest daily scans; unknown transitions are counted separately" in index_html
     assert "Parked unknown" in index_html
     assert 'href="api/history/changes/2026-05-10.json"' in index_html
     assert "eastus flux unavailable -> available" in index_html

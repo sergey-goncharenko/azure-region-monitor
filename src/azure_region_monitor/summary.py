@@ -10,7 +10,7 @@ from azure_region_monitor.models import Change
 
 ChangeKey = tuple[str, str, str]
 MAX_FACTS = 40
-MAX_EXAMPLES = 4
+MAX_EXAMPLES = 1
 _PROMPT_PACKAGE = "azure_region_monitor.prompts"
 _BLOG_SUMMARY_PROMPT = "blog_summary.md"
 _FALLBACK_SYSTEM_PROMPT = """You are the editor of a daily change digest for an Azure regional availability monitor.
@@ -25,6 +25,10 @@ Format:
   the narrative or repeat its headline verbatim.
 - linkedin and short_post: review-only social variants that name the supplied date and state
   the supplied new availability, regression, and parked unknown counts. Do not include URLs.
+
+Treat the supplied changes as the dated scan's delta from the immediately preceding snapshot.
+Lead with what changed in that comparison. Use historical classifications only to explain today's
+signals; do not replace the daily story with an aggregate over the full retained history.
 
 Interpret the change classifications: net-new availability means a feature has never been
 seen available in that region before; restored availability means it was available before,
@@ -524,20 +528,36 @@ def _rule_summary(
     regions = {c.region for c in signals}
 
     parts = [
-        f"Latest scan: {len(new_avail)} new availability "
-        f"{_plural(len(new_avail), 'signal')} and {len(regressions)} "
-        f"{_plural(len(regressions), 'regression')} across {len(regions)} "
-        f"{_plural(len(regions), 'region')}."
+        f"{len(new_avail)} new listings and {len(regressions)} "
+        f"{_plural(len(regressions), 'regression')}",
+        f"Compared with the previous daily snapshot, the monitor found "
+        f"{len(new_avail)} new availability {_plural(len(new_avail), 'signal')} "
+        "in its catalog/list evidence "
+        f"and {len(regressions)} previously listed {_plural(len(regressions), 'signal')} "
+        f"no longer listed across {len(regions)} {_plural(len(regions), 'region')}.",
     ]
     parts.append(_plain_language_overview(new_avail, regressions))
-    # Regressions first: a delisting/deprecation is the more consequential signal.
-    parts.extend(_opinionated_sentences(regressions, "regression", context_map))
-    parts.extend(_opinionated_sentences(new_avail, "new_availability", context_map))
-    parts.append(
-        "What this means for Azure users: review placement and fallback plans using these "
-        "catalog/list signals before changing production deployments."
+    if regressions:
+        parts.append(
+            "Regressions to review: "
+            + " ".join(_opinionated_sentences(regressions, "regression", context_map))
+        )
+    if new_avail:
+        parts.append(
+            "New options to validate: "
+            + " ".join(_opinionated_sentences(new_avail, "new_availability", context_map))
+        )
+    priority = (
+        f"Prioritize the {len(regressions)} {_plural(len(regressions), 'regression')} when "
+        "reviewing existing regional targets and fallback choices. "
+        if regressions
+        else "No previously listed signals disappeared in this scan. "
     )
-    return " ".join(parts)
+    parts.append(
+        f"What this means for Azure users: {priority}Treat new listings as options to validate; "
+        "catalog/list evidence does not by itself prove deployment success, quota, or capacity."
+    )
+    return "\n\n".join(parts)
 
 
 def _plain_language_overview(new_avail: list[Change], regressions: list[Change]) -> str:
@@ -583,11 +603,12 @@ def _opinionated_sentences(
         group = by_modality[modality]
         breakdown = _classification_breakdown(group, context_map)
         impact = _impact(modality, change_type)
-        datapoints = _context_datapoints(group, context_map)
+        context = _context_datapoints(group, context_map) if len(group) <= 5 else ""
+        context_text = f" {context}" if context else ""
         sentences.append(
             f"{modality}: {_interpretation(modality, change_type)} "
             f"({len(group)} {_plural(len(group), 'signal')}; {breakdown}). "
-            f"Practical impact. SRE impact: {impact}. {datapoints} Examples: {_examples(group)}."
+            f"Example: {_examples(group)}.{context_text} Why it matters: {impact}."
         )
     return sentences
 

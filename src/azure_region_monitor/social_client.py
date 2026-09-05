@@ -3,12 +3,19 @@ from __future__ import annotations
 import http.client
 import json
 import os
+import time
 import urllib.error
 import urllib.request
+from collections.abc import Callable
 from urllib.parse import urlparse
+
+from azure_region_monitor.probes.github_models import _parse_retry_after, _read_error_body
 
 DEFAULT_TIMEOUT_SECONDS = 90
 DEFAULT_MAX_OUTPUT_TOKENS = 1_200
+DEFAULT_RATE_LIMIT_RETRIES = 2
+DEFAULT_RATE_LIMIT_BACKOFF_SECONDS = 20.0
+DEFAULT_MAX_RATE_LIMIT_BACKOFF_SECONDS = 60.0
 MICROSOFT_LEARN_MCP_URL = "https://learn.microsoft.com/api/mcp?maxTokenBudget=2000"
 MICROSOFT_LEARN_MCP_TOOLS = ("microsoft_docs_search", "microsoft_docs_fetch")
 MAX_MICROSOFT_LEARN_URLS = 20
@@ -27,6 +34,10 @@ class AzureOpenAiTextClient:
         max_output_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
         enable_microsoft_learn_mcp: bool = False,
         opener: urllib.request.OpenerDirector | None = None,
+        rate_limit_retries: int = DEFAULT_RATE_LIMIT_RETRIES,
+        rate_limit_backoff_seconds: float = DEFAULT_RATE_LIMIT_BACKOFF_SECONDS,
+        max_rate_limit_backoff_seconds: float = DEFAULT_MAX_RATE_LIMIT_BACKOFF_SECONDS,
+        sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         self._api_key = api_key
         self._endpoint = endpoint.rstrip("/")
@@ -35,6 +46,10 @@ class AzureOpenAiTextClient:
         self._max_output_tokens = max_output_tokens
         self._enable_microsoft_learn_mcp = enable_microsoft_learn_mcp
         self._opener = opener or urllib.request.build_opener()
+        self._rate_limit_retries = max(rate_limit_retries, 0)
+        self._rate_limit_backoff_seconds = max(rate_limit_backoff_seconds, 0.0)
+        self._max_rate_limit_backoff_seconds = max(max_rate_limit_backoff_seconds, 0.0)
+        self._sleep = sleep
         self._generation_metadata: dict[str, object] = {
             "narrative_mcp_status": "available" if enable_microsoft_learn_mcp else "disabled",
             "narrative_mcp_error": None,
@@ -100,16 +115,28 @@ class AzureOpenAiTextClient:
                 "Accept": "application/json",
             },
         )
-        try:
-            with self._opener.open(request, timeout=self._timeout_seconds) as response:
-                body = json.loads(response.read().decode("utf-8"))
-        except urllib.error.HTTPError as error:
-            detail = error.read().decode("utf-8", errors="replace")
-            raise RuntimeError(
-                f"Azure OpenAI social draft request failed: HTTP {error.code}: {detail}"
-            ) from error
-        except (urllib.error.URLError, http.client.HTTPException, OSError, json.JSONDecodeError) as error:
-            raise RuntimeError(f"Azure OpenAI social draft request failed: {error}") from error
+        for attempt in range(self._rate_limit_retries + 1):
+            try:
+                with self._opener.open(request, timeout=self._timeout_seconds) as response:
+                    body = json.loads(response.read().decode("utf-8"))
+                break
+            except urllib.error.HTTPError as error:
+                detail = _read_error_body(error)
+                if error.code == 429 and attempt < self._rate_limit_retries:
+                    retry_after = _parse_retry_after(error.headers.get("Retry-After"))
+                    requested = retry_after or self._rate_limit_backoff_seconds * (2**attempt)
+                    self._sleep(min(requested, self._max_rate_limit_backoff_seconds))
+                    continue
+                raise RuntimeError(
+                    f"Azure OpenAI social draft request failed: HTTP {error.code}: {detail}"
+                ) from error
+            except (
+                urllib.error.URLError,
+                http.client.HTTPException,
+                OSError,
+                json.JSONDecodeError,
+            ) as error:
+                raise RuntimeError(f"Azure OpenAI social draft request failed: {error}") from error
 
         self._record_grounding(body)
         if self._generation_metadata["narrative_mcp_status"] == "failed":

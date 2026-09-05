@@ -9,12 +9,14 @@ from typing import Any
 
 from azure_region_monitor.blog import (
     blog_sitemap_entries,
+  daily_executive_summary,
     render_blog_feed,
     render_blog_index,
     render_blog_post,
-    executive_summary,
+    render_daily_summary_paragraphs,
     select_blog_posts,
     split_narrative,
+  weekly_context,
 )
 from azure_region_monitor.history import copy_history_to_api
 from azure_region_monitor.latency_view import (
@@ -1747,24 +1749,26 @@ def _render_recent_changes_panel(recent_changes: dict[str, Any] | None) -> str:
     if not days:
         return ""
 
-    narrative_banner = _render_narrative_banner(days[0])
-    trend = executive_summary(days)
-    trend_banner = (
-        '<div class="note" role="note" aria-label="Executive summary">'
-        "<strong>Executive summary</strong>"
-        f"<p>{html.escape(trend)}</p>"
-        "</div>"
-        if trend
-        else ""
+    latest = days[0]
+    previous_date = str(latest.get("previous_date", "")).strip()
+    previous = next(
+        (day for day in days if str(day.get("date", "")).strip() == previous_date),
+        None,
     )
+    daily_summary = _render_daily_summary(
+        latest,
+        daily_executive_summary(latest, previous),
+        weekly_context(days, str(latest.get("date", "")).strip()),
+    )
+    narrative_banner = _render_narrative_banner(days[0])
     rows = "\n".join(_render_recent_change_row(day) for day in days[:10])
     return f"""<section class="panel" aria-label="Recent availability changes">
       <div class="panel-header">
         <h2>Recent Availability Signals</h2>
-        <div class="panel-subtitle">Today plus previous clear signal days; unknown transitions are parked</div>
+        <div class="panel-subtitle">Latest daily scans; unknown transitions are counted separately from rollout signals</div>
       </div>
+      {daily_summary}
       {narrative_banner}
-      {trend_banner}
       <div class="table-wrap">
         <table>
           <thead>
@@ -1783,6 +1787,41 @@ def _render_recent_changes_panel(recent_changes: dict[str, Any] | None) -> str:
     </section>"""
 
 
+def _render_daily_summary(day: dict[str, Any], summary: str, context: str) -> str:
+    if not summary:
+        return ""
+    counts = day.get("change_type_counts") if isinstance(day.get("change_type_counts"), dict) else {}
+    date = str(day.get("date", "")).strip()
+    previous_date = str(day.get("previous_date", "")).strip()
+    comparison = f"Compared with {previous_date}" if previous_date else "Latest completed comparison"
+    new_availability = int(counts.get("new_availability", 0) or 0)
+    regressions = int(counts.get("regression", 0) or 0)
+    parked = int(day.get("parked_unknown_changes", counts.get("status_change", 0)) or 0)
+    context_html = (
+        '<p class="daily-summary-context"><strong>7-day context</strong> '
+        f'{html.escape(context.removeprefix("7-day context "))}</p>'
+        if context
+        else ""
+    )
+    summary_html = render_daily_summary_paragraphs(summary)
+    return f"""<section class="daily-summary" aria-label="Daily executive summary">
+        <div class="daily-summary-heading">
+          <div>
+            <span class="daily-summary-kicker">Daily executive summary</span>
+            <h3>What changed on {html.escape(date)}</h3>
+          </div>
+          <span class="daily-summary-comparison">{html.escape(comparison)}</span>
+        </div>
+        <div class="daily-summary-counts" aria-label="Daily change counts">
+          <div><strong>{new_availability:,}</strong><span>New listings</span></div>
+          <div><strong>{regressions:,}</strong><span>Regressions</span></div>
+          <div><strong>{parked:,}</strong><span>Parked unknown</span></div>
+        </div>
+        {summary_html}
+        {context_html}
+      </section>"""
+
+
 def _render_narrative_banner(day: dict[str, Any]) -> str:
     narrative = str(day.get("narrative", "")).strip()
     if not narrative:
@@ -1797,10 +1836,13 @@ def _render_narrative_banner(day: dict[str, Any]) -> str:
     else:
         content = "".join(f"<p>{html.escape(paragraph)}</p>" for paragraph in paragraphs)
 
-    return f"""<div class="narrative" aria-label="Latest change summary">
-        <span class="narrative-badge">{html.escape(label)}</span>
+    return f"""<details class="narrative" aria-label="Detailed change digest">
+        <summary>
+          <span class="narrative-badge">{html.escape(label)}</span>
+          <strong>Detailed change digest</strong>
+        </summary>
         <div class="narrative-body">{content}</div>
-      </div>"""
+      </details>"""
 
 
 def _render_history_resources_panel(recent_changes: dict[str, Any] | None) -> str:
@@ -1849,7 +1891,7 @@ def _render_change_highlights(highlights: object) -> str:
         return '<span class="change-highlights">No changes detected.</span>'
 
     rendered = []
-    for item in highlights[:3]:
+    for item in highlights[:4]:
         if not isinstance(item, dict):
             continue
         region = str(item.get("region", ""))

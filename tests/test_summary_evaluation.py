@@ -7,10 +7,10 @@ def test_evaluation_compares_production_and_candidate_with_cost_latency_and_qual
     cases = load_cases(Path("tests/fixtures/summary_evaluation_cases.json"))
     text = "Azure AI model listed.\n\nWhat this means for Azure users: review regional planning."
     responses = {
-        "gpt-5.4-mini": {
+        "summary-gpt-5-6-terra": {
             "ai-model": {"text": text, "latency_ms": 125, "input_tokens": 100, "output_tokens": 20}
         },
-        "gpt-5.4": {
+        "gpt-5.4-mini": {
             "ai-model": {"text": text, "latency_ms": 150, "input_tokens": 110, "output_tokens": 25}
         },
     }
@@ -22,9 +22,9 @@ def test_evaluation_compares_production_and_candidate_with_cost_latency_and_qual
         output_cost_per_million=8.0,
     )
 
-    production = report["deployments"]["gpt-5.4-mini"]
-    candidate = report["deployments"]["gpt-5.4"]
-    assert report["production_deployment"] == "gpt-5.4-mini"
+    production = report["deployments"]["summary-gpt-5-6-terra"]
+    candidate = report["deployments"]["gpt-5.4-mini"]
+    assert report["production_deployment"] == "summary-gpt-5-6-terra"
     assert production["contract_pass_rate"] == 1.0
     assert production["groundedness_pass_rate"] == 1.0
     assert production["mean_latency_ms"] == 125.0

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Executive summary visual draft</title>
+  <title>Daily executive summary visual draft</title>
   <style>
     :root {
       color-scheme: light;
@@ -80,11 +80,11 @@
 </head>
 <body>
   <main>
-    <h1>Executive summary visual draft</h1>
+    <h1>Daily executive summary visual draft</h1>
     <p class="intro">
-      This review artifact shows the proposed presentation of the new longer-term
-      availability signal. Sample counts are illustrative; the live dashboard and blog
-      calculate them from published read-only catalog/list evidence.
+      This review artifact shows a day-first summary with a bounded seven-day trend.
+      Sample counts are illustrative; the live dashboard and blog calculate them from
+      published read-only catalog/list evidence.
     </p>
 
     <h2>Home page: Recent Availability Signals</h2>
@@ -92,23 +92,28 @@
       <section class="example" aria-label="Home page before">
         <p class="label">Before</p>
         <h3>Recent Availability Signals</h3>
-        <p class="muted">Today plus previous clear signal days; unknown transitions are parked</p>
+        <p class="muted">An unbounded aggregate obscured the latest scan</p>
+        <aside class="note">
+          <strong>Executive summary</strong>
+          Across every retained change day, the monitor recorded a large lifetime total.
+        </aside>
         <div class="row"><span>2026-07-03</span><span>2 new</span><span>0 regressions</span></div>
-        <div class="row"><span>2026-07-01</span><span>0 new</span><span>1 regression</span></div>
+        <div class="row"><span>2026-07-02</span><span>0 new</span><span>1 regression</span></div>
       </section>
       <section class="example" aria-label="Home page after">
         <p class="label">After</p>
         <h3>Recent Availability Signals</h3>
-        <p class="muted">Today plus previous clear signal days; unknown transitions are parked</p>
+        <p class="muted">Latest daily scans; unknown transitions are counted separately</p>
         <aside class="note">
-          <strong>Executive summary</strong>
-          Across 2 published change days (2026-07-01 through 2026-07-03), the monitor
-          recorded 2 new availability signals and 1 regression. The longer-term signal is
-          more newly listed availability than regressions. These are read-only catalog/list
-          signals, not quota or deployment results.
+          <strong>Daily executive summary</strong>
+          Compared with the 2026-07-02 snapshot, the 2026-07-03 scan recorded 2 new
+          listings and no regressions. Review regressions first when present; treat new
+          listings as options to validate, not proof of deployability.
+          <p class="muted"><strong>7-day context</strong> The weekly direction is shown only
+          when multiple scans exist inside the seven-day window.</p>
         </aside>
         <div class="row"><span>2026-07-03</span><span>2 new</span><span>0 regressions</span></div>
-        <div class="row"><span>2026-07-01</span><span>0 new</span><span>1 regression</span></div>
+        <div class="row"><span>2026-07-02</span><span>0 new</span><span>1 regression</span></div>
       </section>
     </div>
 
@@ -124,12 +129,12 @@
         <p class="label">After</p>
         <h3>New regional availability signals</h3>
         <p class="muted">3 July 2026 · 2 new availability · 0 regressions</p>
-        <p>Daily narrative and highlights describe the individual scan.</p>
         <aside class="note">
-          <strong>Executive summary</strong>
-          The same multi-day signal appears after the daily narrative, providing context
-          without changing the meaning of the post-level evidence.
+          <strong>Daily executive summary</strong>
+          Each dated post compares that scan with its own recorded predecessor. A separate
+          seven-day sentence adds recent context without replacing the daily story.
         </aside>
+        <p>Daily narrative and highlights provide the detailed evidence after the summary.</p>
       </section>
     </div>
   </main>

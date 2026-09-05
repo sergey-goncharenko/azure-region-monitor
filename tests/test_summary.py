@@ -115,6 +115,8 @@ def test_ai_prompt_requires_plain_language_and_azure_user_impact_section():
     assert "raw SKU, model ID, version, or feature code unexplained" in system
     assert "broader movement in the monitored Azure" in system
     assert 'beginning "What this means for Azure users:"' in system
+    assert "delta from the immediately preceding snapshot" in system
+    assert "do not replace the daily story" in system
 
 
 def test_ai_facts_include_history_classification_and_sre_impact():
@@ -178,6 +180,44 @@ def test_ai_failure_falls_back_to_rule():
     assert "eastus" in result["narrative"]
     assert "Azure AI model/version catalog entry for model selection (openai.gpt-5.2025)" in result["narrative"]
     assert "What this means for Azure users:" in result["narrative"]
+
+
+def test_rule_fallback_is_a_concise_daily_comparison():
+    changes = [
+        *[
+            _change(
+                f"region-{index}",
+                "aiModels.openai.gpt-6.test-version",
+                "unavailable",
+                "available",
+                "new_availability",
+            )
+            for index in range(30)
+        ],
+        *[
+            _change(
+                f"region-{index}",
+                "aiModels.openai.gpt-5.test-version",
+                "available",
+                "unavailable",
+                "regression",
+            )
+            for index in range(10)
+        ],
+    ]
+
+    narrative = build_change_narrative(changes)["narrative"]
+    sections = narrative.split("\n\n")
+
+    assert sections[0] == "30 new listings and 10 regressions"
+    assert sections[1].startswith("Compared with the previous daily snapshot")
+    assert sections[2].startswith("In everyday terms,")
+    assert sections[3].startswith("Regressions to review:")
+    assert sections[4].startswith("New options to validate:")
+    assert sections[5].startswith("What this means for Azure users:")
+    assert narrative.count("Example:") == 2
+    assert "and 29 more" in narrative
+    assert len(narrative.split()) < 220
 
 
 def test_ai_empty_reply_falls_back_to_rule():
@@ -359,4 +399,4 @@ def test_rule_summary_uses_history_classification_breakdown():
     assert "Coverage now ranges from 2 to 2 of 4 monitored regions" in narrative
     assert "unavailable 100.0% of prior observations" in narrative
     assert "first observed anywhere" in narrative
-    assert "SRE impact:" in narrative
+    assert "Why it matters:" in narrative

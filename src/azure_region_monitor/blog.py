@@ -10,7 +10,7 @@ from __future__ import annotations
 import html
 import json
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from email.utils import format_datetime
 from typing import Any
 
@@ -27,6 +27,32 @@ _SOCIAL_EVIDENCE_NOTE = (
 # single-paragraph rule/older summary, so it is demoted to body text and the post
 # gets a clean date-based title instead of a runaway one-line headline.
 _MAX_HEADLINE_CHARS = 110
+_TREND_DAYS = 7
+_MODALITY_LABELS = (
+    "AKS extensions",
+    "AKS Kubernetes versions",
+    "Azure Functions",
+    "Azure AI models",
+    "Model latency",
+    "Azure model latency",
+    "Container Apps",
+    "VM SKUs",
+)
+_RULE_SECTION_LABELS = (
+    *_MODALITY_LABELS,
+    "Regressions to review",
+    "New options to validate",
+    "What this means for Azure users",
+)
+_LEGACY_REGRESSION_MARKERS = (
+    "delisted",
+    "withdrawn",
+    "stopped listing",
+    "stopped advertising",
+    "stopped measuring",
+    "dropped from",
+    "deployment gone",
+)
 
 
 def split_narrative(narrative: str, source: str) -> tuple[str, list[str]]:
@@ -41,12 +67,21 @@ def split_narrative(narrative: str, source: str) -> tuple[str, list[str]]:
     if not text:
         return "", []
     blocks = [block.strip() for block in re.split(r"\n\s*\n", text) if block.strip()]
+    if source == "rule" and len(blocks) == 1:
+        labels = "|".join(re.escape(label) for label in _RULE_SECTION_LABELS)
+        blocks = [
+            block.strip()
+            for block in re.split(rf"\s+(?=(?:{labels}):)", blocks[0])
+            if block.strip()
+        ]
     headline, rest = "", blocks
     if source == "ai" and blocks:
         headline, rest = blocks[0], blocks[1:]
         if not rest and "\n" in headline:
             first, remainder = headline.split("\n", 1)
             headline, rest = first.strip(), [remainder.strip()]
+    elif source == "rule" and len(blocks) > 1 and not blocks[0].endswith(('.', '!', '?')):
+        headline, rest = blocks[0], blocks[1:]
     # Demote an over-long "headline" to body text so the title stays clean.
     if headline and len(headline) > _MAX_HEADLINE_CHARS:
         rest = [headline, *rest]
@@ -65,6 +100,11 @@ def select_blog_posts(history_index: dict[str, Any] | None) -> list[dict[str, An
     if not isinstance(history_index, dict):
         return []
     days = [day for day in history_index.get("days", []) if isinstance(day, dict)]
+    days_by_date = {
+        str(day.get("date", "")).strip(): day
+        for day in days
+        if str(day.get("date", "")).strip()
+    }
     posts: list[dict[str, Any]] = []
     for day in days:
         date = str(day.get("date", "")).strip()
@@ -90,60 +130,374 @@ def select_blog_posts(history_index: dict[str, Any] | None) -> list[dict[str, An
                 "social_drafts": day.get("social_drafts")
                 if isinstance(day.get("social_drafts"), dict)
                 else None,
+                "executive_summary": daily_executive_summary(
+                    day,
+                    days_by_date.get(str(day.get("previous_date", "")).strip()),
+                ),
+                "weekly_context": weekly_context(days, date),
             }
         )
     posts.sort(key=lambda post: post["date"], reverse=True)
-    trend = executive_summary(days)
-    for post in posts:
-        post["executive_summary"] = trend
     return posts
 
 
-def executive_summary(days: list[dict[str, Any]]) -> str:
-    """Summarize the multi-day direction of published availability signals."""
+def daily_executive_summary(
+    day: dict[str, Any], previous_day: dict[str, Any] | None = None
+) -> str:
+    """Explain one day's changes, optionally comparing its recorded predecessor."""
 
-    published_days = [
-        day
-        for day in days
-        if str(day.get("date", "")).strip()
-        and isinstance(day.get("change_type_counts"), dict)
-    ]
-    if len(published_days) < 2:
+    date = str(day.get("date", "")).strip()
+    counts = day.get("change_type_counts")
+    if not date or not isinstance(counts, dict):
         return ""
 
-    dates = sorted(str(day["date"]).strip() for day in published_days)
-    new_availability = sum(
-        _as_int(day["change_type_counts"].get("new_availability"))
-        for day in published_days
+    new_availability = _as_int(counts.get("new_availability"))
+    regressions = _as_int(counts.get("regression"))
+    parked_unknown = _as_int(
+        day.get("parked_unknown_changes", counts.get("status_change"))
     )
-    regressions = sum(
-        _as_int(day["change_type_counts"].get("regression"))
-        for day in published_days
-    )
-    if new_availability > regressions:
-        direction = "The longer-term signal is more newly listed availability than regressions."
-        visitor_impact = (
-            "For visitors, that suggests the monitor is newly listing more regional options."
-        )
-    elif regressions > new_availability:
-        direction = "The longer-term signal is more regressions than newly listed availability."
-        visitor_impact = (
-            "For visitors, that suggests the monitor no longer lists some regional options and "
-            "placement plans may need more alternatives."
+    previous_date = str(day.get("previous_date", "")).strip()
+    if previous_date:
+        opening = (
+            f"Compared with the {previous_date} snapshot, the {date} scan recorded "
+            f"{new_availability:,} new {_plural(new_availability, 'listing')}, "
+            f"{regressions:,} {_plural(regressions, 'regression')}, and "
+            f"{parked_unknown:,} parked unknown {_plural(parked_unknown, 'transition')}."
         )
     else:
-        direction = "The longer-term signal is balanced between newly listed availability and regressions."
-        visitor_impact = (
-            "For visitors, that suggests the regional menu is changing in both directions rather "
-            "than simply expanding."
+        opening = (
+            f"The {date} scan recorded {new_availability:,} new "
+            f"{_plural(new_availability, 'listing')}, {regressions:,} "
+            f"{_plural(regressions, 'regression')}, and {parked_unknown:,} parked unknown "
+            f"{_plural(parked_unknown, 'transition')}."
         )
-    return (
-        f"Across {len(published_days):,} published change days ({dates[0]} through {dates[-1]}), "
-        f"the monitor recorded {new_availability:,} new availability signals and "
-        f"{regressions:,} {'regression' if regressions == 1 else 'regressions'}. "
-        f"{direction} {visitor_impact} These are read-only catalog/list signals, "
-        "not quota or deployment results."
+
+    comparison = ""
+    if previous_day and isinstance(previous_day.get("change_type_counts"), dict):
+        previous_counts = previous_day["change_type_counts"]
+        comparison = " ".join(
+            (
+                _count_comparison(
+                    "New listings",
+                    new_availability,
+                    _as_int(previous_counts.get("new_availability")),
+                ),
+                _count_comparison(
+                    "Regressions",
+                    regressions,
+                    _as_int(previous_counts.get("regression")),
+                ),
+            )
+        )
+
+    classifications = _classification_summary(day.get("change_context_counts"))
+    if regressions and new_availability:
+        meaning = (
+            f"Review the {regressions:,} {_plural(regressions, 'regression')} against existing "
+            f"regional targets and fallbacks first; treat the {new_availability:,} new "
+            f"{_plural(new_availability, 'listing')} as options to validate."
+        )
+    elif regressions:
+        meaning = (
+            f"Review the {regressions:,} {_plural(regressions, 'regression')} against existing "
+            "regional targets and fallbacks."
+        )
+    elif new_availability:
+        meaning = (
+            f"The {new_availability:,} new {_plural(new_availability, 'listing')} expand the "
+            "set of regional options to validate."
+        )
+    else:
+        meaning = "No clear rollout or regression signal was recorded for this scan."
+
+    comparison_block = " ".join(part for part in (opening, comparison) if part)
+    modality_counts = day.get("change_modality_counts")
+    if not isinstance(modality_counts, dict):
+        modality_counts = _legacy_modality_counts(str(day.get("narrative", "")))
+    modalities = _modality_summary(modality_counts)
+    representatives = _representative_changes(
+        day.get("highlights"), str(day.get("narrative", ""))
     )
+    meaning_block = (
+        f"What this means: {meaning} These are read-only catalog/list signals, not quota, "
+        "capacity, or deployment results."
+    )
+    return "\n\n".join(
+        part
+        for part in (
+            comparison_block,
+            modalities,
+            representatives,
+            classifications,
+            meaning_block,
+        )
+        if part
+    )
+
+
+def weekly_context(days: list[dict[str, Any]], target_date: str) -> str:
+    """Summarize at most the seven calendar days ending on target_date."""
+
+    try:
+        end = datetime.fromisoformat(target_date).date()
+    except ValueError:
+        return ""
+    start = end - timedelta(days=_TREND_DAYS - 1)
+    window: list[dict[str, Any]] = []
+    for day in days:
+        try:
+            day_date = datetime.fromisoformat(str(day.get("date", ""))).date()
+        except ValueError:
+            continue
+        if start <= day_date <= end and isinstance(day.get("change_type_counts"), dict):
+            window.append(day)
+    if len(window) < 2:
+        return ""
+
+    new_availability = sum(
+        _as_int(day["change_type_counts"].get("new_availability")) for day in window
+    )
+    regressions = sum(
+        _as_int(day["change_type_counts"].get("regression")) for day in window
+    )
+    expansion_led = sum(
+        _as_int(day["change_type_counts"].get("new_availability"))
+        > _as_int(day["change_type_counts"].get("regression"))
+        for day in window
+    )
+    regression_led = sum(
+        _as_int(day["change_type_counts"].get("regression"))
+        > _as_int(day["change_type_counts"].get("new_availability"))
+        for day in window
+    )
+    if expansion_led and regression_led:
+        pattern = (
+            f"New listings led on {expansion_led} {_plural(expansion_led, 'scan')}; "
+            f"regressions led on {regression_led}."
+        )
+    elif expansion_led:
+        pattern = f"New listings led on all {expansion_led} recorded {_plural(expansion_led, 'scan')}."
+    elif regression_led:
+        pattern = f"Regressions led on all {regression_led} recorded {_plural(regression_led, 'scan')}."
+    else:
+        pattern = "New listings and regressions were balanced on the recorded scans."
+    return (
+        f"7-day context ({start.isoformat()} to {end.isoformat()}): across "
+        f"{len(window)} recorded {_plural(len(window), 'scan')}, there were "
+        f"{new_availability:,} new {_plural(new_availability, 'listing')} and "
+        f"{regressions:,} {_plural(regressions, 'regression')}. {pattern}"
+    )
+
+
+def _count_comparison(label: str, current: int, previous: int) -> str:
+    if current == previous:
+        return f"{label} held at {current:,}."
+    direction = "rose" if current > previous else "fell"
+    return f"{label} {direction} from {previous:,} to {current:,}."
+
+
+def _classification_summary(value: object) -> str:
+    if not isinstance(value, dict):
+        return ""
+    labels = (
+        ("deprecation_candidate", "deprecation candidate"),
+        ("recurring_regression", "recurring disappearance"),
+        ("net_new_availability", "net-new regional listing"),
+        ("restored_availability", "restored regional listing"),
+    )
+    parts = [
+        f"{_as_int(value.get(key)):,} {_plural(_as_int(value.get(key)), label)}"
+        for key, label in labels
+        if _as_int(value.get(key))
+    ]
+    return f"What changed: {', '.join(parts)}." if parts else ""
+
+
+def _modality_summary(value: object) -> str:
+    if not isinstance(value, dict):
+        return ""
+    groups: list[tuple[int, str]] = []
+    for modality, raw_counts in value.items():
+        if not isinstance(raw_counts, dict):
+            continue
+        additions = _as_int(raw_counts.get("new_availability"))
+        regressions = _as_int(raw_counts.get("regression"))
+        if not additions and not regressions:
+            continue
+        text = (
+            f"{modality}: {additions:,} new {_plural(additions, 'listing')}, "
+            f"{regressions:,} {_plural(regressions, 'regression')}"
+        )
+        groups.append((additions + regressions, text))
+    groups.sort(key=lambda item: (-item[0], item[1]))
+    if not groups:
+        return ""
+    shown = [text for _, text in groups[:3]]
+    remaining = len(groups) - len(shown)
+    suffix = f"; and {remaining} other {_plural(remaining, 'area')}" if remaining else ""
+    return f"Where it changed: {'; '.join(shown)}{suffix}."
+
+
+def _legacy_rule_sections(narrative: str) -> list[tuple[str, str, str]]:
+    _, paragraphs = split_narrative(narrative, "rule")
+    sections: list[tuple[str, str, str]] = []
+    for paragraph in paragraphs:
+        modality = next(
+            (label for label in _MODALITY_LABELS if paragraph.startswith(f"{label}:")),
+            "",
+        )
+        if not modality:
+            continue
+        lowered = paragraph.lower()
+        change_type = (
+            "regression"
+            if any(marker in lowered for marker in _LEGACY_REGRESSION_MARKERS)
+            else "new_availability"
+        )
+        sections.append((modality, change_type, paragraph))
+    return sections
+
+
+def _legacy_modality_counts(narrative: str) -> dict[str, dict[str, int]]:
+    counts: dict[str, dict[str, int]] = {}
+    for modality, change_type, paragraph in _legacy_rule_sections(narrative):
+        match = re.search(r"\(([\d,]+) signals?;", paragraph)
+        if not match:
+            continue
+        modality_counts = counts.setdefault(
+            modality,
+            {"new_availability": 0, "regression": 0},
+        )
+        modality_counts[change_type] += _as_int(match.group(1).replace(",", ""))
+    return counts
+
+
+def _representative_changes(value: object, narrative: str = "") -> str:
+    examples: list[str] = []
+    seen: set[tuple[str, str, str]] = set()
+    items = value if isinstance(value, list) else []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        change_type = str(item.get("change_type", ""))
+        modality = str(item.get("modality", ""))
+        feature = str(item.get("feature", ""))
+        key = (change_type, modality, _normalized_feature_key(feature))
+        if not feature or key in seen:
+            continue
+        seen.add(key)
+        action = "was newly listed" if change_type == "new_availability" else "was no longer listed"
+        coverage_delta = abs(_as_int(item.get("feature_coverage_delta")))
+        region = str(item.get("region", "")).strip()
+        if coverage_delta > 1:
+            location = f"in {coverage_delta:,} regions"
+        elif region:
+            location = f"in {region}"
+        else:
+            location = "in the monitored catalog"
+        examples.append(f"{_plain_feature_name(feature)} {action} {location}")
+        if len(examples) == 3:
+            break
+    for modality, change_type, paragraph in _legacy_rule_sections(narrative):
+        if len(examples) == 3:
+            break
+        example_match = re.search(r"Examples?:\s*([^;]+)", paragraph)
+        if not example_match:
+            continue
+        identifiers = re.findall(r"\(([^()]*)\)", example_match.group(1))
+        if not identifiers:
+            continue
+        feature = _legacy_feature_key(modality, identifiers[-1])
+        key = (change_type, modality, _normalized_feature_key(feature))
+        if key in seen:
+            continue
+        seen.add(key)
+        action = (
+            "was among the new regional listings"
+            if change_type == "new_availability"
+            else "was among the listings no longer present"
+        )
+        examples.append(f"{_plain_feature_name(feature)} {action}")
+    return f"Representative changes: {'; '.join(examples)}." if examples else ""
+
+
+def _legacy_feature_key(modality: str, identifier: str) -> str:
+    prefixes = {
+        "AKS extensions": "extensionTypes.",
+        "AKS Kubernetes versions": "kubernetesVersions.",
+        "Azure Functions": "runtimes.",
+        "Azure AI models": "aiModels.",
+        "Container Apps": "containerApps.",
+        "VM SKUs": "vmSkus.",
+    }
+    return f"{prefixes.get(modality, '')}{identifier}"
+
+
+def _normalized_feature_key(feature: str) -> str:
+    return feature.lower().replace("vmskus.standard.", "vmskus.")
+
+
+def _plain_feature_name(feature: str) -> str:
+    if feature.startswith("aiModels."):
+        parts = feature.removeprefix("aiModels.").split(".")
+        publisher = parts[0] if parts else "unknown"
+        model_parts = parts[1:-1] if len(parts) > 2 else parts[1:]
+        model = ".".join(model_parts) or "unknown"
+        version = parts[-1] if len(parts) > 2 else ""
+        publisher_name = {
+            "anthropic": "Anthropic",
+            "meta": "Meta",
+            "microsoft": "Microsoft",
+            "moonshotai": "Moonshot AI",
+            "openai": "OpenAI",
+            "xai": "xAI",
+        }.get(publisher.lower(), publisher)
+        version_text = f" (version {version})" if version else ""
+        return f"{_display_model_name(model)} model from {publisher_name}{version_text}"
+    if feature.startswith("vmSkus."):
+        sku = " ".join(
+            part.capitalize()
+            for part in feature.removeprefix("vmSkus.").split(".")
+        )
+        return f"{sku} VM size"
+    if feature.startswith("kubernetesVersions."):
+        return f"AKS {feature.removeprefix('kubernetesVersions.')}"
+    if feature.startswith("extensionTypes."):
+        return f"{feature.removeprefix('extensionTypes.')} AKS extension"
+    if feature.startswith("runtimes."):
+        return f"{feature.removeprefix('runtimes.').replace('.', ' ')} Functions runtime"
+    if feature.startswith("containerApps."):
+        return f"{feature.removeprefix('containerApps.')} Container Apps capability"
+    return feature
+
+
+def _display_model_name(model: str) -> str:
+    parts = model.split("-")
+    display_parts = []
+    for part in parts:
+        lowered = part.lower()
+        if lowered == "gpt":
+            display_parts.append("GPT")
+        elif re.fullmatch(r"k\d+", lowered):
+            display_parts.append(lowered.upper())
+        elif lowered in {
+            "astra",
+            "claude",
+            "fable",
+            "haiku",
+            "kimi",
+            "mythos",
+            "opus",
+            "sonnet",
+        }:
+            display_parts.append(lowered.title())
+        else:
+            display_parts.append(part)
+    if len(display_parts) >= 2 and display_parts[0] == "GPT":
+        return "-".join(display_parts[:2]) + (
+            f" {' '.join(display_parts[2:])}" if len(display_parts) > 2 else ""
+        )
+    return " ".join(display_parts)
 
 
 def _excerpt(post: dict[str, Any]) -> str:
@@ -156,6 +510,30 @@ def _excerpt(post: dict[str, Any]) -> str:
     if len(body) <= _EXCERPT_CHARS:
         return body
     return body[:_EXCERPT_CHARS].rsplit(" ", 1)[0].rstrip(",.;:") + "…"
+
+
+def render_daily_summary_paragraphs(summary: str) -> str:
+    labels = (
+        "Where it changed:",
+        "Representative changes:",
+        "What changed:",
+        "What this means:",
+    )
+    paragraphs = []
+    for paragraph in summary.split("\n\n"):
+        paragraph = paragraph.strip()
+        if not paragraph:
+            continue
+        label = next((candidate for candidate in labels if paragraph.startswith(candidate)), "")
+        if label:
+            remainder = paragraph.removeprefix(label).strip()
+            paragraphs.append(
+                f'<p class="daily-summary-text"><strong>{html.escape(label)}</strong> '
+                f"{html.escape(remainder)}</p>"
+            )
+        else:
+            paragraphs.append(f'<p class="daily-summary-text">{html.escape(paragraph)}</p>')
+    return "".join(paragraphs)
 
 
 def render_social_drafts(
@@ -421,8 +799,9 @@ def _nav() -> str:
 
 def render_blog_index(posts: list[dict[str, Any]], site_url: str, style_block: str) -> str:
     canonical = f"{site_url}/{BLOG_DIR}/"
-    trend = str(posts[0].get("executive_summary", "")) if posts else ""
-    trend_section = _render_executive_summary(trend)
+    summary = str(posts[0].get("executive_summary", "")) if posts else ""
+    context = str(posts[0].get("weekly_context", "")) if posts else ""
+    trend_section = _render_executive_summary(summary, context)
     if posts:
         cards = "\n".join(_render_index_card(post) for post in posts)
         body_inner = f'<div class="blog-list">{cards}</div>'
@@ -493,7 +872,10 @@ def render_blog_post(
         paragraphs = f"<p>{html.escape(post['title'])}</p>"
     highlights = _render_highlights(post.get("highlights", []))
     prev_next = _render_prev_next(newer, older)
-    trend_section = _render_executive_summary(str(post.get("executive_summary", "")))
+    trend_section = _render_executive_summary(
+        str(post.get("executive_summary", "")),
+        str(post.get("weekly_context", "")),
+    )
     body = f"""    <header>
       <div>
         <h1 class="blog-post-title">{html.escape(headline)}</h1>
@@ -506,8 +888,8 @@ def render_blog_post(
     </header>
     <article class="panel blog-post">
       <div class="blog-post-counts">{_counts_line(post)}</div>
-      <div class="blog-post-body">{paragraphs}</div>
       {trend_section}
+            <div class="blog-post-body">{paragraphs}</div>
       {highlights}
     </article>
     {prev_next}
@@ -528,13 +910,20 @@ def render_blog_post(
     )
 
 
-def _render_executive_summary(summary: str) -> str:
+def _render_executive_summary(summary: str, context: str = "") -> str:
     if not summary:
         return ""
+    context_html = (
+        f'<p class="weekly-context"><strong>7-day context</strong> '
+        f'{html.escape(context.removeprefix("7-day context "))}</p>'
+        if context
+        else ""
+    )
+    summary_html = render_daily_summary_paragraphs(summary)
     return (
-        '<section class="note" aria-label="Executive summary">'
-        "<strong>Executive summary</strong>"
-        f"<p>{html.escape(summary)}</p>"
+        '<section class="daily-summary blog-daily-summary" aria-label="Daily executive summary">'
+        '<span class="daily-summary-kicker">Daily executive summary</span>'
+        f"{summary_html}{context_html}"
         "</section>"
     )
 

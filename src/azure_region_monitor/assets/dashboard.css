@@ -104,9 +104,27 @@
     .change-count-new, .change-highlight-new { color: var(--available-text); }
     .change-count-regression, .change-highlight-regression { color: var(--unavailable-text); }
     .change-count-parked { color: var(--unknown-text); }
-    .narrative { display: flex; gap: calc(var(--space-unit) * 6); align-items: flex-start; background: #eef5ff; border: var(--border-width) solid #bcd4f6; border-radius: var(--radius-md); padding: calc(var(--space-unit) * 6) calc(var(--space-unit) * 7); margin: 0 0 calc(var(--space-unit) * 7); }
+    .daily-summary { padding: calc(var(--space-unit) * 7); border-top: var(--border-width) solid var(--line); border-bottom: var(--border-width) solid var(--line); background: #f7fbff; }
+    .daily-summary-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: calc(var(--space-unit) * 6); }
+    .daily-summary-heading h3 { margin: var(--space-unit) 0 0; font-size: 20px; color: #102f4f; }
+    .daily-summary-kicker { color: #0f5d87; font-size: 12px; font-weight: 750; text-transform: uppercase; }
+    .daily-summary-comparison { color: var(--muted); font-size: 13px; }
+    .daily-summary-counts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: calc(var(--space-unit) * 6) 0; border-top: var(--border-width) solid var(--line); border-bottom: var(--border-width) solid var(--line); }
+    .daily-summary-counts div { display: flex; flex-direction: column; gap: var(--space-unit); padding: calc(var(--space-unit) * 5) calc(var(--space-unit) * 6); border-left: var(--border-width) solid var(--line); }
+    .daily-summary-counts div:first-child { border-left: 0; }
+    .daily-summary-counts strong { font-size: 23px; line-height: 1; color: #102f4f; }
+    .daily-summary-counts span { color: var(--muted); font-size: 12px; }
+    .daily-summary-text, .daily-summary-context { max-width: 90ch; margin: 0; color: var(--text); line-height: 1.55; }
+    .daily-summary-text + .daily-summary-text { margin-top: calc(var(--space-unit) * 3); }
+    .daily-summary-text strong { color: #17365d; }
+    .daily-summary-context { margin-top: calc(var(--space-unit) * 4); color: var(--muted); font-size: 13px; }
+    .daily-summary-context strong { color: #0f5d87; margin-right: calc(var(--space-unit) * 2); }
+    .blog-daily-summary { margin: calc(var(--space-unit) * 6) 0; }
+    .blog-daily-summary > p { margin-top: calc(var(--space-unit) * 3); }
+    .narrative { background: #eef5ff; border-bottom: var(--border-width) solid #bcd4f6; padding: calc(var(--space-unit) * 5) calc(var(--space-unit) * 7); margin: 0 0 calc(var(--space-unit) * 7); }
+    .narrative summary { display: flex; gap: calc(var(--space-unit) * 4); align-items: center; cursor: pointer; color: #0f2f52; list-style-position: inside; }
     .narrative p { margin: 0; color: #163a63; font-size: 15px; line-height: 1.5; }
-    .narrative-body { display: flex; flex-direction: column; gap: calc(var(--space-unit) * 4); }
+    .narrative-body { display: flex; flex-direction: column; gap: calc(var(--space-unit) * 4); padding-top: calc(var(--space-unit) * 5); }
     .narrative-headline { font-weight: 700; font-size: 16px; color: #0f2f52; }
     .narrative-badge { flex: none; background: #0f4c81; color: #fff; border-radius: var(--radius-round); padding: calc(var(--space-unit) * 1.5) calc(var(--space-unit) * 5); font-size: 12px; font-weight: 700; letter-spacing: 0.02em; }
     .blog-list { display: flex; flex-direction: column; gap: calc(var(--space-unit) * 7); }
@@ -213,6 +231,10 @@
 
 /* Responsive adjustments for small screens */
 @media (max-width: 600px) {
+  .daily-summary-heading { align-items: flex-start; flex-direction: column; gap: calc(var(--space-unit) * 2); }
+  .daily-summary-counts { grid-template-columns: 1fr; }
+  .daily-summary-counts div { border-left: 0; border-top: var(--border-width) solid var(--line); }
+  .daily-summary-counts div:first-child { border-top: 0; }
   .layout { grid-template-columns: 1fr; }
   .metrics { grid-template-columns: repeat(2, minmax(130px, 1fr)); }
   .toolbar { grid-template-columns: repeat(2, minmax(140px, 1fr)); }

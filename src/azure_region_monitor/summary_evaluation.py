@@ -8,7 +8,7 @@ from typing import Mapping, Protocol
 
 from azure_region_monitor.summary import _is_supported_narrative
 
-PRODUCTION_DEPLOYMENT = "gpt-5.4-mini"
+PRODUCTION_DEPLOYMENT = "summary-gpt-5-6-terra"
 
 
 class SummaryEvaluatorClient(Protocol):

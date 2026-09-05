@@ -275,6 +275,7 @@ def _build_day_summary(
         "status_counts": status_counts,
         "summary_counts": _summary_counts(current, status_counts),
         "modality_counts": _modality_counts(current),
+        "change_modality_counts": _change_modality_counts(changes),
         "change_context_counts": _change_context_counts(change_contexts or {}),
         "narrative": (narrative or {}).get("narrative", ""),
         "editorial_excerpt": (narrative or {}).get("editorial_excerpt", ""),
@@ -297,22 +298,22 @@ def _build_day_summary(
 
 
 def _recent_change_days(days: list[dict[str, Any]], current_date: str) -> list[dict[str, Any]]:
-    current = next((day for day in days if day.get("date") == current_date), None)
-    previous_change_days = [
-        day
-        for day in days
-        if day.get("date") != current_date and _clear_signal_count(day) > 0
+    del current_date
+    return sorted(days, key=lambda day: str(day.get("date", "")), reverse=True)[
+        :RECENT_CHANGE_DAYS
     ]
-    if current is None:
-        return previous_change_days[:RECENT_CHANGE_DAYS]
-    return [current, *previous_change_days][:RECENT_CHANGE_DAYS]
 
 
-def _clear_signal_count(day: dict[str, Any]) -> int:
-    counts = day.get("change_type_counts")
-    if not isinstance(counts, dict):
-        return 0
-    return int(counts.get("new_availability", 0)) + int(counts.get("regression", 0))
+def _change_modality_counts(changes: list[Change]) -> dict[str, dict[str, int]]:
+    counts: dict[str, dict[str, int]] = {}
+    for change in changes:
+        modality = _feature_category(change.feature)
+        modality_counts = counts.setdefault(
+            modality,
+            {"new_availability": 0, "regression": 0, "status_change": 0},
+        )
+        modality_counts[change.change_type] = modality_counts.get(change.change_type, 0) + 1
+    return dict(sorted(counts.items()))
 
 
 def _highlight_changes(changes: list[Change]) -> list[Change]:
@@ -320,15 +321,30 @@ def _highlight_changes(changes: list[Change]) -> list[Change]:
     clear_signal_changes = [
         change for change in changes if change.change_type in {"regression", "new_availability"}
     ]
-    return sorted(
+    ordered = sorted(
         clear_signal_changes,
         key=lambda change: (
             priority.get(change.change_type, 3),
-            change.region,
             _feature_category(change.feature),
             change.feature,
+            change.region,
         ),
-    )[:CHANGE_HIGHLIGHTS]
+    )
+    groups: dict[tuple[str, str], list[Change]] = {}
+    for change in ordered:
+        groups.setdefault(
+            (change.change_type, _feature_category(change.feature)), []
+        ).append(change)
+
+    selected: list[Change] = []
+    while groups and len(selected) < CHANGE_HIGHLIGHTS:
+        for key in list(groups):
+            selected.append(groups[key].pop(0))
+            if not groups[key]:
+                del groups[key]
+            if len(selected) == CHANGE_HIGHLIGHTS:
+                break
+    return selected
 
 
 def _parked_unknown_change_count(changes: list[Change]) -> int:

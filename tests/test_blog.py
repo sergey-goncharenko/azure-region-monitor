@@ -1,12 +1,13 @@
 from azure_region_monitor.blog import (
     blog_sitemap_entries,
-    executive_summary,
+    daily_executive_summary,
     render_blog_feed,
     render_blog_index,
     render_blog_post,
     render_social_drafts,
     select_blog_posts,
     split_narrative,
+    weekly_context,
 )
 
 SITE = "https://azwatch.operator.lat"
@@ -27,6 +28,8 @@ def _day(
     highlights=None,
     excerpt="",
     social_drafts=None,
+    previous_date=None,
+    classifications=None,
 ):
     day = {
         "date": date,
@@ -36,6 +39,10 @@ def _day(
         "parked_unknown_changes": parked,
         "highlights": highlights or [],
     }
+    if previous_date:
+        day["previous_date"] = previous_date
+    if classifications:
+        day["change_context_counts"] = classifications
     if excerpt:
         day["editorial_excerpt"] = excerpt
     if social_drafts is not None:
@@ -59,6 +66,36 @@ def test_split_narrative_rule_has_no_headline():
     headline, paragraphs = split_narrative("Latest scan: 3 signals.", "rule")
     assert headline == ""
     assert paragraphs == ["Latest scan: 3 signals."]
+
+
+def test_split_narrative_reflows_legacy_rule_digest_by_section():
+    narrative = (
+        "Latest scan: 12 new availability signals and 3 regressions. "
+        "Azure AI models: models rolled out. Examples: eastus. "
+        "VM SKUs: VM sizes withdrawn. Examples: westus. "
+        "What this means for Azure users: review targets."
+    )
+
+    headline, paragraphs = split_narrative(narrative, "rule")
+
+    assert headline == ""
+    assert len(paragraphs) == 4
+    assert paragraphs[1].startswith("Azure AI models:")
+    assert paragraphs[2].startswith("VM SKUs:")
+    assert paragraphs[3].startswith("What this means for Azure users:")
+
+
+def test_split_narrative_uses_sectioned_rule_headline():
+    headline, paragraphs = split_narrative(
+        "12 new listings and 3 regressions\n\nCompared with yesterday.\n\nWhat this means for Azure users: review targets.",
+        "rule",
+    )
+
+    assert headline == "12 new listings and 3 regressions"
+    assert paragraphs == [
+        "Compared with yesterday.",
+        "What this means for Azure users: review targets.",
+    ]
 
 
 def test_split_narrative_demotes_overlong_single_block_headline():
@@ -92,26 +129,131 @@ def test_select_blog_posts_filters_and_sorts_newest_first():
     assert posts[0]["slug"] == "blog/2026-07-03.html"
 
 
-def test_executive_summary_aggregates_multiple_published_days():
-    summary = executive_summary(
-        [
-            _day("2026-07-03", "Newer\n\nBody.", new=4, reg=1),
-            _day("2026-07-01", "Older\n\nBody.", new=2, reg=3),
-        ]
+def test_daily_executive_summary_compares_one_day_with_its_predecessor():
+    previous = _day("2026-07-02", "Older\n\nBody.", new=2, reg=0)
+    current = _day(
+        "2026-07-03",
+        "Newer\n\nBody.",
+        new=4,
+        reg=1,
+        previous_date="2026-07-02",
+        classifications={"deprecation_candidate": 1, "net_new_availability": 4},
     )
+    current["change_modality_counts"] = {
+        "VM SKUs": {"new_availability": 3, "regression": 0},
+        "Azure AI models": {"new_availability": 1, "regression": 1},
+    }
+    current["highlights"] = [
+        {
+            "change_type": "regression",
+            "modality": "Azure AI models",
+            "feature": "aiModels.moonshotai.kimi-k3.2026-07-29",
+            "feature_coverage_delta": -31,
+            "region": "australiaeast",
+        },
+        {
+            "change_type": "regression",
+            "modality": "Azure AI models",
+            "feature": "aiModels.moonshotai.kimi-k3.2026-07-29",
+            "feature_coverage_delta": -31,
+            "region": "brazilsouth",
+        },
+        {
+            "change_type": "new_availability",
+            "modality": "VM SKUs",
+            "feature": "vmSkus.standard.ncads.h100.v5",
+            "feature_coverage_delta": 1,
+            "region": "eastus",
+        },
+    ]
+    summary = daily_executive_summary(current, previous)
 
-    assert "2 published change days (2026-07-01 through 2026-07-03)" in summary
-    assert "6 new availability signals and 4 regressions" in summary
-    assert "more newly listed availability than regressions" in summary
-    assert "monitor is newly listing more regional options" in summary
-    assert "quota or deployment results" in summary
+    assert "Compared with the 2026-07-02 snapshot, the 2026-07-03 scan" in summary
+    assert "4 new listings, 1 regression" in summary
+    assert "New listings rose from 2 to 4" in summary
+    assert "Regressions rose from 0 to 1" in summary
+    assert "Where it changed: VM SKUs: 3 new listings, 0 regressions" in summary
+    assert "Azure AI models: 1 new listing, 1 regression" in summary
+    assert "Representative changes: Kimi K3 model from Moonshot AI (version 2026-07-29)" in summary
+    assert "was no longer listed in 31 regions" in summary
+    assert "Standard Ncads H100 V5 VM size was newly listed in eastus" in summary
+    assert summary.count("Kimi K3 model") == 1
+    assert "What changed: 1 deprecation candidate, 4 net-new regional listings" in summary
+    assert "\n\nWhat changed:" in summary
+    assert "\n\nWhat this means:" in summary
+    assert "not quota, capacity, or deployment results" in summary
 
 
-def test_blog_index_and_posts_render_the_executive_summary():
+def test_daily_summary_recovers_additions_from_legacy_rule_narrative():
+    day = _day(
+        "2026-09-05",
+        (
+            "Latest scan: 453 new availability signals and 41 regressions. "
+            "Azure AI models: models/versions delisted (31 signals; 31 deprecation candidates). "
+            "Examples: australiaeast · model (moonshotai.kimi-k3.2026-07-29). "
+            "VM SKUs: VM sizes withdrawn (10 signals; 10 deprecation candidates). "
+            "Examples: indiasouthcentral · VM size (m128dms.v2). "
+            "Azure AI models: newer models/versions rolling out (29 signals; 29 net-new listings). "
+            "Examples: australiaeast · model (openai.gpt-6-astra.2026-09-03). "
+            "VM SKUs: VM sizes now offered (424 signals; 422 net-new listings). "
+            "Examples: centraluseuap · VM size (ng16ads.v620.v1)."
+        ),
+        source="rule",
+        new=453,
+        reg=41,
+        previous_date="2026-09-04",
+    )
+    day["highlights"] = [
+        {
+            "change_type": "regression",
+            "modality": "Azure AI models",
+            "feature": "aiModels.moonshotai.kimi-k3.2026-07-29",
+            "feature_coverage_delta": -31,
+            "region": "australiaeast",
+        },
+        {
+            "change_type": "regression",
+            "modality": "VM SKUs",
+            "feature": "vmSkus.standard.m128dms.v2",
+            "feature_coverage_delta": -1,
+            "region": "indiasouthcentral",
+        },
+    ]
+
+    summary = daily_executive_summary(day)
+
+    assert "Where it changed: VM SKUs: 424 new listings, 10 regressions" in summary
+    assert "Azure AI models: 29 new listings, 31 regressions" in summary
+    assert "GPT-6 Astra model from OpenAI (version 2026-09-03)" in summary
+    assert "was among the new regional listings" in summary
+    assert summary.count("Kimi K3 model") == 1
+
+
+def test_weekly_context_is_limited_to_seven_calendar_days():
+    days = [
+        _day("2026-07-03", "Current\n\nBody.", new=4, reg=1),
+        _day("2026-07-02", "Previous\n\nBody.", new=2, reg=3),
+        _day("2026-06-26", "Too old\n\nBody.", new=10_000, reg=10_000),
+    ]
+
+    trend = weekly_context(days, "2026-07-03")
+
+    assert "7-day context (2026-06-27 to 2026-07-03)" in trend
+    assert "2 recorded scans" in trend
+    assert "6 new listings and 4 regressions" in trend
+    assert "10,000" not in trend
+
+
+def test_blog_index_and_posts_render_day_specific_summary_and_weekly_context():
     posts = select_blog_posts(
         _history(
             [
-                _day("2026-07-03", "Newer\n\nBody.", new=2),
+                _day(
+                    "2026-07-03",
+                    "Newer\n\nBody.",
+                    new=2,
+                    previous_date="2026-07-01",
+                ),
                 _day("2026-07-01", "Older\n\nBody.", reg=1),
             ]
         )
@@ -120,9 +262,18 @@ def test_blog_index_and_posts_render_the_executive_summary():
     index = render_blog_index(posts, SITE, STYLE)
     post = render_blog_post(posts[0], None, posts[1], SITE, STYLE)
 
-    assert 'aria-label="Executive summary"' in index
-    assert 'aria-label="Executive summary"' in post
-    assert "2 new availability signals and 1 regression" in index
+    assert 'aria-label="Daily executive summary"' in index
+    assert 'aria-label="Daily executive summary"' in post
+    assert "Compared with the 2026-07-01 snapshot, the 2026-07-03 scan" in index
+    assert "New listings rose from 0 to 2" in index
+    assert "7-day context" in index
+    assert "Across 2 published change days" not in index
+    assert "the 2026-07-03 scan" in posts[0]["executive_summary"]
+    assert "The 2026-07-01 scan" in posts[1]["executive_summary"]
+    assert "the 2026-07-03 scan" not in posts[1]["executive_summary"]
+    assert "The 2026-07-01 scan recorded" in posts[1]["executive_summary"]
+    assert "Compared with the previous snapshot" not in posts[1]["executive_summary"]
+    assert "<strong>What this means:</strong>" in post
 
 
 def test_select_blog_posts_handles_empty_or_missing():

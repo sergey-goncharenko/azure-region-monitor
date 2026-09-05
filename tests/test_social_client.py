@@ -1,4 +1,5 @@
 import json
+import io
 import urllib.error
 
 from azure_region_monitor.social_client import (
@@ -37,6 +38,26 @@ class _FailingOpener:
         raise urllib.error.URLError("Microsoft Learn MCP unreachable")
 
 
+class _RateLimitedOpener:
+    def __init__(self, failures, payload):
+        self._failures = failures
+        self._payload = payload
+        self.requests = []
+
+    def open(self, request, timeout):
+        self.requests.append((request, timeout))
+        if self._failures:
+            retry_after = self._failures.pop(0)
+            raise urllib.error.HTTPError(
+                request.full_url,
+                429,
+                "Too Many Requests",
+                {"Retry-After": retry_after},
+                io.BytesIO(b'{"error":{"code":"rate_limit_exceeded"}}'),
+            )
+        return _FakeResponse(self._payload)
+
+
 def test_azure_social_client_posts_responses_request_and_extracts_text():
     opener = _FakeOpener(
         {
@@ -70,6 +91,51 @@ def test_azure_social_client_posts_responses_request_and_extracts_text():
     assert payload["instructions"] == "system"
     assert payload["input"] == "facts"
     assert payload["reasoning"] == {"effort": "low"}
+
+
+def test_azure_summary_client_retries_rate_limit_and_honors_retry_after():
+    opener = _RateLimitedOpener(
+        ["3"],
+        {"output_text": "Recovered summary."},
+    )
+    slept = []
+    client = AzureOpenAiTextClient(
+        api_key="test-key",
+        endpoint="https://example.openai.azure.com",
+        deployment="gpt-5.4-mini",
+        opener=opener,
+        sleep=slept.append,
+    )
+
+    assert client.generate(system="system", user="facts") == "Recovered summary."
+    assert len(opener.requests) == 2
+    assert slept == [3.0]
+
+
+def test_azure_summary_client_stops_after_bounded_rate_limit_retries():
+    opener = _RateLimitedOpener(
+        ["", "", ""],
+        {"output_text": "not reached"},
+    )
+    slept = []
+    client = AzureOpenAiTextClient(
+        api_key="test-key",
+        endpoint="https://example.openai.azure.com",
+        deployment="gpt-5.4-mini",
+        opener=opener,
+        rate_limit_retries=2,
+        sleep=slept.append,
+    )
+
+    try:
+        client.generate(system="system", user="facts")
+    except RuntimeError as error:
+        assert "HTTP 429" in str(error)
+    else:
+        raise AssertionError("Expected exhausted rate-limit retries to fail")
+
+    assert len(opener.requests) == 3
+    assert slept == [20.0, 40.0]
 
 
 def test_azure_summary_client_records_microsoft_learn_grounding():
