@@ -170,15 +170,15 @@ def test_daily_executive_summary_compares_one_day_with_its_predecessor():
 
     assert "Compared with the 2026-07-02 snapshot, the 2026-07-03 scan" in summary
     assert "4 new listings, 1 regression" in summary
-    assert "New listings rose from 2 to 4" in summary
-    assert "Regressions rose from 0 to 1" in summary
+    assert "rose from" not in summary
+    assert "Zero new delistings does not establish recovery" in summary
     assert "Where it changed: VM SKUs: 3 new listings, 0 regressions" in summary
     assert "Azure AI models: 1 new listing, 1 regression" in summary
     assert "Representative changes: Kimi K3 model from Moonshot AI (version 2026-07-29)" in summary
     assert "was no longer listed in 31 regions" in summary
     assert "Standard Ncads H100 V5 VM size was newly listed in eastus" in summary
     assert summary.count("Kimi K3 model") == 1
-    assert "What changed: 1 deprecation candidate, 4 net-new regional listings" in summary
+    assert "What changed: 1 first recorded disappearance, 4 net-new regional listings" in summary
     assert "\n\nWhat changed:" in summary
     assert "\n\nWhat this means:" in summary
     assert "not quota, capacity, or deployment results" in summary
@@ -265,7 +265,7 @@ def test_blog_index_and_posts_render_day_specific_summary_and_weekly_context():
     assert 'aria-label="Daily executive summary"' in index
     assert 'aria-label="Daily executive summary"' in post
     assert "Compared with the 2026-07-01 snapshot, the 2026-07-03 scan" in index
-    assert "New listings rose from 0 to 2" in index
+    assert "rose from" not in index
     assert "7-day context" in index
     assert "Across 2 published change days" not in index
     assert "the 2026-07-03 scan" in posts[0]["executive_summary"]

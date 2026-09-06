@@ -25,14 +25,16 @@ Audience and goal:
 - Write like something worth receiving in an engineering inbox: specific, factual, comparative, and decision-oriented.
 
 Classification semantics:
-- net_new_availability: the monitor has never previously seen that feature available in that region; treat this as a new regional rollout or newly observed deployment signal.
+- net_new_availability: the monitor has not previously seen that feature listed in that region within retained history; describe it as a newly observed listing, not a launch date or deployment result.
 - restored_availability: the feature was available before, disappeared, and is now available again; mention prior_disappearances when it is nonzero.
-- deprecation_candidate: a feature that had been available without prior missing observations is now gone; frame as a likely delisting/deprecation candidate, not as confirmed retirement.
+- deprecation_candidate: a previously listed feature is now absent; say "no longer listed". A catalog disappearance does not establish deprecation or retirement.
 - recurring_regression: a feature is gone now and has gone missing before; frame as recurring instability, catalog churn, or lowered confidence rather than a clean deprecation.
 - availability gain/loss without history: use cautious wording because the monitor lacks enough history to classify the pattern.
 
 Datapoints to use when present:
-- Stability: include unavailable_pct, history_days, missing_days, and prior_disappearances when they change the interpretation.
+- Stability: only prior_disappearances after a positive observation can establish recurrence. A high unavailable_pct before the first listing is not instability.
+- Counts: distinguish unique features from feature-region listings; use complete grouped totals rather than extrapolating from individual examples.
+- A zero count of new delistings does not mean earlier delistings recovered.
 - Rollouts: distinguish a new feature across monitored regions from regional expansion of an existing feature. If expansion says first observed in a geography, mention the geography.
 - Deprecations/regressions: include current and previous feature coverage, deprecated coverage percentage, and still_available_regions so readers know where fallback placement remains possible.
 - Feature context: when details_url and feature_note are present, summarize the useful capability and include the URL naturally.

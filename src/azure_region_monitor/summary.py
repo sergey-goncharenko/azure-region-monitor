@@ -6,6 +6,7 @@ from functools import lru_cache
 from importlib import resources
 from typing import Any, Mapping, Protocol
 
+from azure_region_monitor.feature_context import describe_feature
 from azure_region_monitor.models import Change
 
 ChangeKey = tuple[str, str, str]
@@ -138,39 +139,6 @@ _EXPANSION_LABELS = {
     "restored_region": "restored regional signal",
 }
 
-_DETAILS_BY_MODALITY: dict[str, tuple[str, str, str]] = {
-    "Azure AI models": (
-        "Azure OpenAI model availability",
-        "https://learn.microsoft.com/azure/ai-foundry/openai/concepts/models",
-        "Use this to evaluate model capabilities, regional deployment options, latency, and data residency.",
-    ),
-    "AKS extensions": (
-        "AKS cluster extensions",
-        "https://learn.microsoft.com/azure/aks/cluster-extensions",
-        "Cluster extensions provide Azure Resource Manager-driven installation and lifecycle management for AKS capabilities.",
-    ),
-    "AKS Kubernetes versions": (
-        "AKS supported Kubernetes versions",
-        "https://learn.microsoft.com/azure/aks/supported-kubernetes-versions",
-        "Version availability affects upgrade targets, support windows, and regional rollout planning.",
-    ),
-    "Azure Functions": (
-        "Azure Functions Flex Consumption plan",
-        "https://learn.microsoft.com/azure/azure-functions/flex-consumption-plan",
-        "Flex Consumption adds serverless scale with private networking, memory sizing, and fast scale-out options.",
-    ),
-    "Container Apps": (
-        "Azure Container Apps overview",
-        "https://learn.microsoft.com/azure/container-apps/overview",
-        "Container Apps provides managed serverless containers with autoscale, ingress, revisions, jobs, and Dapr support.",
-    ),
-    "VM SKUs": (
-        "Azure VM sizes",
-        "https://learn.microsoft.com/azure/virtual-machines/sizes/overview",
-        "VM size availability affects right-sizing, performance, cost, and capacity fallback choices.",
-    ),
-}
-
 _SRE_IMPACT: dict[tuple[str, str], str] = {
     (
         "Azure AI models",
@@ -199,7 +167,7 @@ _SRE_IMPACT: dict[tuple[str, str], str] = {
     (
         "AKS extensions",
         "new_availability",
-    ): "new managed cluster capabilities such as GitOps, policy, or observability",
+    ): "check the named extension's requirements before adding it to regional cluster plans",
     (
         "AKS extensions",
         "regression",
@@ -238,13 +206,12 @@ _SRE_IMPACT: dict[tuple[str, str], str] = {
     ): "capacity planning and SKU fallback lists should be rechecked",
 }
 
-# Opinionated phrasing per (modality, change direction). Grounded in what the change
-# type actually proves: absent->available is a rollout; available->unavailable is a delisting.
+# Describe observations, not provider intent or workload health.
 _INTERPRETATION: dict[tuple[str, str], str] = {
-    ("Azure AI models", "new_availability"): "newer models/versions rolling out",
-    ("Azure AI models", "regression"): "models/versions delisted (likely deprecation)",
+    ("Azure AI models", "new_availability"): "models/versions newly listed",
+    ("Azure AI models", "regression"): "models/versions no longer listed (not confirmed retirement)",
     ("Azure model latency", "new_availability"): "started measuring new model/region deployments",
-    ("Azure model latency", "regression"): "stopped measuring (deployment gone)",
+    ("Azure model latency", "regression"): "measurement coverage no longer present",
     ("Model latency", "new_availability"): "new models added to the speed board",
     ("Model latency", "regression"): "models dropped from the speed board",
     ("AKS extensions", "new_availability"): "extension types now listed",
@@ -278,10 +245,10 @@ def expansion_label(expansion_kind: str | None, region_group: str | None = None)
 
 
 def feature_details(feature: str) -> tuple[str | None, str | None, str | None]:
-    # Imported here because history imports this module; a module-level import cycles.
-    from azure_region_monitor.history import _feature_category
-
-    return _DETAILS_BY_MODALITY.get(_feature_category(feature), (None, None, None))
+    context = describe_feature(feature)
+    source = context["sources"][0] if context["sources"] else {}
+    note = " ".join([context["summary"], *context["differentiators"], context["limitations"]])
+    return context["title"], source.get("url"), note
 
 
 def change_key(change: Change) -> ChangeKey:
@@ -635,12 +602,14 @@ def _context_datapoints(
 
     parts: list[str] = []
     if coverage_counts and coverage_total:
-        parts.append(
-            f"Coverage now ranges from {min(coverage_counts)} to {max(coverage_counts)} "
-            f"of {coverage_total} monitored regions."
-        )
+        low, high = min(coverage_counts), max(coverage_counts)
+        coverage = str(low) if low == high else f"{low} to {high}"
+        parts.append(f"Current listing coverage: {coverage} of {coverage_total} monitored regions.")
     if max_unavailable > 0:
-        parts.append(f"The noisiest affected signal was unavailable {_format_pct(max_unavailable)} of prior observations.")
+        parts.append(
+            f"Historical listing absence reached {_format_pct(max_unavailable)} of prior observations; "
+            "absence before a first listing is not service instability."
+        )
     if expansion_labels:
         parts.append(f"Expansion pattern: {'; '.join(expansion_labels)}.")
     return " ".join(parts)
@@ -697,6 +666,17 @@ def _facts_block(
         f"regressions={sum(change.change_type == 'regression' for change in changes)} | "
         f"parked_unknown={_parked_unknown_count(changes)}",
     ]
+    groups: dict[tuple[str, str], list[Change]] = {}
+    for change in signals:
+        groups.setdefault((change.change_type, _modality(change.feature)), []).append(change)
+    lines.append("Complete grouped totals (a listing is one feature in one region, not a unique product):")
+    for (direction, modality), group in sorted(groups.items()):
+        lines.append(
+            f"- {direction} | modality={modality} | listings={len(group)} | "
+            f"distinct_features={len({(item.service, item.feature) for item in group})} | "
+            f"regions={_csv(tuple(sorted({item.region for item in group})))}"
+        )
+    lines.append("Individual examples follow; their ordering is not a measure of significance:")
     for change in signals[:MAX_FACTS]:
         context = _context_for(change, context_map)
         modality = _modality(change.feature)
@@ -729,7 +709,7 @@ def _facts_block(
         )
     remaining = len(signals) - MAX_FACTS
     if remaining > 0:
-        lines.append(f"- (and {remaining} more similar changes)")
+        lines.append(f"- ({remaining} additional records not shown; use the complete grouped totals above)")
     return "\n".join(lines)
 
 

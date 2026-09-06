@@ -55,6 +55,7 @@ For Container Apps, `unavailable` means Microsoft.App provider metadata was retr
 
 ## Dashboard Lessons
 
+- Optimize for verified reader improvement. Use [the reader-improvement plan](../docs/reader-improvement.md) for product acceptance scenarios, source-backed feature explanations, voluntary measurements, and feedback interpretation; it does not replace the canonical CI/CD policy. Correct facts and faster comprehension matter more than PR count or generated prose, and a new regional listing is not a product launch.
 - Do not cap data to make the page smaller. The project preference is full fidelity with paging, filters, and lazy rendering.
 - Keep heavy raw checks in `api/latest.json`; the main page should show grouped summaries.
 - Large AKS extension groups should stay available but lazy-load secondary tables so Chrome does less initial DOM/layout work.

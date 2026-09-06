@@ -153,7 +153,7 @@ def _serve(args: argparse.Namespace) -> None:
 
 def _build_static(args: argparse.Namespace) -> None:
     build_static_site(
-        args.output, snapshot_path=args.snapshot, diff_path=args.diff, history_path=args.history
+        args.output, snapshot_path=args.snapshot, diff_path=args.diff, history_path=args.history,
     )
     print(f"Built static site in {args.output}")
 

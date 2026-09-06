@@ -190,6 +190,22 @@ The reusable runner caps each Azure CLI probe command with `AZURE_CLI_TIMEOUT_SE
 
 ## Status Semantics
 
+### Reading the daily briefing
+
+The main page and latest daily post share a snapshot-derived briefing. One listing means one feature in one region, not a distinct product. The headline prioritizes observation gaps and new delistings; cards group features and name the affected regions. Region/service filters and paged evidence preserve the full detail without filling the initial page with raw checks.
+
+New delistings are separate from tracked continuing absences and known restorations. Zero new delistings does not prove that yesterday's missing listings recovered. Tracking is bounded by the available comparisons, with its start/limitations shown under observation history. A result returning after `unknown` is an observation recovery, not evidence of a rollout. Removed regions or modality coverage are monitoring-scope changes, not confirmed provider deprecations.
+
+Daily change JSON includes complete `briefing.records`; history indexes carry compact aggregates. A static-site rebuild can enrich the latest briefing from retained snapshots without rerunning probes or changing the source snapshots. Older entries without complete briefing data retain their archived presentation. Use the existing dashboard-only redeploy path for these UI changes.
+
+Microsoft Learn links explain product requirements; the scan supplies the regional evidence. Neither documentation nor a search result turns a catalog disappearance into a confirmed retirement or an incident. Snapshot comparison timestamps do not establish the freshness of every carried-forward modality.
+
+Offline feature context is deduplicated by identifier in daily `briefing.feature_contexts`; compact group examples include their representative context. Static rebuilds refresh documentation context without reclassifying a matching historical comparison. Exact specifications require a documented identifier/size/version; family and unknown matches are labelled accordingly. A "first observed" label states whether it is limited to the current comparison or supported by retained history, never a launch date.
+
+The build publishes maintainer-first page feedback at `/feedback.html`, asking **What was unclear? What would have helped?** Page/date/view, current filters, viewport, and scroll context accompany a reviewable GitHub issue draft; no feedback backend, token, or automatic submission is needed. Optional native current-tab capture uses the browser picker, then local PNG review and copy/download for manual attachment on GitHub. Capture occurs after consent, not as an exact click-time freeze; denied/unsupported capture still permits text feedback and manual screenshots. Issues and attachments are public, and pasting/attaching on GitHub uploads immediately before final issue submission. Founder feedback is qualitative, not unbiased first-time-reader measurement.
+
+The optional later reading study is separate: `/reading-check.html` and `/reading-check/YYYY-MM-DD.html` retain local timing and JSON export without screenshot capture. **Open GitHub draft** explicitly prepares a human-readable summary, not a raw packet in the URL; overlong URLs fail without truncating the local result. The participant reviews and submits on GitHub, optionally attaching the downloaded JSON manually. See [reader-improvement.md](reader-improvement.md) for the learning cycle, public-sharing limits, and optional later measurement protocol.
+
 Current probes are read-only listing probes. They provide rollout evidence, not a complete deployment guarantee.
 
 - `available`: Azure listed the feature in the command output used by the probe.

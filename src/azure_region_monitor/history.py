@@ -2,15 +2,23 @@ from __future__ import annotations
 
 import gzip
 import json
+import logging
 import shutil
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 
+from azure_region_monitor.briefing import (
+    BRIEFING_KINDS,
+    _category,
+    build_briefing,
+    compact_briefing,
+    enrich_briefing_features,
+)
 from azure_region_monitor.diff import build_diff
 from azure_region_monitor.latency_view import (
     extract_latency_metrics,
@@ -35,6 +43,7 @@ LATENCY_HISTORY_SNAPSHOTS = 60
 # silently skipping the fetch would republish the history index with only today's day.
 HISTORY_FETCH_ATTEMPTS = 3
 HISTORY_RETRY_BACKOFF_SECONDS = 2.0
+_LOGGER = logging.getLogger(__name__)
 _REGION_GROUPS: dict[str, str] = {
     "australiaeast": "Oceania",
     "australiacentral": "Oceania",
@@ -111,7 +120,7 @@ def fetch_history(history_dir: Path, base_url: str) -> bool:
     paths = _history_paths(index)
     paths.add("recent-changes.json")
     for path in sorted(paths):
-        _download_file(_join_url(base_url, path), history_dir / path)
+        _download_file(_join_url(base_url, path), _safe_history_path(history_dir, path))
     return True
 
 
@@ -151,6 +160,12 @@ def update_history(
         ),
         change_contexts=change_contexts,
     )
+    day_summary["briefing"] = build_briefing(
+        current,
+        previous,
+        contexts=change_contexts,
+        prior_day=_briefing_prior_day(history_dir, existing_index, previous_entry, previous),
+    )
     _write_json(history_dir / change_history_path, day_summary)
 
     days_by_date = {
@@ -159,7 +174,10 @@ def update_history(
         if isinstance(day, dict) and day.get("date")
     }
     days_by_date[current_date] = day_summary
-    days = sorted(days_by_date.values(), key=lambda day: str(day["date"]), reverse=True)
+    days = [
+        _compact_reader_day(day)
+        for day in sorted(days_by_date.values(), key=lambda day: str(day["date"]), reverse=True)
+    ]
 
     generated_at = _utc_now()
     index = {
@@ -808,12 +826,22 @@ def _fetch_json(url: str) -> dict[str, Any] | None:
 def _safe_history_path(history_dir: Path, relative_path: str) -> Path:
     if not _is_safe_relative_path(relative_path):
         raise ValueError(f"Unsafe history path: {relative_path}")
-    return history_dir / relative_path
+    path = history_dir / relative_path
+    if not path.resolve().is_relative_to(history_dir.resolve()):
+        raise ValueError(f"Unsafe history path: {relative_path}")
+    return path
 
 
 def _is_safe_relative_path(path: str) -> bool:
     parsed = urllib.parse.urlparse(path)
-    return not parsed.scheme and not parsed.netloc and not Path(path).is_absolute() and ".." not in Path(path).parts
+    windows_path = PureWindowsPath(path)
+    parts = PurePosixPath(path.replace("\\", "/")).parts
+    return bool(
+        path and parts and "\x00" not in path and ":" not in path
+        and not parsed.scheme and not parsed.netloc
+        and not windows_path.drive and not windows_path.root
+        and not PurePosixPath(path).is_absolute() and ".." not in parts
+    )
 
 
 def _join_url(base_url: str, path: str) -> str:
@@ -858,6 +886,207 @@ def copy_history_to_api(history_dir: Path, api_history_dir: Path) -> None:
         shutil.copyfile(source, target)
 
 
+def prepare_reader_history(
+    history_dir: Path, api_history_dir: Path, snapshot: Snapshot
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    """Enrich the latest reader day after copying history, without rewriting inputs.
+
+    Reuse full facts for the exact comparison to retain older historical context.
+    Legacy highlights cannot reconstruct a full diff: load the persisted baseline
+    and, only when full prior facts are unavailable, one earlier snapshot to start
+    bounded absence tracking. Older narratives and daily documents are untouched.
+    """
+    if api_history_dir.resolve().is_relative_to(history_dir.resolve()):
+        raise ValueError("Reader history output must be outside input history")
+    index = _read_json(history_dir / "index.json")
+    if index is None:
+        return None, _read_json(history_dir / "recent-changes.json")
+
+    current_date = _snapshot_date(snapshot)
+    days_by_date = {
+        str(day["date"]): day
+        for day in index.get("days", [])
+        if isinstance(day, dict) and isinstance(day.get("date"), str)
+    }
+    existing_day = days_by_date.get(current_date, {})
+    previous_entry = _reader_previous_entry(index, current_date, existing_day)
+    previous = _reader_snapshot(history_dir, previous_entry)
+    if previous is not None and (
+        _normalize_timestamp(previous.timestamp) >= _normalize_timestamp(snapshot.timestamp)
+    ):
+        _LOGGER.warning(
+            "Reader history: snapshot %r is not earlier than the current snapshot; "
+            "the comparison baseline is unavailable.",
+            (previous_entry or {}).get("snapshot_path"),
+        )
+        previous = None
+    full_day = _reader_change_day(history_dir, existing_day) or dict(existing_day)
+    change_path = Path("changes") / f"{current_date}.json"
+    if not full_day:
+        changes = build_diff(previous, snapshot).changes if previous is not None else []
+        full_day = _build_day_summary(
+            current=snapshot,
+            current_date=current_date,
+            snapshot_path=Path("snapshots") / f"{current_date}.json.gz",
+            change_path=change_path,
+            previous_entry=previous_entry,
+            changes=changes,
+        )
+    full_day["date"] = current_date
+    full_day["change_path"] = change_path.as_posix()
+    if not _briefing_matches_comparison(full_day.get("briefing"), snapshot, previous):
+        prior_day = _briefing_prior_day(history_dir, index, previous_entry, previous)
+        full_day["briefing"] = build_briefing(snapshot, previous, prior_day=prior_day)
+    else:
+        full_day["briefing"] = enrich_briefing_features(full_day["briefing"])
+    _write_json(_safe_history_path(api_history_dir, change_path.as_posix()), full_day)
+    days_by_date[current_date] = full_day
+
+    days = []
+    for day in sorted(days_by_date.values(), key=lambda item: item["date"], reverse=True):
+        compact = _compact_reader_day(day)
+        if not isinstance(compact.get("briefing"), dict):
+            compact["briefing"] = {"version": 0, "legacy": True}
+        days.append(compact)
+    index = {
+        **index,
+        "latest_date": days[0]["date"],
+        "latest_snapshot_path": days[0].get("snapshot_path"),
+        "days": days,
+    }
+    recent = {
+        **(_read_json(history_dir / "recent-changes.json") or {}),
+        "generated_at": index.get("generated_at"),
+        "days": _recent_change_days(days, current_date),
+    }
+    _write_json(_safe_history_path(api_history_dir, "index.json"), index)
+    _write_json(_safe_history_path(api_history_dir, "recent-changes.json"), recent)
+    return index, recent
+
+
+def _compact_reader_day(day: dict[str, Any]) -> dict[str, Any]:
+    result = dict(day)
+    if isinstance(result.get("briefing"), dict):
+        result["briefing"] = compact_briefing(result["briefing"])
+    return result
+
+
+def _briefing_matches_comparison(
+    briefing: Any, current: Snapshot, previous: Snapshot | None
+) -> bool:
+    if not isinstance(briefing, dict):
+        return False
+    counts = briefing.get("counts")
+    records = briefing.get("records")
+    return (
+        briefing.get("version") == 1
+        and briefing.get("current_timestamp") == _normalize_timestamp(current.timestamp).isoformat()
+        and briefing.get("previous_timestamp") == (
+            _normalize_timestamp(previous.timestamp).isoformat() if previous is not None else None
+        )
+        and briefing.get("baseline_available") is (previous is not None)
+        and isinstance(records, list)
+        and isinstance(briefing.get("groups"), list)
+        and isinstance(counts, dict)
+        and all(isinstance(counts.get(kind), int) and counts[kind] >= 0 for kind in BRIEFING_KINDS)
+        and sum(counts[kind] for kind in BRIEFING_KINDS) == len(records)
+    )
+
+
+def _reader_previous_entry(
+    index: dict[str, Any], current_date: str, day: dict[str, Any]
+) -> dict[str, Any] | None:
+    candidates = [
+        item for item in index.get("days", [])
+        if isinstance(item, dict) and str(item.get("date", "")) < current_date
+    ]
+    previous_date = day.get("previous_date")
+    previous_path = day.get("previous_snapshot_path")
+    if (
+        isinstance(previous_date, str) and previous_date < current_date
+        and isinstance(previous_path, str)
+    ):
+        entry = next((item for item in candidates if item.get("date") == previous_date), {})
+        return {**entry, "date": previous_date, "snapshot_path": previous_path}
+    return max(candidates, key=lambda item: str(item.get("date", "")), default=None)
+
+
+def _reader_snapshot(history_dir: Path, entry: dict[str, Any] | None) -> Snapshot | None:
+    path = (entry or {}).get("snapshot_path")
+    if not path:
+        return None
+    try:
+        snapshot = _load_previous_snapshot(history_dir, entry)
+    except (OSError, ValueError, EOFError) as error:
+        _LOGGER.warning(
+            "Reader history: cannot load snapshot %r (%s: %s); "
+            "the comparison baseline is unavailable.",
+            path, type(error).__name__, str(error).partition("\n")[0],
+        )
+        return None
+    if snapshot is None:
+        _LOGGER.warning(
+            "Reader history: snapshot %r is missing; the comparison baseline is unavailable.", path
+        )
+    return snapshot
+
+
+def _reader_change_day(
+    history_dir: Path, entry: dict[str, Any] | None
+) -> dict[str, Any] | None:
+    path = (entry or {}).get("change_path")
+    if not isinstance(path, str):
+        return None
+    try:
+        result = _read_json(_safe_history_path(history_dir, path))
+    except (OSError, ValueError) as error:
+        _LOGGER.warning(
+            "Reader history: cannot load daily changes %r (%s: %s); "
+            "full facts will be reconstructed from available snapshots.",
+            path, type(error).__name__, str(error).partition("\n")[0],
+        )
+        return None
+    if not isinstance(result, dict):
+        _LOGGER.warning(
+            "Reader history: daily changes %r %s; "
+            "full facts will be reconstructed from available snapshots.",
+            path, "is missing" if result is None else "must contain a JSON object",
+        )
+        return None
+    return result
+
+
+def _briefing_prior_day(
+    history_dir: Path,
+    index: dict[str, Any],
+    previous_entry: dict[str, Any] | None,
+    previous: Snapshot | None,
+) -> dict[str, Any] | None:
+    if previous is None:
+        return None
+    prior_day = _reader_change_day(history_dir, previous_entry)
+    briefing = (prior_day or {}).get("briefing")
+    if (
+        isinstance(briefing, dict)
+        and briefing.get("version") == 1
+        and isinstance(briefing.get("records"), list)
+        and briefing.get("current_timestamp") == _normalize_timestamp(previous.timestamp).isoformat()
+    ):
+        return prior_day
+    older_entry = _reader_previous_entry(index, _snapshot_date(previous), previous_entry or {})
+    older = _reader_snapshot(history_dir, older_entry)
+    if older is not None and (
+        _normalize_timestamp(older.timestamp) >= _normalize_timestamp(previous.timestamp)
+    ):
+        _LOGGER.warning(
+            "Reader history: snapshot %r is not earlier than the comparison baseline; "
+            "older absence tracking is unavailable.",
+            (older_entry or {}).get("snapshot_path"),
+        )
+        older = None
+    return {"briefing": build_briefing(previous, older)}
+
+
 def _snapshot_date(snapshot: Snapshot) -> str:
     return _normalize_timestamp(snapshot.timestamp).date().isoformat()
 
@@ -873,15 +1102,7 @@ def _utc_now() -> str:
 
 
 def _feature_category(feature: str) -> str:
-    if feature == "extensionCatalog" or feature.startswith("extensions.") or feature.startswith("extensionTypes."):
-        return "AKS extensions"
-    if feature.startswith("kubernetesVersions."):
-        return "AKS Kubernetes versions"
-    if feature.startswith("vmSkus."):
-        return "VM SKUs"
-    if feature.startswith("aiModels."):
-        return "Azure AI models"
-    return feature.split(".", 1)[0]
+    return _category(feature)
 
 
 def _feature_group(feature: str) -> str:

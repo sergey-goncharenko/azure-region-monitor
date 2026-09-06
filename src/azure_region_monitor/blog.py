@@ -14,6 +14,14 @@ from datetime import datetime, timedelta, timezone
 from email.utils import format_datetime
 from typing import Any
 
+from azure_region_monitor.briefing_view import (
+    briefing_excerpt,
+    briefing_headline,
+    has_briefing,
+    render_briefing,
+)
+from azure_region_monitor.display import plain_feature_name as _plain_feature_name
+
 BLOG_DIR = "blog"
 FEED_PATH = "blog/feed.xml"
 INDEX_PATH = "blog/index.html"
@@ -109,10 +117,12 @@ def select_blog_posts(history_index: dict[str, Any] | None) -> list[dict[str, An
     for day in days:
         date = str(day.get("date", "")).strip()
         narrative = str(day.get("narrative", "")).strip()
-        if not date or not narrative:
+        if not date or (not narrative and not has_briefing(day)):
             continue
         source = str(day.get("narrative_source", "rule"))
         headline, paragraphs = split_narrative(narrative, source)
+        if has_briefing(day):
+            headline = briefing_headline(day["briefing"])
         counts = day.get("change_type_counts") if isinstance(day.get("change_type_counts"), dict) else {}
         posts.append(
             {
@@ -122,11 +132,14 @@ def select_blog_posts(history_index: dict[str, Any] | None) -> list[dict[str, An
                 "headline": headline,
                 "paragraphs": paragraphs,
                 "source": source,
+                "briefing": day.get("briefing"),
+                "change_path": day.get("change_path"),
                 "new_availability": int(counts.get("new_availability", 0) or 0),
                 "regressions": int(counts.get("regression", 0) or 0),
                 "parked_unknown": int(day.get("parked_unknown_changes", 0) or 0),
                 "highlights": day.get("highlights", []) if isinstance(day.get("highlights"), list) else [],
-                "excerpt": str(day.get("editorial_excerpt", "")).strip(),
+                "excerpt": briefing_excerpt(day["briefing"]) if has_briefing(day)
+                else str(day.get("editorial_excerpt", "")).strip(),
                 "social_drafts": day.get("social_drafts")
                 if isinstance(day.get("social_drafts"), dict)
                 else None,
@@ -146,6 +159,8 @@ def daily_executive_summary(
 ) -> str:
     """Explain one day's changes, optionally comparing its recorded predecessor."""
 
+    if has_briefing(day):
+        return briefing_excerpt(day["briefing"])
     date = str(day.get("date", "")).strip()
     counts = day.get("change_type_counts")
     if not date or not isinstance(counts, dict):
@@ -172,24 +187,6 @@ def daily_executive_summary(
             f"{_plural(parked_unknown, 'transition')}."
         )
 
-    comparison = ""
-    if previous_day and isinstance(previous_day.get("change_type_counts"), dict):
-        previous_counts = previous_day["change_type_counts"]
-        comparison = " ".join(
-            (
-                _count_comparison(
-                    "New listings",
-                    new_availability,
-                    _as_int(previous_counts.get("new_availability")),
-                ),
-                _count_comparison(
-                    "Regressions",
-                    regressions,
-                    _as_int(previous_counts.get("regression")),
-                ),
-            )
-        )
-
     classifications = _classification_summary(day.get("change_context_counts"))
     if regressions and new_availability:
         meaning = (
@@ -210,7 +207,7 @@ def daily_executive_summary(
     else:
         meaning = "No clear rollout or regression signal was recorded for this scan."
 
-    comparison_block = " ".join(part for part in (opening, comparison) if part)
+    comparison_block = opening
     modality_counts = day.get("change_modality_counts")
     if not isinstance(modality_counts, dict):
         modality_counts = _legacy_modality_counts(str(day.get("narrative", "")))
@@ -220,7 +217,8 @@ def daily_executive_summary(
     )
     meaning_block = (
         f"What this means: {meaning} These are read-only catalog/list signals, not quota, "
-        "capacity, or deployment results."
+        "capacity, or deployment results. Zero new delistings does not establish recovery "
+        "of earlier missing listings."
     )
     return "\n\n".join(
         part
@@ -289,18 +287,11 @@ def weekly_context(days: list[dict[str, Any]], target_date: str) -> str:
     )
 
 
-def _count_comparison(label: str, current: int, previous: int) -> str:
-    if current == previous:
-        return f"{label} held at {current:,}."
-    direction = "rose" if current > previous else "fell"
-    return f"{label} {direction} from {previous:,} to {current:,}."
-
-
 def _classification_summary(value: object) -> str:
     if not isinstance(value, dict):
         return ""
     labels = (
-        ("deprecation_candidate", "deprecation candidate"),
+        ("deprecation_candidate", "first recorded disappearance"),
         ("recurring_regression", "recurring disappearance"),
         ("net_new_availability", "net-new regional listing"),
         ("restored_availability", "restored regional listing"),
@@ -435,69 +426,6 @@ def _legacy_feature_key(modality: str, identifier: str) -> str:
 
 def _normalized_feature_key(feature: str) -> str:
     return feature.lower().replace("vmskus.standard.", "vmskus.")
-
-
-def _plain_feature_name(feature: str) -> str:
-    if feature.startswith("aiModels."):
-        parts = feature.removeprefix("aiModels.").split(".")
-        publisher = parts[0] if parts else "unknown"
-        model_parts = parts[1:-1] if len(parts) > 2 else parts[1:]
-        model = ".".join(model_parts) or "unknown"
-        version = parts[-1] if len(parts) > 2 else ""
-        publisher_name = {
-            "anthropic": "Anthropic",
-            "meta": "Meta",
-            "microsoft": "Microsoft",
-            "moonshotai": "Moonshot AI",
-            "openai": "OpenAI",
-            "xai": "xAI",
-        }.get(publisher.lower(), publisher)
-        version_text = f" (version {version})" if version else ""
-        return f"{_display_model_name(model)} model from {publisher_name}{version_text}"
-    if feature.startswith("vmSkus."):
-        sku = " ".join(
-            part.capitalize()
-            for part in feature.removeprefix("vmSkus.").split(".")
-        )
-        return f"{sku} VM size"
-    if feature.startswith("kubernetesVersions."):
-        return f"AKS {feature.removeprefix('kubernetesVersions.')}"
-    if feature.startswith("extensionTypes."):
-        return f"{feature.removeprefix('extensionTypes.')} AKS extension"
-    if feature.startswith("runtimes."):
-        return f"{feature.removeprefix('runtimes.').replace('.', ' ')} Functions runtime"
-    if feature.startswith("containerApps."):
-        return f"{feature.removeprefix('containerApps.')} Container Apps capability"
-    return feature
-
-
-def _display_model_name(model: str) -> str:
-    parts = model.split("-")
-    display_parts = []
-    for part in parts:
-        lowered = part.lower()
-        if lowered == "gpt":
-            display_parts.append("GPT")
-        elif re.fullmatch(r"k\d+", lowered):
-            display_parts.append(lowered.upper())
-        elif lowered in {
-            "astra",
-            "claude",
-            "fable",
-            "haiku",
-            "kimi",
-            "mythos",
-            "opus",
-            "sonnet",
-        }:
-            display_parts.append(lowered.title())
-        else:
-            display_parts.append(part)
-    if len(display_parts) >= 2 and display_parts[0] == "GPT":
-        return "-".join(display_parts[:2]) + (
-            f" {' '.join(display_parts[2:])}" if len(display_parts) > 2 else ""
-        )
-    return " ".join(display_parts)
 
 
 def _excerpt(post: dict[str, Any]) -> str:
@@ -794,6 +722,7 @@ def _nav() -> str:
         <a href="/methodology.html">Status meanings</a>
                 <a href="/insights/">Insights</a>
         <a href="/blog/feed.xml">RSS feed</a>
+        <a href="/feedback.html">Reader feedback</a>
       </nav>"""
 
 
@@ -801,7 +730,7 @@ def render_blog_index(posts: list[dict[str, Any]], site_url: str, style_block: s
     canonical = f"{site_url}/{BLOG_DIR}/"
     summary = str(posts[0].get("executive_summary", "")) if posts else ""
     context = str(posts[0].get("weekly_context", "")) if posts else ""
-    trend_section = _render_executive_summary(summary, context)
+    trend_section = render_briefing(posts[0]) if posts and has_briefing(posts[0]) else _render_executive_summary(summary, context)
     if posts:
         cards = "\n".join(_render_index_card(post) for post in posts)
         body_inner = f'<div class="blog-list">{cards}</div>'
@@ -818,8 +747,8 @@ def render_blog_index(posts: list[dict[str, Any]], site_url: str, style_block: s
 {_nav()}
     </header>
     <div class="note" role="note">
-      Each post summarizes the day's region availability changes — new rollouts, likely
-      deprecations, and latency shifts — written from the monitor's structured evidence.
+      Each post compares regional listings and observations with the previous scan.
+      Catalog disappearance is not a confirmed retirement or an outage.
       Subscribe via the <a href="/blog/feed.xml">RSS feed</a>.
     </div>
     {trend_section}
@@ -846,10 +775,11 @@ def render_blog_index(posts: list[dict[str, Any]], site_url: str, style_block: s
 def _render_index_card(post: dict[str, Any]) -> str:
     excerpt = _excerpt(post)
     excerpt_html = f'<p class="blog-card-excerpt">{html.escape(excerpt)}</p>' if excerpt else ""
+    source_label = "Snapshot comparison" if has_briefing(post) else _source_label(post["source"])
     return f"""<article class="blog-card">
         <div class="blog-card-meta">
           <time datetime="{html.escape(post['date'])}">{html.escape(post['date'])}</time>
-          <span class="narrative-badge">{html.escape(_source_label(post['source']))}</span>
+          <span class="narrative-badge">{html.escape(source_label)}</span>
         </div>
         <h2 class="blog-card-title"><a href="/{html.escape(post['slug'])}">{html.escape(post['title'])}</a></h2>
         {excerpt_html}
@@ -876,6 +806,18 @@ def render_blog_post(
         str(post.get("executive_summary", "")),
         str(post.get("weekly_context", "")),
     )
+    if has_briefing(post):
+        body = f"""<header>
+          <div><h1>Azure regional changes</h1><time datetime="{html.escape(post['date'])}">{html.escape(post['date'])}</time></div>
+          {_nav()}
+        </header>
+        {render_briefing(post)}
+        {prev_next}"""
+        return _page(
+            f"{post['title']} | Azure regional availability {post['date']}",
+            _excerpt(post), canonical, site_url, style_block, body,
+            page_type="article", structured_data=_blog_post_json_ld(post, canonical),
+        )
     body = f"""    <header>
       <div>
         <h1 class="blog-post-title">{html.escape(headline)}</h1>
@@ -889,8 +831,11 @@ def render_blog_post(
     <article class="panel blog-post">
       <div class="blog-post-counts">{_counts_line(post)}</div>
       {trend_section}
-            <div class="blog-post-body">{paragraphs}</div>
-      {highlights}
+      <details class="narrative">
+        <summary>Archived commentary and representative evidence</summary>
+        <div class="narrative-body"><div class="blog-post-body">{paragraphs}</div>
+        {highlights}</div>
+      </details>
     </article>
     {prev_next}
     <section class="panel" aria-label="About this blog">

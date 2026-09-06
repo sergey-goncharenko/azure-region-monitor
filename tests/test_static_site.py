@@ -119,8 +119,8 @@ def test_recent_changes_panel_leads_with_daily_summary_and_weekly_context():
     assert 'aria-label="Daily executive summary"' in html
     assert "What changed on 2026-07-03" in html
     assert "Compared with 2026-07-02" in html
-    assert "New listings rose from 2 to 12" in html
-    assert "3 deprecation candidates" in html
+    assert "rose from" not in html
+    assert "3 first recorded disappearances" in html
     assert "7-day context" in html
     assert "Across 2 published change days" not in html
     assert '<details class="narrative"' in html
@@ -188,9 +188,9 @@ def test_high_volume_auto_summary_is_secondary_to_scannable_daily_brief():
     )
 
     assert html.index("Daily executive summary") < html.index('<details class="narrative"')
-    assert "New listings rose from 90 to 453" in html
-    assert "Regressions rose from 0 to 41" in html
-    assert "41 deprecation candidates" in html
+    assert "rose from" not in html
+    assert "Zero new delistings does not establish recovery" in html
+    assert "41 first recorded disappearances" in html
     assert "Kimi K3 model from Moonshot AI (version 2026-07-29)" in html
     assert "Standard M128dms V2 VM size" in html
     assert "GPT-6 Astra model from OpenAI (version 2026-09-03)" in html
@@ -596,10 +596,12 @@ def test_build_static_site_writes_blog_from_history_index(tmp_path):
     # Both narrated days become posts; the empty-narrative day does not.
     assert (output_dir / "blog" / "2026-07-03.html").exists()
     assert not (output_dir / "blog" / "2026-07-02.html").exists()
-    assert "Germany North floods with DCv5" in blog_index
-    assert "Germany North floods with DCv5" in post
-    assert "Engineering context" in post
-    assert "germanynorth" in post
+    assert "Baseline missing" in blog_index
+    assert "Baseline missing" in post
+    assert "Germany North floods with DCv5" not in post
+    assert "Change counts are not available without a baseline" in post
+    assert (output_dir / "assets" / "briefing.js").exists()
+    assert index_html.index('aria-label="Daily change briefing"') < index_html.index('aria-label="Snapshot overview"')
     # Sitemap lists the blog index and dated posts.
     assert "<loc>https://azwatch.operator.lat/blog/</loc>" in sitemap
     assert "<loc>https://azwatch.operator.lat/blog/2026-07-04.html</loc>" in sitemap

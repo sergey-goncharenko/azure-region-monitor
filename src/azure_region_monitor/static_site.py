@@ -18,7 +18,8 @@ from azure_region_monitor.blog import (
     split_narrative,
   weekly_context,
 )
-from azure_region_monitor.history import copy_history_to_api
+from azure_region_monitor.briefing_view import briefing_headline, has_briefing, render_briefing
+from azure_region_monitor.history import copy_history_to_api, prepare_reader_history
 from azure_region_monitor.latency_view import (
     annotate_rank_changes,
     build_latency_rows,
@@ -28,6 +29,13 @@ from azure_region_monitor.latency_view import (
     previous_regional_ranks,
 )
 from azure_region_monitor.models import Snapshot
+from azure_region_monitor.feedback_context import (
+    REPOSITORY_URL as _REPOSITORY_URL,
+    SITE_URL as _SITE_URL,
+    presentation_id,
+)
+from azure_region_monitor.github_feedback import render_feedback_landing, render_feedback_widget
+from azure_region_monitor.reader_feedback import render_reading_check_page
 from azure_region_monitor.snapshot_shards import build_modality_shards, build_summary
 from azure_region_monitor.storage import load_snapshot
 
@@ -89,19 +97,18 @@ _GEOGRAPHY_REGIONS = {
 
 _LARGE_EXTENSION_GROUP_THRESHOLD = 10
 _PRIMARY_EXTENSION_GROUPS = {"microsoft"}
-_SITE_URL = "https://azwatch.operator.lat"
 _SITE_DESCRIPTION = (
   "Read-only Azure regional availability evidence for AKS, Azure Functions, "
   "Azure AI models, Container Apps, and VM SKUs."
 )
-_REPOSITORY_URL = "https://github.com/sergey-goncharenko/azure-region-monitor"
 _CONTENT_SECURITY_POLICY = (
     "default-src 'self'; "
     "base-uri 'self'; "
     "object-src 'none'; "
     "frame-ancestors 'none'; "
     "form-action 'none'; "
-    "img-src 'self' data:; "
+    "img-src 'self' data: blob:; "
+    "media-src 'self' blob:; "
     "script-src 'self' 'unsafe-inline'; "
     "style-src 'self' 'unsafe-inline'; "
     "connect-src 'self'; "
@@ -112,7 +119,7 @@ _SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
     "Referrer-Policy": "strict-origin-when-cross-origin",
-    "Permissions-Policy": "accelerometer=(), camera=(), geolocation=(), gyroscope=(), "
+    "Permissions-Policy": "accelerometer=(), camera=(), display-capture=(self), geolocation=(), gyroscope=(), "
     "magnetometer=(), microphone=(), payment=(), usb=()",
 }
 _API_HEADERS = {
@@ -167,7 +174,14 @@ def build_static_site(
     copy_history_to_api(history_path, api_dir / "history")
     _write_snapshot_shards(api_dir, snapshot)
 
-    recent_changes = _load_recent_changes(history_path)
+    history_index, recent_changes = prepare_reader_history(
+        history_path, api_dir / "history", snapshot
+    )
+    assets_dir = output_dir / "assets"
+    assets_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(DASHBOARD_CSS_PATH.parent / "briefing.js", assets_dir / "briefing.js")
+    shutil.copyfile(DASHBOARD_CSS_PATH.parent / "reader-feedback.js", assets_dir / "reader-feedback.js")
+    shutil.copyfile(DASHBOARD_CSS_PATH.parent / "github-feedback.js", assets_dir / "github-feedback.js")
     latency_history = _load_latency_history(history_path)
     latency_series = build_latency_series(latency_history)
     leaderboard_prev_ranks = previous_leaderboard_ranks(latency_history)
@@ -186,14 +200,69 @@ def build_static_site(
         encoding="utf-8",
     )
     (output_dir / "methodology.html").write_text(_render_methodology_page(snapshot), encoding="utf-8")
-    blog_posts = select_blog_posts(_load_history_index(history_path))
+    blog_posts = select_blog_posts(history_index)
     _write_blog(output_dir, blog_posts)
+    view_id = presentation_id()
+    _write_reader_feedback(output_dir, blog_posts, view_id)
     _write_insights(output_dir, snapshot, blog_posts)
     _write_latency_api(api_dir, snapshot)
     _write_discovery_assets(
         output_dir, snapshot, recent_changes=recent_changes, blog_posts=blog_posts
     )
     _write_static_web_app_config(output_dir)
+    _attach_feedback_widgets(output_dir, snapshot, blog_posts, view_id)
+
+
+def _write_reader_feedback(output_dir: Path, posts: list[dict[str, Any]], view_id: str) -> None:
+    feedback_dir = output_dir / "feedback"
+    feedback_dir.mkdir(parents=True, exist_ok=True)
+    study_dir = output_dir / "reading-check"
+    study_dir.mkdir(parents=True, exist_ok=True)
+    style = _style_block()
+    days = [post for post in posts if has_briefing(post)]
+    (output_dir / "feedback.html").write_text(
+        render_feedback_landing(style), encoding="utf-8",
+    )
+    (output_dir / "reading-check.html").write_text(
+        render_reading_check_page(days[0] if days else None, style, view_id),
+        encoding="utf-8",
+    )
+    for day in days:
+        (feedback_dir / f"{day['date']}.html").write_text(
+            render_feedback_landing(style), encoding="utf-8"
+        )
+        (study_dir / f"{day['date']}.html").write_text(
+            render_reading_check_page(day, style, view_id), encoding="utf-8"
+        )
+
+
+def _attach_feedback_widgets(
+    output_dir: Path, snapshot: Snapshot, posts: list[dict[str, Any]], view_id: str
+) -> None:
+    pages: dict[str, dict[str, Any] | None] = {
+        name: None for name in (
+            "index.html", "heatmap.html", "latency.html", "methodology.html",
+            "feedback.html", "blog/index.html", "insights/index.html",
+        )
+    }
+    pages.update({str(post["slug"]): post for post in posts})
+    pages.update({f"insights/{page['slug']}.html": None for page in _INSIGHT_PAGES})
+    pages.update({f"feedback/{post['date']}.html": post for post in posts if has_briefing(post)})
+    for relative_path, post in pages.items():
+        path = output_dir / relative_path
+        briefing = post["briefing"] if post and isinstance(post.get("briefing"), dict) else {}
+        context = {
+            "page_path": "/" + relative_path.removesuffix("index.html"),
+            "date": post["date"] if post else snapshot.timestamp.date().isoformat(),
+            "current_timestamp": briefing.get("current_timestamp") if post else snapshot.timestamp.isoformat(),
+            "previous_timestamp": briefing.get("previous_timestamp"),
+            "view_id": view_id,
+        }
+        markup = path.read_text(encoding="utf-8")
+        path.write_text(
+            markup.replace("</body>", render_feedback_widget(context) + "</body>"),
+            encoding="utf-8",
+        )
 
 
 def _write_blog(output_dir: Path, posts: list[dict[str, Any]]) -> None:
@@ -779,10 +848,12 @@ def _render_index(snapshot: Snapshot, recent_changes: dict[str, Any] | None = No
         <a href="heatmap.html">Detailed heatmap</a>
         <a href="latency.html">Model latency</a>
         <a href="blog/">Blog</a>
+        <a href="feedback.html">Reader feedback</a>
         <a href="api/latest.json" download="azure-region-monitor-latest.json">Download latest JSON</a>
         <a href="{_REPOSITORY_URL}">GitHub repository</a>
       </nav>
     </header>
+    {recent_changes_panel}
     <section class="opening-summary" aria-label="Snapshot overview">
       <div class="opening-summary-item">
         <span class="opening-summary-label">Data freshness</span>
@@ -820,7 +891,6 @@ def _render_index(snapshot: Snapshot, recent_changes: dict[str, Any] | None = No
       {_render_metric("Partial", status_counts.get("partial", 0))}
       {_render_metric("Unknown", status_counts.get("unknown", 0))}
     </section>
-    {recent_changes_panel}
     {history_resources_panel}
     <section class="layout" aria-label="Coverage overview">
       <div class="panel">
@@ -1750,6 +1820,20 @@ def _render_recent_changes_panel(recent_changes: dict[str, Any] | None) -> str:
         return ""
 
     latest = days[0]
+    if has_briefing(latest):
+        links = []
+        for day in days[:10]:
+            date = html.escape(str(day.get("date", "")))
+            title = briefing_headline(day["briefing"]) if has_briefing(day) else "Archived daily comparison"
+            links.append(
+                f'<li><a href="/blog/{date}.html">{date}: {html.escape(title)}</a> '
+                f'(<a href="/api/history/changes/{date}.json">JSON evidence</a>)</li>'
+            )
+        return render_briefing(latest) + f"""<details class="panel reader-history">
+          <summary>Earlier daily comparisons</summary>
+          <ul>{''.join(links)}</ul>
+          <p><a href="/blog/">Browse all daily comparisons</a></p>
+          </details>"""
     previous_date = str(latest.get("previous_date", "")).strip()
     previous = next(
         (day for day in days if str(day.get("date", "")).strip() == previous_date),

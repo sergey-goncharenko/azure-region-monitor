@@ -305,7 +305,7 @@ def test_ai_failure_surfaces_the_generation_error():
     assert result["narrative_generation_error"] == "RuntimeError: MCP timed out"
 
 
-def test_rule_summary_is_opinionated_about_rollout_and_deprecation():
+def test_rule_summary_does_not_infer_launch_or_retirement_from_listings():
     changes = [
         _change("eastus", "aiModels.openai.gpt-5.2025", "unavailable", "available", "new_availability"),
         _change("westeurope", "aiModels.openai.gpt-4-32k.2023", "available", "unavailable", "regression"),
@@ -313,9 +313,8 @@ def test_rule_summary_is_opinionated_about_rollout_and_deprecation():
 
     narrative = build_change_narrative(changes, client=None)["narrative"]
 
-    # New AI model listing is framed as a rollout; a delisting as likely deprecation.
-    assert "rolling out" in narrative
-    assert "likely deprecation" in narrative
+    assert "models/versions newly listed" in narrative
+    assert "no longer listed (not confirmed retirement)" in narrative
     # Modality is the sentence prefix and regions are named.
     assert "Azure AI models:" in narrative
     assert "eastus" in narrative and "westeurope" in narrative
@@ -347,8 +346,37 @@ def test_rule_summary_frames_latency_additions_and_removals():
     narrative = build_change_narrative(changes, client=None)["narrative"]
 
     assert "started measuring" in narrative
-    assert "stopped measuring" in narrative
+    assert "measurement coverage no longer present" in narrative
     assert "Azure model latency:" in narrative
+
+
+def test_complete_aggregate_facts_are_not_lost_when_examples_are_bounded():
+    changes = [
+        _change(f"region{region}", f"vmSkus.size{size}", "unavailable", "available", "new_availability")
+        for region in range(5) for size in range(12)
+    ]
+    changes.append(_change("switzerlandnorth", "extensionTypes.microsoft.vmware", "unavailable", "available", "new_availability"))
+    client = _FakeClient()
+    build_change_narrative(changes, client=client)
+    facts = client.calls[0][1]
+    assert "modality=VM SKUs | listings=60 | distinct_features=12" in facts
+    assert "modality=AKS extensions | listings=1 | distinct_features=1" in facts
+    assert "additional records not shown" in facts
+    assert "more similar changes" not in facts
+
+
+def test_longstanding_absence_before_a_listing_is_not_called_instability():
+    change = _change("switzerlandnorth", "extensionTypes.microsoft.vmware", "unavailable", "available", "new_availability")
+    context = ChangeContext(
+        classification="net_new_availability", history_days=115, missing_days=114,
+        unavailable_pct=99.1, feature_total_regions=64, feature_current_available_regions=20,
+    )
+    narrative = build_change_narrative([change], contexts={change_key(change): context})["narrative"]
+    assert "noisiest" not in narrative
+    assert "not service instability" in narrative
+    assert "20 of 64" in narrative
+    assert "20 to 20" not in narrative
+    assert "GitOps" not in narrative
 
 
 def test_rule_summary_uses_history_classification_breakdown():
@@ -396,7 +424,7 @@ def test_rule_summary_uses_history_classification_breakdown():
     assert "1 net-new regional availability" in narrative
     assert "1 restored availability" in narrative
     assert "up to 1 prior disappearance" in narrative
-    assert "Coverage now ranges from 2 to 2 of 4 monitored regions" in narrative
-    assert "unavailable 100.0% of prior observations" in narrative
+    assert "Current listing coverage: 2 of 4 monitored regions" in narrative
+    assert "Historical listing absence reached 100.0% of prior observations" in narrative
     assert "first observed anywhere" in narrative
     assert "Why it matters:" in narrative

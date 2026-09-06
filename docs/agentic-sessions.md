@@ -95,6 +95,11 @@ Security and repository-hygiene sessions have an additional report-only boundary
 
 Every generated PR includes a reviewer-facing rationale in its description:
 
+Reader-facing product work follows the [verified reader-improvement plan](reader-improvement.md):
+fixed questions and cases, source-backed feature context, before/after evidence, and
+voluntary comprehension measurements. The plan documents product research; it does
+not change the workflow policy or authorize work from raw feedback.
+
 - why the issue was selected, including queue priority and source issue;
 - the objective and any current live unknown-status evidence;
 - the agent's concise final decision, evidence, implementation summary, alternatives/risks, and validation notes;

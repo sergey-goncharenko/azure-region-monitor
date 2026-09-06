@@ -6,7 +6,7 @@ import pytest
 
 from azure_region_monitor import history
 from azure_region_monitor.history import fetch_history, update_history
-from azure_region_monitor.models import Change
+from azure_region_monitor.models import Change, Snapshot
 
 
 def test_update_history_writes_daily_snapshot_and_recent_changes(tmp_path):
@@ -110,6 +110,12 @@ def test_update_history_writes_daily_snapshot_and_recent_changes(tmp_path):
     ]
     assert change_day["highlights"][0]["group"] == "microsoft"
     assert recent_changes["days"][0]["date"] == "2026-05-10"
+    assert change_day["briefing"]["baseline_available"] is True
+    assert change_day["briefing"]["comparison_days"] == 2
+    assert change_day["briefing"]["counts"]["new_listings"] == 1
+    assert len(change_day["briefing"]["records"]) == 1
+    assert "records" not in index["days"][0]["briefing"]
+    assert "records" not in recent_changes["days"][0]["briefing"]
 
 
 def test_update_history_classifies_net_new_and_restored_availability(tmp_path):
@@ -153,7 +159,7 @@ def test_update_history_classifies_net_new_and_restored_availability(tmp_path):
     assert net_new["expansion_kind"] == "regional_expansion"
     assert net_new["feature_current_available_regions"] == 2
     assert net_new["feature_coverage_delta"] == 2
-    assert net_new["details_url"] == "https://learn.microsoft.com/azure/ai-foundry/openai/concepts/models"
+    assert net_new["details_url"] == "https://learn.microsoft.com/en-us/azure/foundry/foundry-models/concepts/models-sold-directly-by-azure#gpt-5"
 
 
 def test_update_history_classifies_deprecation_and_recurring_regression(tmp_path):
@@ -676,3 +682,373 @@ def test_fetch_history_raises_when_server_error_persists(tmp_path, monkeypatch):
     with pytest.raises(urllib.error.HTTPError):
         fetch_history(tmp_path / "history", base_url)
     assert len(calls) == history.HISTORY_FETCH_ATTEMPTS
+
+
+def _briefing_snapshot(date, status, additions=0):
+    return Snapshot.model_validate({
+        "timestamp": f"{date}T00:00:00Z",
+        "regions": {
+            "eastus": {
+                "compute": {
+                    "vmSkus.standard.base": {"status": "available"},
+                    "vmSkus.standard.target": {"status": status},
+                    "vmSkus.standard.old-absence": {"status": "unavailable"},
+                    **{
+                        f"vmSkus.standard.new-{number}": {"status": "available"}
+                        for number in range(additions)
+                    },
+                },
+            },
+        },
+    })
+
+
+def _legacy_reader_history(history_dir):
+    snapshots = [
+        _briefing_snapshot("2026-05-08", "available"),
+        _briefing_snapshot("2026-05-09", "unavailable"),
+        _briefing_snapshot("2026-05-10", "unavailable", additions=65),
+    ]
+    days = []
+    for number, current in enumerate(snapshots):
+        date = current.timestamp.date().isoformat()
+        entry = {
+            "date": date,
+            "snapshot_timestamp": current.timestamp.isoformat(),
+            "snapshot_path": f"snapshots/{date}.json.gz",
+            "change_path": f"changes/{date}.json",
+            "previous_date": days[-1]["date"] if days else None,
+            "previous_snapshot_path": days[-1]["snapshot_path"] if days else None,
+            "total_changes": 65 if number == 2 else number,
+            "highlights": [],
+            "narrative": f"Keep original narrative {date}.",
+        }
+        history._write_snapshot_gzip(history_dir / entry["snapshot_path"], current)
+        history._write_json(history_dir / entry["change_path"], entry)
+        days.append(entry)
+    index = {
+        "latest_date": days[-1]["date"],
+        "latest_snapshot_path": days[-1]["snapshot_path"],
+        "generated_at": "2026-05-10T01:00:00+00:00",
+        "recent_changes_path": "recent-changes.json",
+        "days": list(reversed(days)),
+    }
+    history._write_json(history_dir / "index.json", index)
+    history._write_json(history_dir / "recent-changes.json", {
+        "generated_at": index["generated_at"], "days": index["days"],
+    })
+    return snapshots[-1]
+
+
+def test_prepare_reader_history_rebuilds_full_latest_facts_without_mutating_inputs(
+    tmp_path, monkeypatch
+):
+    history_dir = tmp_path / "history"
+    output_dir = tmp_path / "public" / "api" / "history"
+    current = _legacy_reader_history(history_dir)
+    index = history._read_json(history_dir / "index.json")
+    # Older metadata must not cause a scan of the retained snapshot archive.
+    index["days"].extend({
+        "date": f"2025-{month:02d}-{day:02d}",
+        "snapshot_path": f"snapshots/2025-{month:02d}-{day:02d}.json.gz",
+        "change_path": f"changes/2025-{month:02d}-{day:02d}.json",
+    } for month in range(1, 5) for day in range(1, 29))
+    history._write_json(history_dir / "index.json", index)
+    original = {
+        path.relative_to(history_dir): path.read_bytes()
+        for path in history_dir.rglob("*") if path.is_file()
+    }
+    history.copy_history_to_api(history_dir, output_dir)
+    loaded = []
+    original_load = history._load_history_snapshot
+
+    def tracked_load(path):
+        loaded.append(path.name)
+        return original_load(path)
+
+    monkeypatch.setattr(history, "_load_history_snapshot", tracked_load)
+    reader_index, reader_recent = history.prepare_reader_history(history_dir, output_dir, current)
+    assert loaded == ["2026-05-09.json.gz", "2026-05-08.json.gz"]
+    assert len(reader_index["days"]) == 115
+    assert len(reader_recent["days"]) == history.RECENT_CHANGE_DAYS
+    compact = reader_index["days"][0]["briefing"]
+    assert compact["version"] == 1
+    assert compact["counts"]["new_listings"] == 65
+    assert compact["counts"]["continuing_absences"] == 1
+    assert compact["tracking"] == {
+        "since": "2026-05-08", "complete": False, "mode": "tracked_absences",
+    }
+    assert "records" not in compact
+    assert "records" not in reader_recent["days"][0]["briefing"]
+    assert reader_index["days"][1]["briefing"] == {"version": 0, "legacy": True}
+    full_day = history._read_json(output_dir / "changes" / "2026-05-10.json")
+    assert full_day["narrative"] == "Keep original narrative 2026-05-10."
+    assert len(full_day["briefing"]["records"]) == 66
+    assert reader_index == history._read_json(output_dir / "index.json")
+    assert reader_recent == history._read_json(output_dir / "recent-changes.json")
+    assert (output_dir / "changes" / "2026-05-09.json").read_bytes() == original[
+        history_dir.joinpath("changes", "2026-05-09.json").relative_to(history_dir)
+    ]
+    assert original == {
+        path.relative_to(history_dir): path.read_bytes()
+        for path in history_dir.rglob("*") if path.is_file()
+    }
+
+
+def test_update_history_persists_continuing_records_and_restorations(tmp_path):
+    history_dir = tmp_path / "history"
+    for date, status in [
+        ("2026-05-07", "available"),
+        ("2026-05-08", "unavailable"),
+        ("2026-05-09", "unavailable"),
+        ("2026-05-10", "available"),
+    ]:
+        snapshot_path = tmp_path / "current.json"
+        snapshot_path.write_text(_briefing_snapshot(date, status).model_dump_json(), encoding="utf-8")
+        update_history(snapshot_path, history_dir)
+
+    initial = history._read_json(history_dir / "changes" / "2026-05-07.json")["briefing"]
+    continuing = history._read_json(history_dir / "changes" / "2026-05-09.json")["briefing"]
+    restored = history._read_json(history_dir / "changes" / "2026-05-10.json")["briefing"]
+    assert initial["baseline_available"] is False
+    assert initial["records"] == []
+    assert continuing["counts"]["continuing_absences"] == 1
+    assert len(continuing["records"]) == 1
+    assert restored["counts"]["restorations"] == 1
+    assert restored["counts"]["new_listings"] == 0
+    assert all(
+        "records" not in day["briefing"]
+        for day in history._read_json(history_dir / "index.json")["days"]
+    )
+
+
+def test_prepare_reader_history_reuses_full_prior_records_with_only_one_baseline_load(
+    tmp_path, monkeypatch
+):
+    history_dir = tmp_path / "history"
+    output_dir = tmp_path / "api"
+    current = _legacy_reader_history(history_dir)
+    previous = history._load_history_snapshot(history_dir / "snapshots" / "2026-05-09.json.gz")
+    older = history._load_history_snapshot(history_dir / "snapshots" / "2026-05-08.json.gz")
+    prior_path = history_dir / "changes" / "2026-05-09.json"
+    prior_day = history._read_json(prior_path)
+    prior_day["briefing"] = history.build_briefing(previous, older)
+    history._write_json(prior_path, prior_day)
+    history.copy_history_to_api(history_dir, output_dir)
+    loaded = []
+    original_load = history._load_history_snapshot
+
+    def tracked_load(path):
+        loaded.append(path.name)
+        return original_load(path)
+
+    monkeypatch.setattr(history, "_load_history_snapshot", tracked_load)
+    index, _ = history.prepare_reader_history(history_dir, output_dir, current)
+    assert loaded == ["2026-05-09.json.gz"]
+    assert index["days"][0]["briefing"]["counts"]["continuing_absences"] == 1
+
+
+def test_prepare_reader_history_preserves_restoration_from_older_historical_context(
+    tmp_path, monkeypatch
+):
+    history_dir = tmp_path / "history"
+    output_dir = tmp_path / "api"
+    _legacy_reader_history(history_dir)
+    current = _briefing_snapshot("2026-05-11", "available", additions=65)
+    snapshot_path = tmp_path / "current.json"
+    snapshot_path.write_text(current.model_dump_json(), encoding="utf-8")
+    update_history(snapshot_path, history_dir)
+    original_path = history_dir / "changes" / "2026-05-11.json"
+    original_bytes = original_path.read_bytes()
+    full_day = history._read_json(original_path)
+    assert full_day["briefing"]["counts"]["restorations"] == 1
+    assert full_day["briefing"]["records"][0]["last_available_date"] == "2026-05-08"
+    prior = history._briefing_prior_day(
+        history_dir,
+        history._read_json(history_dir / "index.json"),
+        history._read_json(history_dir / "changes" / "2026-05-10.json"),
+        history._load_history_snapshot(history_dir / "snapshots" / "2026-05-10.json.gz"),
+    )
+    assert not any(
+        record["feature"] == "vmSkus.standard.target" for record in prior["briefing"]["records"]
+    )
+    history.copy_history_to_api(history_dir, output_dir)
+
+    def unexpected_reconstruction(*args, **kwargs):
+        pytest.fail("Matching full daily facts must retain their historical context")
+
+    monkeypatch.setattr(history, "_briefing_prior_day", unexpected_reconstruction)
+    index, recent = history.prepare_reader_history(history_dir, output_dir, current)
+    assert index["days"][0]["briefing"]["counts"]["restorations"] == 1
+    assert recent["days"][0]["briefing"]["counts"]["new_listings"] == 0
+    assert history._read_json(output_dir / "changes" / "2026-05-11.json") == full_day
+    assert original_path.read_bytes() == original_bytes
+
+
+@pytest.mark.parametrize("field,value", [
+    ("current_timestamp", "2026-05-10T01:00:00+00:00"),
+    ("previous_timestamp", "2026-05-09T01:00:00+00:00"),
+    ("records", None),
+    ("records", []),
+    ("counts", {}),
+    ("groups", None),
+    ("version", 0),
+    ("baseline_available", False),
+])
+def test_prepare_reader_history_recomputes_stale_or_incomplete_full_facts(tmp_path, field, value):
+    history_dir = tmp_path / "history"
+    output_dir = tmp_path / "api"
+    current = _legacy_reader_history(history_dir)
+    previous = history._load_history_snapshot(history_dir / "snapshots" / "2026-05-09.json.gz")
+    day_path = history_dir / "changes" / "2026-05-10.json"
+    full_day = history._read_json(day_path)
+    full_day["briefing"] = history.build_briefing(current, previous)
+    full_day["briefing"][field] = value
+    history._write_json(day_path, full_day)
+    history.copy_history_to_api(history_dir, output_dir)
+
+    index, _ = history.prepare_reader_history(history_dir, output_dir, current)
+    briefing = index["days"][0]["briefing"]
+    assert briefing["counts"]["new_listings"] == 65
+    assert briefing["counts"]["continuing_absences"] == 1
+    assert briefing["current_timestamp"] == current.timestamp.isoformat()
+    assert briefing["previous_timestamp"] == previous.timestamp.isoformat()
+    assert briefing["baseline_available"] is True
+    assert briefing["version"] == 1
+
+
+def test_prepare_reader_history_missing_baseline_is_explicit(tmp_path, caplog):
+    history_dir = tmp_path / "history"
+    output_dir = tmp_path / "api"
+    current = _legacy_reader_history(history_dir)
+    (history_dir / "snapshots" / "2026-05-09.json.gz").unlink()
+    history.copy_history_to_api(history_dir, output_dir)
+    index, _ = history.prepare_reader_history(history_dir, output_dir, current)
+    briefing = index["days"][0]["briefing"]
+    assert briefing["baseline_available"] is False
+    assert briefing["counts"]["new_listings"] == 0
+    assert briefing["counts"]["continuing_absences"] == 0
+    assert briefing["comparison_days"] is None
+    assert "2026-05-09.json.gz" in caplog.text
+    assert "is missing" in caplog.text
+    assert "comparison baseline is unavailable" in caplog.text
+
+
+def test_prepare_reader_history_without_history_returns_existing_optional_values(tmp_path):
+    assert history.prepare_reader_history(
+        tmp_path / "missing", tmp_path / "api", _briefing_snapshot("2026-05-10", "available")
+    ) == (None, None)
+
+
+def test_prepare_reader_history_refuses_input_as_output(tmp_path):
+    history_dir = tmp_path / "history"
+    current = _legacy_reader_history(history_dir)
+    with pytest.raises(ValueError, match="outside input"):
+        history.prepare_reader_history(history_dir, history_dir, current)
+    with pytest.raises(ValueError, match="outside input"):
+        history.prepare_reader_history(history_dir, history_dir / "child", current)
+
+
+@pytest.mark.parametrize("unsafe", [
+    "", ".", "../outside.json", r"..\outside.json", "/outside.json", r"\outside.json",
+    "C:/outside.json", r"C:\outside.json", "//server/share/file.json",
+    r"\\server\share\file.json", "https://example.test/file.json",
+    "changes/file.json:stream", "changes/../../file.json",
+])
+def test_history_paths_reject_traversal_windows_roots_and_external_urls(tmp_path, unsafe):
+    assert history._is_safe_relative_path(unsafe) is False
+    with pytest.raises(ValueError, match="Unsafe history path"):
+        history._safe_history_path(tmp_path / "history", unsafe)
+
+
+def test_prepare_reader_history_does_not_follow_unsafe_stored_paths(tmp_path, caplog):
+    history_dir = tmp_path / "history"
+    output_dir = tmp_path / "api"
+    current = _legacy_reader_history(history_dir)
+    index = history._read_json(history_dir / "index.json")
+    index["days"][0]["change_path"] = "../outside.json"
+    index["days"][0]["previous_snapshot_path"] = "../outside.json"
+    history._write_json(history_dir / "index.json", index)
+    outside_path = tmp_path / "outside.json"
+    outside_path.write_text("Must not read or overwrite", encoding="utf-8")
+    history.copy_history_to_api(history_dir, output_dir)
+    reader_index, _ = history.prepare_reader_history(history_dir, output_dir, current)
+    assert outside_path.read_text(encoding="utf-8") == "Must not read or overwrite"
+    assert reader_index["days"][0]["briefing"]["baseline_available"] is False
+    assert reader_index["days"][0]["change_path"] == "changes/2026-05-10.json"
+    assert (output_dir / "changes" / "2026-05-10.json").exists()
+    assert "cannot load snapshot" in caplog.text
+    assert "cannot load daily changes" in caplog.text
+    assert "Unsafe history path" in caplog.text
+    assert all(record.levelname == "WARNING" for record in caplog.records)
+
+
+@pytest.mark.parametrize("error", [
+    PermissionError("Access denied"), ValueError("Invalid snapshot JSON"), EOFError(),
+])
+def test_reader_snapshot_logs_unreadable_evidence(tmp_path, monkeypatch, caplog, error):
+    def unreadable(*args, **kwargs):
+        raise error
+
+    monkeypatch.setattr(history, "_load_previous_snapshot", unreadable)
+    assert history._reader_snapshot(tmp_path, {"snapshot_path": "snapshots/baseline.json.gz"}) is None
+    assert "cannot load snapshot" in caplog.text
+    assert "snapshots/baseline.json.gz" in caplog.text
+    assert type(error).__name__ in caplog.text
+
+
+@pytest.mark.parametrize("error", [
+    PermissionError("Access denied"), ValueError("Invalid daily JSON"),
+])
+def test_reader_change_day_logs_unreadable_evidence(tmp_path, monkeypatch, caplog, error):
+    def unreadable(*args, **kwargs):
+        raise error
+
+    monkeypatch.setattr(history, "_read_json", unreadable)
+    assert history._reader_change_day(tmp_path, {"change_path": "changes/day.json"}) is None
+    assert "cannot load daily changes" in caplog.text
+    assert "changes/day.json" in caplog.text
+    assert type(error).__name__ in caplog.text
+
+
+@pytest.mark.parametrize("payload,reason", [(None, "is missing"), ([], "must contain a JSON object")])
+def test_reader_change_day_logs_missing_or_invalid_documents(tmp_path, caplog, payload, reason):
+    if payload is not None:
+        (tmp_path / "day.json").write_text(json.dumps(payload), encoding="utf-8")
+    assert history._reader_change_day(tmp_path, {"change_path": "day.json"}) is None
+    assert "daily changes" in caplog.text
+    assert reason in caplog.text
+
+
+def test_fetch_history_retains_full_briefing_records_through_change_path(tmp_path, monkeypatch):
+    index = {
+        "days": [{
+            "date": "2026-05-10",
+            "change_path": "changes/2026-05-10.json",
+            "briefing": {"version": 1, "counts": {"new_listings": 65}},
+        }],
+    }
+    full_day = {
+        **index["days"][0],
+        "briefing": {
+            "version": 1,
+            "records": [{"feature": f"vmSkus.standard.new-{i}"} for i in range(65)],
+        },
+    }
+    payloads = {
+        "index.json": index,
+        "changes/2026-05-10.json": full_day,
+        "recent-changes.json": index,
+    }
+    calls = []
+
+    def fake_urlopen(url, timeout=None):
+        calls.append(url)
+        relative = url.removeprefix("https://example.test/api/history/")
+        return _FakeResponse(json.dumps(payloads[relative]).encode("utf-8"))
+
+    monkeypatch.setattr(history.urllib.request, "urlopen", fake_urlopen)
+    history_dir = tmp_path / "history"
+    assert fetch_history(history_dir, "https://example.test/api/history")
+    assert len(calls) == 3
+    assert history._read_json(history_dir / "changes" / "2026-05-10.json") == full_day
