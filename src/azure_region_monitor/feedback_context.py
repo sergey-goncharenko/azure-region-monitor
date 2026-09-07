@@ -7,6 +7,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from azure_region_monitor.briefing import coalesce_briefing_groups
+
 REPOSITORY_URL = "https://github.com/sergey-goncharenko/azure-region-monitor"
 SITE_URL = "https://azwatch.operator.lat"
 PROTOCOL_VERSION = "reader-check-v1"
@@ -37,8 +39,20 @@ def measurement_context(day: dict[str, Any], view_id: str) -> dict[str, Any]:
         "counts": briefing["counts"],
         "scope": briefing.get("scope", {}),
         "groups": [
-            {key: group[key] for key in ("kind", "modality", "feature_count", "listing_count", "region_counts")}
-            for group in briefing["groups"]
+            {
+                **{
+                    key: group[key]
+                    for key in ("modality", "feature_count", "listing_count", "region_counts")
+                },
+                "statuses": [
+                    {
+                        key: status[key]
+                        for key in ("kind", "feature_count", "listing_count", "region_counts")
+                    }
+                    for status in group["statuses"]
+                ],
+            }
+            for group in coalesce_briefing_groups(briefing["groups"])
         ],
     }
     encoded = json.dumps(facts, sort_keys=True, separators=(",", ":")).encode("utf-8")

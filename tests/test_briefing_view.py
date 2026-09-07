@@ -191,7 +191,7 @@ def test_related_statuses_share_a_modality_card_without_losing_status_details():
     assert rendered.count('class="briefing-card"') == 1
     assert "New listings" in rendered
     assert "New delistings" in rendered
-    assert rendered.count("East US") == 2
+    assert rendered.count('data-status-regions>East US</p>') == 2
     assert 'data-explore-group="0"' in rendered
 
 
