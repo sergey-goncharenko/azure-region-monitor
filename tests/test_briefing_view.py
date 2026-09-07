@@ -28,17 +28,26 @@ def _day():
             "modalities": ["VM SKUs", "AKS extensions", "Azure Functions"],
             "groups": [
                 {
-                    "kind": "new_listings", "modality": "VM SKUs",
+                    "modality": "VM SKUs",
                     "feature_count": 54, "listing_count": 266,
                     "regions": ["austriaeast", "belgiumcentral", "chilecentral", "denmarkeast", "indiasouthcentral"],
                     "region_counts": {"austriaeast": 52, "belgiumcentral": 54, "chilecentral": 54, "denmarkeast": 54, "indiasouthcentral": 52},
-                    "examples": [{"feature": "vmSkus.standard.d128nds.v6", "coverage_before": {"available": 44}, "coverage_after": {"available": 49}}],
+                    "statuses": [{
+                        "kind": "new_listings", "feature_count": 54, "listing_count": 266,
+                        "regions": ["austriaeast", "belgiumcentral", "chilecentral", "denmarkeast", "indiasouthcentral"],
+                        "region_counts": {"austriaeast": 52, "belgiumcentral": 54, "chilecentral": 54, "denmarkeast": 54, "indiasouthcentral": 52},
+                        "examples": [{"feature": "vmSkus.standard.d128nds.v6", "coverage_before": {"available": 44}, "coverage_after": {"available": 49}}],
+                    }],
                 },
                 {
-                    "kind": "new_listings", "modality": "AKS extensions",
+                    "modality": "AKS extensions",
                     "feature_count": 1, "listing_count": 1,
                     "regions": ["switzerlandnorth"], "region_counts": {"switzerlandnorth": 1},
-                    "examples": [{"feature": "extensionTypes.microsoft.vmware", "coverage_before": {"available": 19}, "coverage_after": {"available": 20}}],
+                    "statuses": [{
+                        "kind": "new_listings", "feature_count": 1, "listing_count": 1,
+                        "regions": ["switzerlandnorth"], "region_counts": {"switzerlandnorth": 1},
+                        "examples": [{"feature": "extensionTypes.microsoft.vmware", "coverage_before": {"available": 19}, "coverage_after": {"available": 20}}],
+                    }],
                 },
             ],
         },
@@ -118,7 +127,7 @@ def test_compact_payload_escapes_untrusted_identifiers_and_excludes_raw_records(
     day = _day()
     day["briefing"]["records"] = [{"message": "RAW_RECORD_NOT_IN_MAIN_HTML"}]
     day["briefing"]["groups"][0]["modality"] = '</script><img src=x onerror="alert(1)">'
-    day["briefing"]["groups"][0]["examples"][0]["feature"] = "<script>bad()</script>"
+    day["briefing"]["groups"][0]["statuses"][0]["examples"][0]["feature"] = "<script>bad()</script>"
     rendered = render_briefing(day)
     payload = re.search(r'class="briefing-data">(.*?)</script>', rendered).group(1)
     assert "</script>" not in payload
@@ -155,6 +164,35 @@ def test_real_briefing_contract_renders_a_single_extension_and_coverage():
     assert "vCenter" in rendered
     assert "/azure-arc/vmware-vsphere/overview" in rendered
     assert "First observed in this comparison" in rendered
+
+
+def test_related_statuses_share_a_modality_card_without_losing_status_details():
+    before = Snapshot.model_validate({
+        "timestamp": "2026-09-05T08:00:00Z",
+        "regions": {"eastus": {"compute": {
+            "vmSkus.standard.new": {"status": "unavailable"},
+            "vmSkus.standard.old": {"status": "available"},
+        }}},
+    })
+    after = Snapshot.model_validate({
+        "timestamp": "2026-09-06T08:00:00Z",
+        "regions": {"eastus": {"compute": {
+            "vmSkus.standard.new": {"status": "available"},
+            "vmSkus.standard.old": {"status": "unavailable"},
+        }}},
+    })
+
+    rendered = render_briefing({
+        "date": "2026-09-06",
+        "change_path": "changes/2026-09-06.json",
+        "briefing": build_briefing(after, before),
+    })
+
+    assert rendered.count('class="briefing-card"') == 1
+    assert "New listings" in rendered
+    assert "New delistings" in rendered
+    assert rendered.count("East US") == 2
+    assert 'data-explore-group="0"' in rendered
 
 
 def test_specific_vm_context_is_visible_in_the_shared_briefing():
