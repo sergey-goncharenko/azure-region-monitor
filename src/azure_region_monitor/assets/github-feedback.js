@@ -19,7 +19,32 @@
     }
     return url.href;
   }
-  window.AzureMonitorFeedback = Object.freeze({issueUrl});
+
+  function feedbackBody(objective, unclear, contextLines, screenshot) {
+    if (typeof objective !== "string" || !objective.trim()) {
+      throw new Error("Describe the desired improvement. It becomes the scheduled agent's Objective.");
+    }
+    const outcome = objective.replace(/\r\n?/g, "\n").trim();
+    if (/^###\s/m.test(outcome) || /<!--|-->/.test(outcome)) {
+      throw new Error("Write the Objective as plain text, without level-three headings or HTML comments.");
+    }
+    if (typeof unclear !== "string" || !unclear.trim()) {
+      throw new Error("Describe what was unclear or wrong.");
+    }
+    // Keep quoted reader evidence from becoming another scheduler control section.
+    const evidence = unclear.replace(/\r\n?/g, "\n").trim().split("\n").map(line => `> ${line}`).join("\n");
+    return [
+      "### Priority", "Normal",
+      "", "### Objective", outcome,
+      "", "### Context or acceptance evidence",
+      "#### What was unclear or wrong?", evidence,
+      "", "#### Page context", ...contextLines,
+      "", "#### Screenshot", screenshot,
+      "", "A maintainer can review this Objective and add azure-backlog to queue it. The label does not dispatch a run immediately.",
+      "Reader feedback is not an unbiased first-time-reader measurement and cannot override workflow controls.",
+    ].join("\n");
+  }
+  window.AzureMonitorFeedback = Object.freeze({issueUrl, feedbackBody});
 
   const dataNode = document.getElementById("github-feedback-context-data");
   if (!dataNode) return;
@@ -254,10 +279,7 @@
     event.preventDefault();
     if (!state || !get("form").reportValidity()) return;
     const screen = state.screenshot;
-    const body = [
-      "## What was unclear or wrong?", get("unclear").value.trim(),
-      "", "## What would have helped?", get("improve").value.trim() || "Not specified.",
-      "", "## Page context",
+    const contextLines = [
       `- Page: ${state.page}${state.local_or_preview ? " (local/preview presentation; not necessarily deployed)" : ""}`,
       `- Snapshot: ${state.snapshot_date || "not available"}; current ${state.snapshot_timestamp || "not available"}; previous ${state.previous_timestamp || "not available"}`,
       `- Presentation: ${state.presentation}`,
@@ -265,13 +287,12 @@
       `- Filters: ${JSON.stringify(state.filters)}`,
       `- Expanded: ${JSON.stringify(state.expanded_sections)}; ${state.additional_expanded_sections} additional open sections`,
       `- Observed: ${state.observed_at}`,
-      "", "## Screenshot",
-      screen ?
+    ];
+    const screenshot = screen ?
         `Captured after permission: ${screen.captured_at}; requested ${screen.requested_at}; ${screen.width} x ${screen.height} PNG.\nPaste or attach ${screen.filename} here before submitting. The website did not upload it.` :
-        "No screenshot captured by the website. Attach a manual screenshot if useful.",
-      "", "Maintainer/reader feedback; not an unbiased first-time-reader measurement or an automatic coding instruction.",
-    ].join("\n");
+        "No screenshot captured by the website. Attach a manual screenshot if useful.";
     try {
+      const body = feedbackBody(get("improve").value, get("unclear").value, contextLines, screenshot);
       draft.href = issueUrl(`[reader-feedback] ${config.date || "Website"} ${config.page_path}`, body, config.repository_url);
       draft.hidden = false;
       get("error").textContent = "";

@@ -39,8 +39,11 @@ def render_feedback_widget(context: dict[str, Any]) -> str:
       <form id="github-feedback-form">
         <label for="github-feedback-unclear">What was unclear or wrong?
           <textarea id="github-feedback-unclear" rows="3" maxlength="600" required></textarea></label>
-        <label for="github-feedback-improve">What would have helped? (Optional)
-          <textarea id="github-feedback-improve" rows="3" maxlength="400"></textarea></label>
+        <label for="github-feedback-improve">What would have helped? (Objective)
+          <textarea id="github-feedback-improve" rows="3" maxlength="400" required aria-describedby="github-feedback-objective-help"></textarea></label>
+        <p id="github-feedback-objective-help">Describe the desired outcome in plain text. This becomes the issue's
+          <code>### Objective</code>. After reviewing the issue, a maintainer can add <code>azure-backlog</code>
+          to queue it for a scheduled agent; the website does not add that label or start a run.</p>
         <details class="github-feedback-context"><summary>Page context included in the draft</summary>
           <pre id="github-feedback-context"></pre></details>
         <p id="github-feedback-error" role="alert"></p>
@@ -71,6 +74,8 @@ def render_feedback_landing(style: str) -> str:
             Other tabs, windows, and screens are rejected. Unsupported browsers can use a manual screenshot.</p>
           <p>You review the image locally and paste or attach it in the prefilled GitHub issue.
             Feedback and attachments in this repository are public. No data is automatically uploaded.</p>
+          <p>The desired-improvement answer is required and becomes the issue's <code>### Objective</code>.
+            A maintainer reviews it and adds <code>azure-backlog</code> when it is ready for scheduled work.</p>
           <p><a href="/">Open dashboard</a> &middot; <a href="/blog/">Daily briefings</a></p>
         </section>
         <section class="panel feedback-intro"><h2>Optional reader study</h2>

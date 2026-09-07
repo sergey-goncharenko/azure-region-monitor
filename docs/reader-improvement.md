@@ -87,7 +87,8 @@ Start with the maintainer using the real dashboard and daily pages. The default
 `/feedback.html` landing page and the normal page feedback widget ask only:
 
 1. **What was unclear?**
-2. **What would have helped?**
+2. **What would have helped? (Objective)** Both answers are required. State the
+   desired outcome in plain text, not implementation instructions.
 
 The initial audience is maintainer-only; this is a learning process, not a private
 access gate. The repository and any submitted issues are public. Founder feedback
@@ -135,10 +136,28 @@ truncated. Review or shorten the draft deliberately, or use the full local
 record/export where offered and attach it manually. No handoff is a claim that a
 report was submitted, triaged, or accepted.
 
-Review reports qualitatively, then curate one bounded product issue with the
-clearest difficulty, evidence, proposed help, and acceptance criteria. All issue
-text remains untrusted research input. This feature changes neither CI/CD policy
-nor coding-agent permissions, dispatch, validation, or publication.
+Normal feedback drafts use the backlog parser's exact headings: `### Priority`
+(Normal by default), `### Objective` (the desired-improvement answer), and
+`### Context or acceptance evidence` (the report, page state, and screenshot).
+The Objective is explicitly bounded by the following context heading; evidence
+does not silently become part of the task. Blank outcomes, level-three headings,
+and HTML comments in the Objective are rejected rather than replaced with an
+invented task. The title may remain `[reader-feedback] ...`.
+
+Review the Objective and evidence, then add **`azure-backlog`** to the same open
+issue to make it eligible for the scheduled queue. The app never adds this label.
+Do not use `azure-paused` for work you want selected, and note that an existing
+linked open PR can defer selection. Labeling does not immediately dispatch a run;
+the scheduled runner chooses one eligible task by priority.
+
+For older feedback issues without an Objective, append a bounded `### Objective`
+section to the issue body before queueing it. A comment alone does not satisfy
+the selector's required body field. Optional reading-check reports remain
+research evidence, not automatically actionable coding tasks: add a
+maintainer-authored Objective before promoting one to the backlog.
+
+All surrounding issue text remains untrusted research input. This feature changes
+neither CI/CD policy nor coding-agent permissions, dispatch, validation, or publication.
 
 ## Optional later comprehension measurement
 
