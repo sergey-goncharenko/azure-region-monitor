@@ -107,6 +107,24 @@ not change the workflow policy or authorize work from raw feedback.
 
 When a change needs visual review, the agent must put the visual evidence where reviewers can inspect it inline, such as a concise PR comment with rendered images or a Markdown-friendly comparison. Do not make reviewers download and open a standalone HTML preview to understand a proposed design; include a short caption and the decision the visual supports.
 
+The [static-site visual-evidence workflow](../.github/workflows/static-site-visual-evidence.yml)
+checks out workflow tooling, base, and head in separate workspace subdirectories.
+Both application revisions use the same copied repository-data fixture, with raw
+dated snapshots supplying history when none is checked in; probes and AI writing
+are disabled. The manifest records exact base/head commits and the shared snapshot
+hash/date. This is a rendering comparison on repository fixtures, not a claim
+about the currently deployed dataset.
+
+The workflow runs for relevant PR changes. To validate an existing PR without
+changing its branch, use **Run workflow** and supply `pr_number`; this also covers
+cases where a bot-created PR event did not start a workflow. The run summary links
+an artifact containing an HTML before/after index, PNGs, a manifest, and build/server
+logs. If one revision fails to build, screenshots from the successful side are
+retained, the failed side is marked unavailable (not "added" or "removed"), and
+the overall run remains failed. Partial generated HTML is never treated as a
+successful build. Agents still need to bring relevant images into reviewer-facing
+comments rather than treating an artifact upload alone as completed visual review.
+
 Agentic issue PRs use safe-output metadata and GitHub Actions audit artifacts. Aider fallback PRs retain their deterministic reviewer summary plus sanitized visible chat/diff output. Copilot maintenance uses the latest visible `assistant.message`. Opaque/encrypted reasoning and private chain-of-thought are excluded; secret-like values are redacted.
 
 Every coherent agentic change is published as a draft when safe-output transport permissions allow it, even if validation or threat detection reports findings. The draft cannot be squashed until a human marks it ready. Generated `REQUEST_CHANGES` reviews make security and protected-file findings prominent; the validation follower posts deterministic test/lint results on the PR and a concise source-issue link. There is no automatic retry. Requested PR rework remains available only when a human explicitly submits review feedback.
@@ -118,9 +136,9 @@ Agentic runs expose prompts, outputs, patches, tool/firewall logs, token usage, 
 Both agentic `[agentic]` PRs and Aider fallback PRs can receive another Azure-funded coding pass without opening the Actions page. The dispatcher routes salted `agentic/issue-*` branches back to the agentic runner and `azure-issues/issue-<number>` branches to Aider:
 
 1. Describe the required bounded correction in the **Request changes** review body. Ordinary comments record context but do not dispatch work.
-2. Submit the review or comment. The triggering text is capped and carried as trusted acceptance criteria only after write-level permission and PR/source-issue validation; it cannot expand editable paths or override safety controls.
+2. Submit the **Request changes** review. The triggering text is capped and carried as trusted acceptance criteria only after write-level permission and PR/source-issue validation; it cannot expand editable paths or override safety controls.
 3. The dispatcher posts a visible queued-status comment and starts the appropriate agentic or Aider rework runner.
-4. The status comment is updated with the final workflow result and link. A successful code update also refreshes the same PR description and adds the normal completion comment.
+4. The status comment reports the verified publication outcome and links to the run. An agentic code update is successful only when the safe-output commit is verified on the original PR branch; a green job alone is not proof of publication.
 
 The dispatcher accepts only an open, same-repository PR authored by `github-actions[bot]`, targeting the default branch from an agentic or Aider issue branch. It verifies the triggering user's current GitHub permission through the repository API and accepts only `write`, `maintain`, or `admin`. The source issue must still be open, labelled `azure-backlog`, and not labelled `azure-paused`. Bot events, fork PRs, arbitrary branches, ordinary nonblocking reviews, and comments that merely mention the command later in their text are ignored.
 
@@ -128,7 +146,11 @@ Validation findings do not start another model pass. Leave ordinary comments whe
 
 An active status marker deduplicates repeated review events and commands for the same PR. A marker is considered stale after two hours so a cancelled run cannot block recovery indefinitely. The dispatcher has no Azure secret: it sends a bounded `repository_dispatch` payload to the existing workflow, where Azure credentials remain isolated.
 
-The targeted run selects only the source issue and skips documentation alignment. It fetches all current PR conversation comments, submitted reviews, and inline comments as untrusted supporting context, while the exact validated triggering text is a separate trusted top-level requirement. It checks out the existing PR branch; applies bounded amendments; runs focused and full tests plus Ruff/whitespace validation; pushes another bot commit; and refreshes the same PR rationale, model, token, and chat-artifact metadata. It does not create a second PR, and it fails visibly if no cumulative PR delta survives validation.
+The targeted run selects only the source issue and skips documentation alignment. It fetches current PR conversation comments, submitted reviews, and inline comments as untrusted supporting context, while the exact validated triggering text is a separate trusted top-level requirement. It checks out the existing PR branch, applies bounded amendments, and runs focused and full tests plus Ruff/whitespace validation.
+
+**Agentic rework is same PR or blocked.** Failed threat-detector installation, threat detection, validation, or branch publication never authorize a replacement or review PR. Non-fast-forward fallback is disabled, and a semantic detection gate prevents gh-aw's warning-to-review-PR conversion. The candidate patch is retained for seven days in the `agentic-rework-patch` run artifact before validation, without publishing model chats or private reports in the status comment. A blocked run requires a human decision before retry; the original PR is not claimed as updated.
+
+The finalizer checks the executed safe-output manifest and detector/publication results, then verifies the live target branch against its recorded initial identity and the emitted push commit SHA. An explicitly requested out-of-scope follow-up may instead create one backlog issue, reported as **follow-up-created**, not a code update. Protected-file edits still divert to a human review issue and are reported as **blocked**, with that issue linked. Neither path silently creates another PR. The scheduled new-issue lane retains its separate draft-first publication policy.
 
 If the event dispatcher is unavailable, use the manual fallback:
 

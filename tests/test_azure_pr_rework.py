@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import importlib.util
+import json
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -69,6 +70,12 @@ class FakeClient:
         return self.permission
 
     def get_issue(self, number):
+        if number == 52:
+            return {
+                "number": 52,
+                "html_url": f"https://github.com/{REPOSITORY}/issues/52",
+                "user": {"login": "github-actions[bot]"},
+            }
         assert number == 48
         return copy.deepcopy(self.issue)
 
@@ -154,8 +161,9 @@ def test_commented_review_does_not_dispatch_rework():
     assert result["eligible"] is False
 
 
-def test_non_blocking_review_does_not_dispatch_rework():
-    result = _resolve(_review_event("commented"), "pull_request_review")
+@pytest.mark.parametrize("state", ["commented", "approved", "dismissed"])
+def test_non_blocking_review_does_not_dispatch_rework(state):
+    result = _resolve(_review_event(state), "pull_request_review")
 
     assert result["eligible"] is False
     assert result["reason"] == "The submitted review did not request changes."
@@ -421,7 +429,7 @@ def test_agentic_rework_workflow_bounds_pushes_to_the_reviewed_pull_request():
     assert "conclusion:" in source
     assert "Finalize the rework status comment" in source
     assert "SAFE_OUTPUTS_RESULT: ${{ needs.safe_outputs.result }}" in source
-    assert "scripts/manage_azure_pr_rework.py finalize-status" in source
+    assert "scripts/manage_azure_pr_rework.py finalize-agentic-status" in source
     assert "detection:\n    needs: [prepare]" in source
     assert "      - prepare\n" in lock
     assert "secrets.AZURE_CODING_OPENAI_KEY" in source
@@ -456,3 +464,307 @@ def test_no_dead_workflow_run_follower_for_the_bot_dispatched_rework():
     # workflow_run never fires for a run attributed to github-actions[bot], and the
     # conclusion job finalizes the status comment instead.
     assert not (REPO_ROOT / ".github/workflows/agentic-pr-rework-status.yml").exists()
+
+
+def _agentic_publication():
+    client = FakeClient()
+    client.pull["head"].update(ref="agentic/issue-48-abcdef", sha="b" * 40)
+    status = {
+        "pr_number": "51",
+        "comment_id": "700",
+        "request_id": "100-1",
+        "head_ref": "agentic/issue-48-abcdef",
+        "head_sha": "a" * 40,
+        "base_ref": "main",
+    }
+    evidence = {
+        "AGENT_RESULT": "success",
+        "DETECTION_RESULT": "success",
+        "DETECTION_CONCLUSION": "success",
+        "DETECTION_SUCCESS": "true",
+        "DETECTION_REASON": "",
+        "SAFE_OUTPUTS_RESULT": "success",
+        "PUBLICATION_STATUS": "success",
+        "PUBLICATION_FAILURES": "0",
+        "PUSH_COMMIT_SHA": "b" * 40,
+    }
+    publication = [{
+        "type": "push_to_pull_request_branch",
+        "number": 51,
+        "url": f"https://github.com/{REPOSITORY}/pull/51",
+    }]
+    return client, status, evidence, publication
+
+
+def _evaluate_publication(client, status, evidence, publication):
+    return pr_rework.evaluate_agentic_publication(
+        client, status=status, evidence=evidence, publication=publication,
+    )
+
+
+def test_same_branch_update_requires_the_live_safe_output_commit():
+    client, status, evidence, publication = _agentic_publication()
+    outcome, details = _evaluate_publication(client, status, evidence, publication)
+    assert outcome == "success"
+    assert "on the same [PR #51]" in details
+    assert f"/commit/{'b' * 40}" in details
+
+
+@pytest.mark.parametrize(
+    ("live_sha", "push_sha"),
+    [
+        ("a" * 40, "b" * 40),  # Original branch was not updated.
+        ("c" * 40, "b" * 40),  # An unrelated concurrent update is not our publication.
+        ("b" * 40, ""),  # Live movement alone is not evidence of a safe-output push.
+        ("a" * 40, "a" * 40),  # No new commit.
+        ("b" * 40, "not-a-commit"),
+    ],
+)
+def test_green_jobs_do_not_prove_a_same_pr_update(live_sha, push_sha):
+    client, status, evidence, publication = _agentic_publication()
+    client.pull["head"]["sha"] = live_sha
+    evidence["PUSH_COMMIT_SHA"] = push_sha
+    outcome, details = _evaluate_publication(client, status, evidence, publication)
+    assert outcome == "blocked"
+    assert "No new safe-output commit" in details
+
+
+@pytest.mark.parametrize(
+    "evidence_update",
+    [
+        # The exact PR119/120 failure: detector installation failed, but jobs were green.
+        {"DETECTION_CONCLUSION": "warning", "DETECTION_SUCCESS": "false",
+         "DETECTION_REASON": "agent_failure"},
+        # Explicit fail-closed installation failure.
+        {"DETECTION_RESULT": "failure", "DETECTION_CONCLUSION": "failure",
+         "DETECTION_SUCCESS": "false", "DETECTION_REASON": "agent_failure",
+         "SAFE_OUTPUTS_RESULT": "skipped"},
+        {"DETECTION_RESULT": "failure"},  # Independent validation failed after detection.
+        {"DETECTION_SUCCESS": ""},
+        {"DETECTION_CONCLUSION": "skipped"},  # A code update cannot skip detection.
+        {"PUBLICATION_STATUS": "completed_with_warnings"},
+        {"PUBLICATION_STATUS": "completed_with_skips"},
+        {"PUBLICATION_FAILURES": "1"},
+        {"PUBLICATION_FAILURES": ""},
+        {"SAFE_OUTPUTS_RESULT": "failure"},
+        {"AGENT_RESULT": "failure"},
+    ],
+)
+def test_failed_or_unverified_gates_block_even_when_a_commit_is_reported(evidence_update):
+    client, status, evidence, publication = _agentic_publication()
+    evidence.update(evidence_update)
+    outcome, _ = _evaluate_publication(client, status, evidence, publication)
+    assert outcome == "blocked"
+
+
+@pytest.mark.parametrize(
+    "publication",
+    [
+        [],
+        [{"type": "push_to_pull_request_branch"}],  # Runtime review-PR diversion manifest.
+        [{"type": "push_to_pull_request_branch", "number": 52,
+          "url": f"https://github.com/{REPOSITORY}/pull/52"}],
+        [{"type": "create_pull_request", "number": 52,
+          "url": f"https://github.com/{REPOSITORY}/pull/52"}],
+    ],
+)
+def test_missing_or_review_pr_publication_is_not_same_pr_success(publication):
+    client, status, evidence, _ = _agentic_publication()
+    outcome, _ = _evaluate_publication(client, status, evidence, publication)
+    assert outcome == "blocked"
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda pull: pull.update(state="closed"),
+        lambda pull: pull["head"].update(ref="agentic/issue-48-abcdef-review-123"),
+        lambda pull: pull["head"].update(repo={"full_name": "other/repository"}),
+        lambda pull: pull["base"].update(ref="release"),
+    ],
+)
+def test_finalizer_revalidates_live_pull_request_identity(mutation):
+    client, status, evidence, publication = _agentic_publication()
+    mutation(client.pull)
+    outcome, details = _evaluate_publication(client, status, evidence, publication)
+    assert outcome == "blocked"
+    assert "no longer matches" in details
+
+
+@pytest.mark.parametrize("detection_conclusion", ["success", "skipped"])
+def test_follow_up_issue_is_distinct_from_branch_update(detection_conclusion):
+    client, status, evidence, _ = _agentic_publication()
+    client.pull["head"]["sha"] = status["head_sha"]
+    evidence.update(PUSH_COMMIT_SHA="", DETECTION_CONCLUSION=detection_conclusion)
+    publication = [{
+        "type": "create_issue", "number": 52,
+        "url": f"https://github.com/{REPOSITORY}/issues/52",
+    }]
+    outcome, details = _evaluate_publication(client, status, evidence, publication)
+    assert outcome == "follow-up-created"
+    assert "[follow-up issue #52]" in details
+    assert "was not updated" in details
+
+
+def test_protected_file_issue_is_reported_as_blocked_not_a_branch_update():
+    client, status, evidence, publication = _agentic_publication()
+    client.pull["head"]["sha"] = status["head_sha"]
+    evidence["PUSH_COMMIT_SHA"] = ""
+    publication[0].update(number=52, url=f"https://github.com/{REPOSITORY}/issues/52")
+    outcome, details = _evaluate_publication(client, status, evidence, publication)
+    assert outcome == "blocked"
+    assert "Protected-file changes" in details
+    assert "[issue #52]" in details
+    assert "was not updated" in details
+
+
+def test_follow_up_must_be_a_real_issue_not_a_pull_request(monkeypatch):
+    client, status, evidence, _ = _agentic_publication()
+    client.pull["head"]["sha"] = status["head_sha"]
+    evidence["PUSH_COMMIT_SHA"] = ""
+    issue = client.get_issue(52)
+    issue["pull_request"] = {"url": f"https://api.github.com/repos/{REPOSITORY}/pulls/52"}
+    monkeypatch.setattr(client, "get_issue", lambda number: issue)
+    publication = [{
+        "type": "create_issue", "number": 52,
+        "url": f"https://github.com/{REPOSITORY}/issues/52",
+    }]
+    outcome, details = _evaluate_publication(client, status, evidence, publication)
+    assert outcome == "blocked"
+    assert "verified as a bot-created issue" in details
+
+
+def test_failed_detector_finalizes_blocked_with_patch_artifact_link(tmp_path):
+    client, status, evidence, _ = _agentic_publication()
+    evidence.update(DETECTION_RESULT="failure", DETECTION_CONCLUSION="failure",
+                    DETECTION_SUCCESS="false", DETECTION_REASON="agent_failure",
+                    SAFE_OUTPUTS_RESULT="skipped", PUSH_COMMIT_SHA="")
+    outcome = pr_rework.finalize_agentic_rework_status(
+        client, status=status, publication_path=tmp_path / "missing.jsonl",
+        evidence=evidence, run_url=f"https://github.com/{REPOSITORY}/actions/runs/101",
+    )
+    assert outcome == "blocked"
+    body = client.updated_comments[0][1]
+    assert "**blocked**" in body
+    assert "agent_failure" in body
+    assert "agentic-rework-patch" in body
+    assert "/actions/runs/101#artifacts" in body
+    assert "No replacement PR is authorized" in body
+    assert "refreshed rationale" not in body
+
+
+def test_verified_publication_finalizer_is_idempotent(tmp_path):
+    client, status, evidence, publication = _agentic_publication()
+    path = tmp_path / "safe-output-items.jsonl"
+    path.write_text(json.dumps(publication[0]) + "\n", encoding="utf-8")
+    for _ in range(2):
+        outcome = pr_rework.finalize_agentic_rework_status(
+            client, status=status, publication_path=path, evidence=evidence,
+            run_url=f"https://github.com/{REPOSITORY}/actions/runs/101",
+        )
+        assert outcome == "success"
+    assert len(client.updated_comments) == 1
+    assert "Verified commit" in client.updated_comments[0][1]
+
+
+@pytest.mark.parametrize(
+    "contents", ["invalid JSON", "[]\n", " " * 65_537], ids=["invalid-json", "array", "oversize"],
+)
+def test_malformed_publication_evidence_fails_closed(tmp_path, contents):
+    client, status, evidence, _ = _agentic_publication()
+    path = tmp_path / "safe-output-items.jsonl"
+    path.write_text(contents, encoding="utf-8")
+    outcome = pr_rework.finalize_agentic_rework_status(
+        client, status=status, publication_path=path, evidence=evidence,
+        run_url=f"https://github.com/{REPOSITORY}/actions/runs/101",
+    )
+    assert outcome == "blocked"
+    assert "**blocked**" in client.updated_comments[0][1]
+
+
+def test_live_target_read_failure_is_reported_as_blocked(tmp_path, monkeypatch):
+    client, status, evidence, publication = _agentic_publication()
+    path = tmp_path / "safe-output-items.jsonl"
+    path.write_text(json.dumps(publication[0]) + "\n", encoding="utf-8")
+
+    def unavailable(number):
+        raise RuntimeError("GitHub read failed")
+
+    monkeypatch.setattr(client, "get_pull_request", unavailable)
+    outcome = pr_rework.finalize_agentic_rework_status(
+        client, status=status, publication_path=path, evidence=evidence,
+        run_url=f"https://github.com/{REPOSITORY}/actions/runs/101",
+    )
+    assert outcome == "blocked"
+    assert "live target could not be verified" in client.updated_comments[0][1]
+
+
+@pytest.mark.parametrize("updated", [True, False])
+def test_agentic_finalizer_cli_fails_visibly_after_posting_blocked_status(
+    tmp_path, monkeypatch, updated,
+):
+    client, status, evidence, publication = _agentic_publication()
+    if not updated:
+        client.pull["head"]["sha"] = status["head_sha"]
+    status_path = tmp_path / "status.json"
+    publication_path = tmp_path / "safe-output-items.jsonl"
+    status_path.write_text(json.dumps(status), encoding="utf-8")
+    publication_path.write_text(json.dumps(publication[0]) + "\n", encoding="utf-8")
+    monkeypatch.setattr(pr_rework.GitHubApiClient, "from_env", lambda repository: client)
+    for name, value in evidence.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setattr(sys, "argv", [
+        "manage_azure_pr_rework.py", "finalize-agentic-status",
+        "--repository", REPOSITORY, "--status", str(status_path),
+        "--publication", str(publication_path),
+        "--run-url", f"https://github.com/{REPOSITORY}/actions/runs/101",
+    ])
+    if updated:
+        pr_rework.main()
+        assert "**success**" in client.updated_comments[0][1]
+    else:
+        with pytest.raises(SystemExit) as error:
+            pr_rework.main()
+        assert error.value.code == 1
+        assert "**blocked**" in client.updated_comments[0][1]
+
+
+def test_agentic_rework_lock_fails_closed_and_retains_only_the_candidate_patch():
+    source = (REPO_ROOT / ".github/workflows/agentic-pr-rework.md").read_text(encoding="utf-8")
+    lock = (REPO_ROOT / ".github/workflows/agentic-pr-rework.lock.yml").read_text(encoding="utf-8")
+    assert "threat-detection:\n    continue-on-error: false" in source
+    assert "fallback-as-pull-request: false" in source
+    assert '\\"fallback_as_pull_request\\":false' in lock
+    detection = lock.split("\n  detection:\n", 1)[1].split("\n  pre_activation:\n", 1)[0]
+    assert 'GH_AW_DETECTION_CONTINUE_ON_ERROR: "false"' in detection
+    assert 'GH_AW_DETECTION_CONTINUE_ON_ERROR: "true"' not in detection
+    conclusion = detection.split("- name: Conclude threat detection", 1)[1]
+    assert "continue-on-error: true" not in conclusion
+    retention = detection.split("- name: Retain candidate patch for blocked rework", 1)[1]
+    retention = retention.split("\n      - ", 1)[0]
+    assert "if: ${{ always() }}" in retention
+    assert "name: agentic-rework-patch" in retention
+    assert "path: /tmp/gh-aw/threat-detection/aw*.patch" in retention
+    assert "retention-days: 7" in retention
+    assert detection.index("Retain candidate patch") < detection.index("Apply candidate patch")
+    safe_outputs = lock.split("\n  safe_outputs:\n", 1)[1]
+    gate = safe_outputs.split("- name: Require semantic detection success before publication", 1)[1]
+    assert gate.index('case "$DETECTION_CONCLUSION/$DETECTION_SUCCESS"') < gate.index(
+        "id: process_safe_outputs"
+    )
+    assert "success/true) ;;" in gate
+    assert '*) echo "Rework publication blocked:' in gate
+    assert "(.items | length == 1)" in gate
+    assert "(.pull_request_number | tostring) == $pr" in gate
+    assert "(.repo == null or .repo == $repo)" in gate
+    assert "REWORK_PR: ${{ needs.prepare.outputs.pr_number }}" in gate
+    assert "      - prepare\n" in safe_outputs.split("\n    steps:\n", 1)[0]
+    assert "protected-files: fallback-to-issue" in source
+    assert "create-issue:" in source
+    for name in ("DETECTION_CONCLUSION", "DETECTION_SUCCESS", "PUBLICATION_STATUS",
+                 "PUBLICATION_FAILURES", "PUSH_COMMIT_SHA"):
+        assert f"{name}: ${{{{ needs." in source
+    assert '--arg head_sha "$HEAD_SHA"' in source
+    assert "finalize-agentic-status" in lock
+    finalizer = lock.split("\n  conclusion:\n", 1)[1].split("\n  detection:\n", 1)[0]
+    assert "pull-requests: read" in finalizer

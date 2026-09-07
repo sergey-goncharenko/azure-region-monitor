@@ -20,6 +20,7 @@ LANE_BRANCH_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
 )
 LOGIN_PATTERN = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$")
 REQUEST_ID_PATTERN = re.compile(r"^[1-9][0-9]*-[1-9][0-9]*$")
+COMMIT_SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 ALLOWED_PERMISSIONS = {"admin", "maintain", "write"}
 BACKLOG_LABEL = "azure-backlog"
 PAUSED_LABEL = "azure-paused"
@@ -391,9 +392,13 @@ def running_status_body(result: dict[str, Any], request_id: str, run_url: str) -
     )
 
 
-def completed_status_body(request_id: str, outcome: str, run_url: str) -> str:
+def completed_status_body(
+    request_id: str, outcome: str, run_url: str, *, details: str | None = None
+) -> str:
     _validate_request_id(request_id)
-    if outcome not in {"success", "failure", "cancelled", "dispatch-failed"}:
+    if outcome not in {
+        "success", "failure", "cancelled", "dispatch-failed", "blocked", "follow-up-created",
+    }:
         raise ValueError("The PR rework outcome is invalid.")
     return "\n".join(
         [
@@ -402,7 +407,8 @@ def completed_status_body(request_id: str, outcome: str, run_url: str) -> str:
             "",
             f"- [Workflow run]({run_url})",
             "",
-            "Review the same PR branch and its refreshed rationale, validation, model, token, and chat-artifact metadata.",
+            details or "Check the workflow evidence for publication and validation details; "
+            "a completed job alone does not prove that the PR branch was updated.",
         ]
     )
 
@@ -436,6 +442,7 @@ def finalize_rework_status(
     request_id: str,
     outcome: str,
     run_url: str,
+    details: str | None = None,
 ) -> None:
     _validate_request_id(request_id)
     _validate_run_url(run_url, client.repository)
@@ -458,8 +465,172 @@ def finalize_rework_status(
         raise RuntimeError("Refusing to replace a PR status comment that is not active.")
     client.update_issue_comment(
         comment_id,
-        completed_status_body(request_id, outcome, run_url),
+        completed_status_body(request_id, outcome, run_url, details=details),
     )
+
+
+def evaluate_agentic_publication(
+    client: GitHubReworkClient,
+    *,
+    status: dict[str, Any],
+    publication: list[dict[str, Any]],
+    evidence: dict[str, str],
+) -> tuple[str, str]:
+    """Verify realized safe outputs, never an agent's requested operation or green job alone."""
+    job_results = [
+        evidence.get(key, "") for key in ("AGENT_RESULT", "DETECTION_RESULT", "SAFE_OUTPUTS_RESULT")
+    ]
+    if "cancelled" in job_results:
+        return "cancelled", "Rework was cancelled; no completed same-PR update is confirmed."
+    if evidence.get("AGENT_RESULT") != "success":
+        return "blocked", "The rework agent did not complete successfully."
+    if (
+        evidence.get("DETECTION_RESULT") != "success"
+        or evidence.get("DETECTION_SUCCESS") != "true"
+        or evidence.get("DETECTION_CONCLUSION") not in {"success", "skipped"}
+    ):
+        reason = (
+            "The threat detector failed to run (agent_failure)."
+            if evidence.get("DETECTION_REASON") == "agent_failure"
+            else "Threat detection or independent validation did not succeed."
+        )
+        return "blocked", reason + " No validated same-PR update is confirmed."
+    if (
+        evidence.get("SAFE_OUTPUTS_RESULT") != "success"
+        or evidence.get("PUBLICATION_STATUS") != "success"
+        or evidence.get("PUBLICATION_FAILURES") != "0"
+        or len(publication) != 1
+    ):
+        return "blocked", "Publication did not complete with one verifiable safe output."
+
+    pr_number = int(status["pr_number"])
+    head_ref = status.get("head_ref")
+    head_sha = status.get("head_sha")
+    base_ref = status.get("base_ref")
+    if (
+        not isinstance(head_ref, str)
+        or AGENTIC_BRANCH_PATTERN.fullmatch(head_ref) is None
+        or not isinstance(head_sha, str)
+        or COMMIT_SHA_PATTERN.fullmatch(head_sha) is None
+        or not isinstance(base_ref, str)
+        or not base_ref
+    ):
+        return "blocked", "The reviewed branch identity or initial commit is missing or invalid."
+
+    pull = client.get_pull_request(pr_number)
+    head = pull.get("head") or {}
+    base = pull.get("base") or {}
+    if (
+        pull.get("number") != pr_number
+        or pull.get("state") != "open"
+        or _login(pull.get("user")).lower() != BOT_LOGIN
+        or head.get("ref") != head_ref
+        or base.get("ref") != base_ref
+        or _repo_name(head.get("repo")).lower() != client.repository.lower()
+        or _repo_name(base.get("repo")).lower() != client.repository.lower()
+    ):
+        return "blocked", "The live pull request no longer matches the reviewed target."
+
+    item = publication[0]
+    output_type = item.get("type")
+    url = item.get("url")
+    number = item.get("number")
+    repository_url = f"https://github.com/{client.repository}"
+    push_sha = evidence.get("PUSH_COMMIT_SHA", "")
+    if (
+        output_type == "push_to_pull_request_branch"
+        and number == pr_number
+        and url == f"{repository_url}/pull/{pr_number}"
+    ):
+        if (
+            evidence.get("DETECTION_CONCLUSION") != "success"
+            or COMMIT_SHA_PATTERN.fullmatch(push_sha) is None
+            or push_sha == head_sha
+            or head.get("sha") != push_sha
+        ):
+            return "blocked", (
+                "No new safe-output commit was verified on the original PR branch. "
+                "An unchanged head, unrelated branch update, or review-PR diversion is not success."
+            )
+        return "success", (
+            f"Verified commit [`{push_sha[:12]}`]({repository_url}/commit/{push_sha}) "
+            f"on the same [PR #{pr_number}]({repository_url}/pull/{pr_number})."
+        )
+
+    # gh-aw v0.87.10 records protected-file fallback issues under the original push
+    # operation, but with an /issues/ URL. Its named created_issue output does not
+    # include these fallbacks, so use the executed manifest and confirm the live issue.
+    if (
+        output_type in {"create_issue", "push_to_pull_request_branch"}
+        and type(number) is int
+        and number > 0
+        and url == f"{repository_url}/issues/{number}"
+        and not push_sha
+        and head.get("sha") == head_sha
+    ):
+        issue = client.get_issue(number)
+        if (
+            issue.get("number") != number
+            or issue.get("pull_request") is not None
+            or issue.get("html_url") != url
+            or _login(issue.get("user")).lower() != BOT_LOGIN
+        ):
+            return "blocked", "The reported follow-up could not be verified as a bot-created issue."
+        if output_type == "create_issue":
+            return "follow-up-created", (
+                f"Created [follow-up issue #{number}]({url}); the original PR branch was not updated."
+            )
+        return "blocked", (
+            f"Protected-file changes require human review in [issue #{number}]({url}); "
+            "the original PR branch was not updated."
+        )
+    return "blocked", "No same-PR commit or permitted follow-up issue was verified."
+
+
+def _publication_file(path: Path) -> list[dict[str, Any]]:
+    # Read only the small deterministic manifest, never model chats or private reports.
+    with path.open(encoding="utf-8") as handle:
+        text = handle.read(65_537)
+    if len(text) > 65_536:
+        raise ValueError("The publication manifest exceeds the bounded evidence size.")
+    items = [json.loads(line) for line in text.splitlines() if line.strip()]
+    if any(not isinstance(item, dict) for item in items):
+        raise ValueError("The publication manifest is invalid.")
+    return items
+
+
+def finalize_agentic_rework_status(
+    client: GitHubReworkClient,
+    *,
+    status: dict[str, Any],
+    publication_path: Path,
+    evidence: dict[str, str],
+    run_url: str,
+) -> str:
+    try:
+        # Missing publication is normal when detection or validation blocked the handler.
+        publication = _publication_file(publication_path) if publication_path.exists() else []
+        outcome, details = evaluate_agentic_publication(
+            client, status=status, publication=publication, evidence=evidence,
+        )
+    except (OSError, RuntimeError, ValueError, KeyError, TypeError):
+        outcome, details = "blocked", "Publication evidence or the live target could not be verified."
+    if outcome in {"blocked", "cancelled"}:
+        details += (
+            f" Inspect the [run artifacts]({run_url}#artifacts), including "
+            "`agentic-rework-patch` when a candidate patch was produced, before a human retry. "
+            "No replacement PR is authorized."
+        )
+    finalize_rework_status(
+        client,
+        pr_number=int(status["pr_number"]),
+        comment_id=int(status["comment_id"]),
+        request_id=status["request_id"],
+        outcome=outcome,
+        run_url=run_url,
+        details=details,
+    )
+    return outcome
 
 
 def _write_github_outputs(path: Path, values: dict[str, Any]) -> None:
@@ -535,9 +706,28 @@ def main() -> None:
     finalize.add_argument("--outcome", required=True)
     finalize.add_argument("--run-url", required=True)
 
+    finalize_agentic = subparsers.add_parser("finalize-agentic-status")
+    finalize_agentic.add_argument("--repository", required=True)
+    finalize_agentic.add_argument("--status", type=Path, required=True)
+    finalize_agentic.add_argument("--publication", type=Path, required=True)
+    finalize_agentic.add_argument("--run-url", required=True)
+
     args = parser.parse_args()
 
     client = GitHubApiClient.from_env(args.repository)
+
+    if args.command == "finalize-agentic-status":
+        outcome = finalize_agentic_rework_status(
+            client,
+            status=_result_file(args.status),
+            publication_path=args.publication,
+            evidence=dict(os.environ),
+            run_url=args.run_url,
+        )
+        print(f"Verified agentic rework outcome: {outcome}")
+        if outcome not in {"success", "follow-up-created"}:
+            raise SystemExit(1)
+        return
 
     if args.command == "resolve":
         payload = json.loads(args.event.read_text(encoding="utf-8"))

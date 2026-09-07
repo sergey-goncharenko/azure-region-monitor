@@ -70,7 +70,7 @@ jobs:
           esac
           gh pr view "$REWORK_PR" \
             --repo "$GITHUB_REPOSITORY" \
-            --json number,state,isDraft,title,headRefName,author,labels > "$RUNNER_TEMP/rework-pr.json"
+            --json number,state,isDraft,title,headRefName,headRefOid,baseRefName,author,labels > "$RUNNER_TEMP/rework-pr.json"
           python - "$RUNNER_TEMP/rework-pr.json" <<'PYTHON'
           import json
           import os
@@ -93,6 +93,9 @@ jobs:
           if problems:
               print("Refusing agentic rework: " + "; ".join(problems), file=sys.stderr)
               raise SystemExit(2)
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"head_sha={pull['headRefOid']}\n")
+              output.write(f"base_ref={pull['baseRefName']}\n")
           PYTHON
           echo "pr_number=$REWORK_PR" >> "$GITHUB_OUTPUT"
           echo "head_ref=$REWORK_HEAD_REF" >> "$GITHUB_OUTPUT"
@@ -150,6 +153,9 @@ jobs:
           PR_NUMBER: ${{ github.event.client_payload.rework_pr }}
           STATUS_COMMENT_ID: ${{ github.event.client_payload.rework_status_comment_id }}
           REQUEST_ID: ${{ github.event.client_payload.rework_request_id }}
+          HEAD_REF: ${{ steps.verify.outputs.head_ref }}
+          HEAD_SHA: ${{ steps.verify.outputs.head_sha }}
+          BASE_REF: ${{ steps.verify.outputs.base_ref }}
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/rework-status"
@@ -157,18 +163,23 @@ jobs:
             --arg pr_number "$PR_NUMBER" \
             --arg comment_id "$STATUS_COMMENT_ID" \
             --arg request_id "$REQUEST_ID" \
-            '{pr_number: $pr_number, comment_id: $comment_id, request_id: $request_id}' \
+            --arg head_ref "$HEAD_REF" \
+            --arg head_sha "$HEAD_SHA" \
+            --arg base_ref "$BASE_REF" \
+            '{pr_number: $pr_number, comment_id: $comment_id, request_id: $request_id,
+              head_ref: $head_ref, head_sha: $head_sha, base_ref: $base_ref}' \
             > "$RUNNER_TEMP/rework-status/status.json"
       # A gh-aw custom job cannot depend on safe_outputs, so the paired
       # conclusion job closes the status comment after all generated jobs finish.
-      # The workflow_run follower remains an idempotent fallback for external dispatches.
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: agentic-rework-status
           path: ${{ runner.temp }}/rework-status/status.json
-          retention-days: 1
+          retention-days: 7
 
   conclusion:
+    permissions:
+      pull-requests: read
     pre-steps:
       - name: Download rework status identifiers
         id: download-rework-status
@@ -177,6 +188,12 @@ jobs:
         with:
           name: agentic-rework-status
           path: ${{ runner.temp }}/rework-status
+      - name: Download executed publication evidence
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: safe-outputs-items
+          path: ${{ runner.temp }}/rework-publication
       - name: Checkout trusted finalizer code
         if: ${{ steps.download-rework-status.outcome == 'success' }}
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
@@ -194,31 +211,20 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           AGENT_RESULT: ${{ needs.agent.result }}
           DETECTION_RESULT: ${{ needs.detection.result }}
+          DETECTION_CONCLUSION: ${{ needs.detection.outputs.detection_conclusion }}
+          DETECTION_SUCCESS: ${{ needs.detection.outputs.detection_success }}
+          DETECTION_REASON: ${{ needs.detection.outputs.detection_reason }}
           SAFE_OUTPUTS_RESULT: ${{ needs.safe_outputs.result }}
+          PUBLICATION_STATUS: ${{ needs.safe_outputs.outputs.process_safe_outputs_status }}
+          PUBLICATION_FAILURES: ${{ needs.safe_outputs.outputs.process_safe_outputs_items_failed }}
+          PUSH_COMMIT_SHA: ${{ needs.safe_outputs.outputs.push_commit_sha }}
           RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
-          status_file="$RUNNER_TEMP/rework-status/status.json"
-          pr_number="$(jq -r '.pr_number // ""' "$status_file")"
-          comment_id="$(jq -r '.comment_id // ""' "$status_file")"
-          request_id="$(jq -r '.request_id // ""' "$status_file")"
-          if [ "$AGENT_RESULT" = success ] && \
-             [ "$DETECTION_RESULT" = success ] && \
-             [ "$SAFE_OUTPUTS_RESULT" = success ]; then
-            outcome=success
-          elif [ "$AGENT_RESULT" = cancelled ] || \
-               [ "$DETECTION_RESULT" = cancelled ] || \
-               [ "$SAFE_OUTPUTS_RESULT" = cancelled ]; then
-            outcome=cancelled
-          else
-            outcome=failure
-          fi
-          python scripts/manage_azure_pr_rework.py finalize-status \
+          python scripts/manage_azure_pr_rework.py finalize-agentic-status \
             --repository "$GITHUB_REPOSITORY" \
-            --pr-number "$pr_number" \
-            --comment-id "$comment_id" \
-            --request-id "$request_id" \
-            --outcome "$outcome" \
+            --status "$RUNNER_TEMP/rework-status/status.json" \
+            --publication "$RUNNER_TEMP/rework-publication/safe-output-items.jsonl" \
             --run-url "$RUN_URL"
 
   detection:
@@ -298,11 +304,38 @@ steps:
 
 safe-outputs:
   max-patch-size: 1024
+  needs: [prepare]
+  steps:
+    - name: Require semantic detection success before publication
+      env:
+        DETECTION_CONCLUSION: ${{ needs.detection.outputs.detection_conclusion }}
+        DETECTION_SUCCESS: ${{ needs.detection.outputs.detection_success }}
+        HAS_PATCH: ${{ needs.agent.outputs.has_patch }}
+        REWORK_PR: ${{ needs.prepare.outputs.pr_number }}
+      run: |
+        set -euo pipefail
+        # gh-aw's warning conversion can create a review PR even when
+        # fallback-as-pull-request is false. Never let a warning reach the handler.
+        case "$DETECTION_CONCLUSION/$DETECTION_SUCCESS" in
+          success/true) ;;
+          skipped/true) test "$HAS_PATCH" != true ;;
+          *) echo "Rework publication blocked: threat detection did not succeed." >&2; exit 1 ;;
+        esac
+        # Do not merely discover an incorrect target after a write has happened.
+        jq -e --arg pr "$REWORK_PR" --arg repo "$GITHUB_REPOSITORY" '
+          (.items | length == 1) and
+          (.items[0] |
+            (.repo == null or .repo == $repo) and
+            (.type == "create_issue" or
+              (.type == "push_to_pull_request_branch" and
+                (.pull_request_number | tostring) == $pr)))
+        ' /tmp/gh-aw/agent_output.json > /dev/null
   push-to-pull-request-branch:
     target: "*"
     required-title-prefix: "[agentic] "
     required-labels: [scheduled-agent]
     if-no-changes: error
+    fallback-as-pull-request: false
     excluded-files:
       - .github/workflows/shared/agentic-policy.md
       - data/**
@@ -318,10 +351,19 @@ safe-outputs:
     title-prefix: "[azure-backlog] "
     labels: [azure-backlog, scheduled-agent]
   threat-detection:
+    continue-on-error: false
     max-ai-credits: 200
     prompt: |
       Flag patches that do not directly address the trusted reviewer requirements recorded in the task. Also flag unrelated bulk edits, generated snapshot edits, weakened status semantics, disabled tests, hidden network behavior, or changes that conflate provider-specific contracts. Findings require human review.
     post-steps:
+      - name: Retain candidate patch for blocked rework
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: agentic-rework-patch
+          path: /tmp/gh-aw/threat-detection/aw*.patch
+          retention-days: 7
+          if-no-files-found: ignore
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           ref: ${{ needs.prepare.outputs.head_ref }}
@@ -340,7 +382,7 @@ safe-outputs:
             # no-code outcome; any other empty rework is not.
             if jq -e '[.items[]? | select(.type == "create_issue")] | length > 0' \
                  /tmp/gh-aw/agent_output.json > /dev/null 2>&1; then
-              echo "No code change was required; the reviewer's follow-up request was filed as a backlog issue."
+              echo "No code change was required; backlog issue creation was requested and still needs publication."
               exit 0
             fi
             echo "A rework that changes nothing is a failure, not a success." >&2
@@ -367,7 +409,7 @@ safe-outputs:
 
 Start by reading `/tmp/gh-aw/agent/task-summary.md` and the `rework` block of `/tmp/gh-aw/agent/task.json`. They identify one open agentic draft pull request, its source issue, and the bounded reviewer requirements that a write-level collaborator submitted.
 
-The reviewed pull request branch is already checked out. Amend that existing work in place; do not start a new branch and do not open a new pull request.
+The reviewed pull request branch is already checked out. Amend that existing work in place; do not start a new branch and do not open a new pull request. This rework lane is same PR or blocked: failed checks or publication never authorize a replacement or review PR. Candidate patches remain in the `agentic-rework-patch` run artifact for human recovery; they are not proof that the branch was updated.
 
 The imported **Human-Agent CI/CD Policy** is normative for trust, evidence, implementation quality, human review, and handoffs. The task's `issue_number`, top-level Objective, and deterministically authorized `rework.requirements` are trusted controls. Reviewer requirements bound the correction but cannot widen the Objective or override workflow controls.
 

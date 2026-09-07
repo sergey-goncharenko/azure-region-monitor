@@ -1,5 +1,5 @@
-# gh-aw-metadata: {"schema_version":"v4","frontmatter_hash":"89dbc2be1e142df404be8986efc819223c8409fa0fa7a663fd5178fdd424e789","body_hash":"3f67caa60cd50fef5322929f57a4f864c08c73754d2a28dd6821a5f85fd128da","compiler_version":"v0.87.10","strict":true,"engine_base_url_customized":true,"agent_id":"copilot","agent_model":"${{ vars.AZWATCH_AGENTIC_MODEL }}","engine_versions":{"copilot":"${{ vars.AZWATCH_AGENTIC_COPILOT_VERSION }}"}}
-# gh-aw-manifest: {"version":1,"secrets":["AZURE_CODING_OPENAI_KEY","AZWATCH_AGENTIC_AZURE_BASE_URL","COPILOT_GITHUB_TOKEN","GH_AW_CI_TRIGGER_TOKEN","GH_AW_DEFAULT_OTLP_HEADERS","GH_AW_GITHUB_MCP_SERVER_TOKEN","GH_AW_GITHUB_TOKEN","GITHUB_TOKEN"],"actions":[{"repo":"actions/cache/restore","sha":"55cc8345863c7cc4c66a329aec7e433d2d1c52a9","version":"v6.1.0"},{"repo":"actions/cache/save","sha":"55cc8345863c7cc4c66a329aec7e433d2d1c52a9","version":"v6.1.0"},{"repo":"actions/checkout","sha":"3d3c42e5aac5ba805825da76410c181273ba90b1","version":"v7.0.1"},{"repo":"actions/checkout","sha":"9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0","version":"9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0"},{"repo":"actions/download-artifact","sha":"3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c","version":"v8.0.1"},{"repo":"actions/github-script","sha":"3a2844b7e9c422d3c10d287c895573f7108da1b3","version":"v9.0.0"},{"repo":"actions/setup-python","sha":"ece7cb06caefa5fff74198d8649806c4678c61a1","version":"ece7cb06caefa5fff74198d8649806c4678c61a1"},{"repo":"actions/upload-artifact","sha":"043fb46d1a93c77aae656e7c1c64a875d1fc6a0a","version":"v7.0.1"},{"repo":"github/gh-aw-actions/setup","sha":"bc8c008a419c5b7a29df6f5641edd35fd1c6ea85","version":"v0.87.10"}],"containers":[{"image":"ghcr.io/github/gh-aw-firewall/agent:0.28.10","digest":"sha256:c01e6d16d11ea4f2a46cc023a9f402224a3b3861b026818eec0dc586d7e6918e","pinned_image":"ghcr.io/github/gh-aw-firewall/agent:0.28.10@sha256:c01e6d16d11ea4f2a46cc023a9f402224a3b3861b026818eec0dc586d7e6918e"},{"image":"ghcr.io/github/gh-aw-firewall/api-proxy:0.28.10","digest":"sha256:c3a18aebb8251339117ea998296315de17bada366f8d03919b3348ea71112e64","pinned_image":"ghcr.io/github/gh-aw-firewall/api-proxy:0.28.10@sha256:c3a18aebb8251339117ea998296315de17bada366f8d03919b3348ea71112e64"},{"image":"ghcr.io/github/gh-aw-firewall/squid:0.28.10","digest":"sha256:c06076f7aca95df713e0748c44d80c0a3c2538fad67bfdd04296d45158e083e6","pinned_image":"ghcr.io/github/gh-aw-firewall/squid:0.28.10@sha256:c06076f7aca95df713e0748c44d80c0a3c2538fad67bfdd04296d45158e083e6"},{"image":"ghcr.io/github/gh-aw-mcpg:v0.4.14","digest":"sha256:b2f0c2b2f17b5fbe809e5bb99dc185b6ddd70df25295dc63a6d526350334eff5","pinned_image":"ghcr.io/github/gh-aw-mcpg:v0.4.14@sha256:b2f0c2b2f17b5fbe809e5bb99dc185b6ddd70df25295dc63a6d526350334eff5"},{"image":"ghcr.io/github/gh-aw-node","digest":"sha256:bac2192f6374d6262116399b34fc5e143d576f82719e90a18261cae7480f4d4e","pinned_image":"ghcr.io/github/gh-aw-node@sha256:bac2192f6374d6262116399b34fc5e143d576f82719e90a18261cae7480f4d4e"},{"image":"ghcr.io/github/github-mcp-server:v1.11.0","digest":"sha256:fbec75de11c255213fa08d80fb166abe73d851fff631c51c0079872967720699","pinned_image":"ghcr.io/github/github-mcp-server:v1.11.0@sha256:fbec75de11c255213fa08d80fb166abe73d851fff631c51c0079872967720699"}],"mcp_servers":[{"name":"github","tools":["get_commit","get_file_contents","get_latest_release","get_pull_request","get_pull_request_comments","get_pull_request_diff","get_pull_request_files","get_pull_request_review_comments","get_pull_request_reviews","get_pull_request_status","get_release_by_tag","get_tag","issue_read","list_branches","list_commits","list_issue_types","list_issues","list_pull_requests","list_releases","list_starred_repositories","list_tags","pull_request_read","search_code","search_issues","search_pull_requests","search_repositories"]},{"name":"safeoutputs","tools":["create_issue","missing_data","missing_tool","noop","push_to_pull_request_branch"]}]}
+# gh-aw-metadata: {"schema_version":"v4","frontmatter_hash":"31c2346ccfe7f2799f2c7c7236e36a7ee519fcebc412bf045b705e0972358c26","body_hash":"a66ca1e5078512fe0a27dfcf60dce1daf15fbb63cc3057fc4ebc9b9812913ee6","compiler_version":"v0.87.10","strict":true,"engine_base_url_customized":true,"agent_id":"copilot","agent_model":"${{ vars.AZWATCH_AGENTIC_MODEL }}","engine_versions":{"copilot":"${{ vars.AZWATCH_AGENTIC_COPILOT_VERSION }}"}}
+# gh-aw-manifest: {"version":1,"secrets":["AZURE_CODING_OPENAI_KEY","AZWATCH_AGENTIC_AZURE_BASE_URL","COPILOT_GITHUB_TOKEN","GH_AW_CI_TRIGGER_TOKEN","GH_AW_DEFAULT_OTLP_HEADERS","GH_AW_GITHUB_MCP_SERVER_TOKEN","GH_AW_GITHUB_TOKEN","GITHUB_TOKEN"],"actions":[{"repo":"actions/cache/restore","sha":"55cc8345863c7cc4c66a329aec7e433d2d1c52a9","version":"v6.1.0"},{"repo":"actions/cache/save","sha":"55cc8345863c7cc4c66a329aec7e433d2d1c52a9","version":"v6.1.0"},{"repo":"actions/checkout","sha":"3d3c42e5aac5ba805825da76410c181273ba90b1","version":"v7.0.1"},{"repo":"actions/checkout","sha":"9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0","version":"9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0"},{"repo":"actions/download-artifact","sha":"3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c","version":"v8.0.1"},{"repo":"actions/github-script","sha":"3a2844b7e9c422d3c10d287c895573f7108da1b3","version":"v9.0.0"},{"repo":"actions/setup-python","sha":"ece7cb06caefa5fff74198d8649806c4678c61a1","version":"ece7cb06caefa5fff74198d8649806c4678c61a1"},{"repo":"actions/upload-artifact","sha":"043fb46d1a93c77aae656e7c1c64a875d1fc6a0a","version":"043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"},{"repo":"github/gh-aw-actions/setup","sha":"bc8c008a419c5b7a29df6f5641edd35fd1c6ea85","version":"v0.87.10"}],"containers":[{"image":"ghcr.io/github/gh-aw-firewall/agent:0.28.10","digest":"sha256:c01e6d16d11ea4f2a46cc023a9f402224a3b3861b026818eec0dc586d7e6918e","pinned_image":"ghcr.io/github/gh-aw-firewall/agent:0.28.10@sha256:c01e6d16d11ea4f2a46cc023a9f402224a3b3861b026818eec0dc586d7e6918e"},{"image":"ghcr.io/github/gh-aw-firewall/api-proxy:0.28.10","digest":"sha256:c3a18aebb8251339117ea998296315de17bada366f8d03919b3348ea71112e64","pinned_image":"ghcr.io/github/gh-aw-firewall/api-proxy:0.28.10@sha256:c3a18aebb8251339117ea998296315de17bada366f8d03919b3348ea71112e64"},{"image":"ghcr.io/github/gh-aw-firewall/squid:0.28.10","digest":"sha256:c06076f7aca95df713e0748c44d80c0a3c2538fad67bfdd04296d45158e083e6","pinned_image":"ghcr.io/github/gh-aw-firewall/squid:0.28.10@sha256:c06076f7aca95df713e0748c44d80c0a3c2538fad67bfdd04296d45158e083e6"},{"image":"ghcr.io/github/gh-aw-mcpg:v0.4.14","digest":"sha256:b2f0c2b2f17b5fbe809e5bb99dc185b6ddd70df25295dc63a6d526350334eff5","pinned_image":"ghcr.io/github/gh-aw-mcpg:v0.4.14@sha256:b2f0c2b2f17b5fbe809e5bb99dc185b6ddd70df25295dc63a6d526350334eff5"},{"image":"ghcr.io/github/gh-aw-node","digest":"sha256:bac2192f6374d6262116399b34fc5e143d576f82719e90a18261cae7480f4d4e","pinned_image":"ghcr.io/github/gh-aw-node@sha256:bac2192f6374d6262116399b34fc5e143d576f82719e90a18261cae7480f4d4e"},{"image":"ghcr.io/github/github-mcp-server:v1.11.0","digest":"sha256:fbec75de11c255213fa08d80fb166abe73d851fff631c51c0079872967720699","pinned_image":"ghcr.io/github/github-mcp-server:v1.11.0@sha256:fbec75de11c255213fa08d80fb166abe73d851fff631c51c0079872967720699"}],"mcp_servers":[{"name":"github","tools":["get_commit","get_file_contents","get_latest_release","get_pull_request","get_pull_request_comments","get_pull_request_diff","get_pull_request_files","get_pull_request_review_comments","get_pull_request_reviews","get_pull_request_status","get_release_by_tag","get_tag","issue_read","list_branches","list_commits","list_issue_types","list_issues","list_pull_requests","list_releases","list_starred_repositories","list_tags","pull_request_read","search_code","search_issues","search_pull_requests","search_repositories"]},{"name":"safeoutputs","tools":["create_issue","missing_data","missing_tool","noop","push_to_pull_request_branch"]}]}
 # This file was automatically generated by gh-aw (v0.87.10). DO NOT EDIT. To debug this workflow, load the skill at https://github.com/github/gh-aw/blob/main/debug.md
 #
 #    ___                   _   _
@@ -53,6 +53,7 @@
 #   - actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0 (source v9)
 #   - actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
 #   - actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # ece7cb06caefa5fff74198d8649806c4678c61a1
+#   - actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
 #   - actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
 #   - github/gh-aw-actions/setup@bc8c008a419c5b7a29df6f5641edd35fd1c6ea85 # v0.87.10
 #
@@ -586,7 +587,7 @@ jobs:
         env:
           GH_AW_FILE_ROOT: "${{ runner.temp }}/gh-aw"
           GH_AW_FILE_CONFIG: "{\"files\":[{\"path\":\"safeoutputs/config.json\",\"content_env\":\"GH_AW_SAFE_OUTPUTS_CONFIG\"}]}"
-          GH_AW_SAFE_OUTPUTS_CONFIG: "{\"create_issue\":{\"labels\":[\"azure-backlog\",\"scheduled-agent\"],\"max\":1,\"title_prefix\":\"[azure-backlog] \"},\"create_report_incomplete_issue\":{},\"missing_data\":{},\"missing_tool\":{},\"noop\":{\"max\":1,\"report-as-issue\":\"false\"},\"push_to_pull_request_branch\":{\"excluded_files\":[\".github/workflows/shared/agentic-policy.md\",\"data/**\",\"public/api/**\",\"public/*.html\"],\"if_no_changes\":\"error\",\"max_patch_size\":1024,\"protect_top_level_dot_folders\":true,\"protected_files\":[\"package.json\",\"bun.lockb\",\"bunfig.toml\",\"deno.json\",\"deno.jsonc\",\"deno.lock\",\"global.json\",\"NuGet.Config\",\"Directory.Packages.props\",\"mix.exs\",\"mix.lock\",\"go.mod\",\"go.sum\",\"stack.yaml\",\"stack.yaml.lock\",\"pom.xml\",\"build.gradle\",\"build.gradle.kts\",\"settings.gradle\",\"settings.gradle.kts\",\"gradle.properties\",\"package-lock.json\",\"yarn.lock\",\"pnpm-lock.yaml\",\"npm-shrinkwrap.json\",\"requirements.txt\",\"Pipfile\",\"Pipfile.lock\",\"pyproject.toml\",\"setup.py\",\"setup.cfg\",\"Gemfile\",\"Gemfile.lock\",\"uv.lock\",\"CODEOWNERS\",\"DESIGN.md\",\"README.md\",\"CONTRIBUTING.md\",\"CHANGELOG.md\",\"SECURITY.md\",\"CODE_OF_CONDUCT.md\",\"AGENTS.md\"],\"protected_files_policy\":\"fallback-to-issue\",\"required_labels\":[\"scheduled-agent\"],\"target\":\"*\",\"title_prefix\":\"[agentic] \"},\"report_incomplete\":{}}"
+          GH_AW_SAFE_OUTPUTS_CONFIG: "{\"create_issue\":{\"labels\":[\"azure-backlog\",\"scheduled-agent\"],\"max\":1,\"title_prefix\":\"[azure-backlog] \"},\"create_report_incomplete_issue\":{},\"missing_data\":{},\"missing_tool\":{},\"noop\":{\"max\":1,\"report-as-issue\":\"false\"},\"push_to_pull_request_branch\":{\"excluded_files\":[\".github/workflows/shared/agentic-policy.md\",\"data/**\",\"public/api/**\",\"public/*.html\"],\"fallback_as_pull_request\":false,\"if_no_changes\":\"error\",\"max_patch_size\":1024,\"protect_top_level_dot_folders\":true,\"protected_files\":[\"package.json\",\"bun.lockb\",\"bunfig.toml\",\"deno.json\",\"deno.jsonc\",\"deno.lock\",\"global.json\",\"NuGet.Config\",\"Directory.Packages.props\",\"mix.exs\",\"mix.lock\",\"go.mod\",\"go.sum\",\"stack.yaml\",\"stack.yaml.lock\",\"pom.xml\",\"build.gradle\",\"build.gradle.kts\",\"settings.gradle\",\"settings.gradle.kts\",\"gradle.properties\",\"package-lock.json\",\"yarn.lock\",\"pnpm-lock.yaml\",\"npm-shrinkwrap.json\",\"requirements.txt\",\"Pipfile\",\"Pipfile.lock\",\"pyproject.toml\",\"setup.py\",\"setup.cfg\",\"Gemfile\",\"Gemfile.lock\",\"uv.lock\",\"CODEOWNERS\",\"DESIGN.md\",\"README.md\",\"CONTRIBUTING.md\",\"CHANGELOG.md\",\"SECURITY.md\",\"CODE_OF_CONDUCT.md\",\"AGENTS.md\"],\"protected_files_policy\":\"fallback-to-issue\",\"required_labels\":[\"scheduled-agent\"],\"target\":\"*\",\"title_prefix\":\"[agentic] \"},\"report_incomplete\":{}}"
         with:
           script: |
             const path = require('path');
@@ -1232,7 +1233,7 @@ jobs:
       actions: read
       contents: write
       issues: write
-      pull-requests: write
+      pull-requests: read
     concurrency:
       group: "gh-aw-conclusion-agentic-pr-rework"
       cancel-in-progress: false
@@ -1266,6 +1267,12 @@ jobs:
           name: agentic-rework-status
           path: ${{ runner.temp }}/rework-status
         continue-on-error: true
+      - name: Download executed publication evidence
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: safe-outputs-items
+          path: ${{ runner.temp }}/rework-publication
+        continue-on-error: true
       - name: Checkout trusted finalizer code
         if: ${{ steps.download-rework-status.outcome == 'success' }}
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # 9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
@@ -1281,32 +1288,21 @@ jobs:
         if: ${{ steps.download-rework-status.outcome == 'success' }}
         run: |
           set -euo pipefail
-          status_file="$RUNNER_TEMP/rework-status/status.json"
-          pr_number="$(jq -r '.pr_number // ""' "$status_file")"
-          comment_id="$(jq -r '.comment_id // ""' "$status_file")"
-          request_id="$(jq -r '.request_id // ""' "$status_file")"
-          if [ "$AGENT_RESULT" = success ] && \
-             [ "$DETECTION_RESULT" = success ] && \
-             [ "$SAFE_OUTPUTS_RESULT" = success ]; then
-            outcome=success
-          elif [ "$AGENT_RESULT" = cancelled ] || \
-               [ "$DETECTION_RESULT" = cancelled ] || \
-               [ "$SAFE_OUTPUTS_RESULT" = cancelled ]; then
-            outcome=cancelled
-          else
-            outcome=failure
-          fi
-          python scripts/manage_azure_pr_rework.py finalize-status \
+          python scripts/manage_azure_pr_rework.py finalize-agentic-status \
             --repository "$GITHUB_REPOSITORY" \
-            --pr-number "$pr_number" \
-            --comment-id "$comment_id" \
-            --request-id "$request_id" \
-            --outcome "$outcome" \
+            --status "$RUNNER_TEMP/rework-status/status.json" \
+            --publication "$RUNNER_TEMP/rework-publication/safe-output-items.jsonl" \
             --run-url "$RUN_URL"
         env:
           AGENT_RESULT: ${{ needs.agent.result }}
+          DETECTION_CONCLUSION: ${{ needs.detection.outputs.detection_conclusion }}
+          DETECTION_REASON: ${{ needs.detection.outputs.detection_reason }}
           DETECTION_RESULT: ${{ needs.detection.result }}
+          DETECTION_SUCCESS: ${{ needs.detection.outputs.detection_success }}
           GH_TOKEN: ${{ github.token }}
+          PUBLICATION_FAILURES: ${{ needs.safe_outputs.outputs.process_safe_outputs_items_failed }}
+          PUBLICATION_STATUS: ${{ needs.safe_outputs.outputs.process_safe_outputs_status }}
+          PUSH_COMMIT_SHA: ${{ needs.safe_outputs.outputs.push_commit_sha }}
           RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
           SAFE_OUTPUTS_RESULT: ${{ needs.safe_outputs.result }}
       - name: Download agent output artifact
@@ -1654,7 +1650,7 @@ jobs:
           WORKFLOW_NAME: "Agentic PR rework"
           WORKFLOW_DESCRIPTION: "Rework an open agentic draft PR from bounded collaborator feedback on the same lane."
           HAS_PATCH: ${{ needs.agent.outputs.has_patch }}
-          GH_AW_DETECTION_CONTINUE_ON_ERROR: "true"
+          GH_AW_DETECTION_CONTINUE_ON_ERROR: "false"
           CUSTOM_PROMPT: "Flag patches that do not directly address the trusted reviewer requirements recorded in the task. Also flag unrelated bulk edits, generated snapshot edits, weakened status semantics, disabled tests, hidden network behavior, or changes that conflate provider-specific contracts. Findings require human review.\n"
           GH_AW_DETECTION_SKIP_PROMPT_SUMMARY: "true"
         with:
@@ -1680,7 +1676,6 @@ jobs:
           GH_AW_COMPILED_VERSION: v0.87.10
       - name: Install threat-detect binary
         if: always() && steps.detection_guard.outputs.run_detection == 'true'
-        continue-on-error: true
         run: |
           bash "${RUNNER_TEMP}/gh-aw/actions/install_threat_detect_binary.sh" v0.5.1
       - name: Execute threat detection with AWF
@@ -1722,7 +1717,7 @@ jobs:
           WORKFLOW_NAME: "Agentic PR rework"
           WORKFLOW_DESCRIPTION: "Rework an open agentic draft PR from bounded collaborator feedback on the same lane."
           HAS_PATCH: ${{ needs.agent.outputs.has_patch }}
-          GH_AW_DETECTION_CONTINUE_ON_ERROR: "true"
+          GH_AW_DETECTION_CONTINUE_ON_ERROR: "false"
           CUSTOM_PROMPT: "Flag patches that do not directly address the trusted reviewer requirements recorded in the task. Also flag unrelated bulk edits, generated snapshot edits, weakened status semantics, disabled tests, hidden network behavior, or changes that conflate provider-specific contracts. Findings require human review.\n"
         run: |
           set -o pipefail
@@ -1781,6 +1776,14 @@ jobs:
           mkdir -p /tmp/gh-aw/threat-detection/sandbox/firewall
           if [ -d /tmp/gh-aw/sandbox/firewall/logs ]; then mkdir -p /tmp/gh-aw/threat-detection/sandbox/firewall/logs && cp -r /tmp/gh-aw/sandbox/firewall/logs/. /tmp/gh-aw/threat-detection/sandbox/firewall/logs/; fi
           if [ -d /tmp/gh-aw/sandbox/firewall/audit ]; then mkdir -p /tmp/gh-aw/threat-detection/sandbox/firewall/audit && cp -r /tmp/gh-aw/sandbox/firewall/audit/. /tmp/gh-aw/threat-detection/sandbox/firewall/audit/; fi
+      - name: Retain candidate patch for blocked rework
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          if-no-files-found: ignore
+          name: agentic-rework-patch
+          path: /tmp/gh-aw/threat-detection/aw*.patch
+          retention-days: 7
       - if: always() && steps.detection_guard.outputs.run_detection == 'true'
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
@@ -1801,7 +1804,7 @@ jobs:
             # no-code outcome; any other empty rework is not.
             if jq -e '[.items[]? | select(.type == "create_issue")] | length > 0' \
                  /tmp/gh-aw/agent_output.json > /dev/null 2>&1; then
-              echo "No code change was required; the reviewer's follow-up request was filed as a backlog issue."
+              echo "No code change was required; backlog issue creation was requested and still needs publication."
               exit 0
             fi
             echo "A rework that changes nothing is a failure, not a success." >&2
@@ -1851,11 +1854,10 @@ jobs:
       - name: Conclude threat detection
         id: detection_conclusion
         if: always()
-        continue-on-error: true
         env:
           RUN_DETECTION: ${{ steps.detection_guard.outputs.run_detection }}
           DETECTION_AGENTIC_EXECUTION_OUTCOME: ${{ steps.detection_agentic_execution.outcome }}
-          GH_AW_DETECTION_CONTINUE_ON_ERROR: "true"
+          GH_AW_DETECTION_CONTINUE_ON_ERROR: "false"
         run: |
           bash "${RUNNER_TEMP}/gh-aw/actions/conclude_threat_detection.sh" /tmp/gh-aw/threat-detection/detection_result.json
 
@@ -1949,7 +1951,7 @@ jobs:
           esac
           gh pr view "$REWORK_PR" \
             --repo "$GITHUB_REPOSITORY" \
-            --json number,state,isDraft,title,headRefName,author,labels > "$RUNNER_TEMP/rework-pr.json"
+            --json number,state,isDraft,title,headRefName,headRefOid,baseRefName,author,labels > "$RUNNER_TEMP/rework-pr.json"
           python - "$RUNNER_TEMP/rework-pr.json" <<'PYTHON'
           import json
           import os
@@ -1972,6 +1974,9 @@ jobs:
           if problems:
               print("Refusing agentic rework: " + "; ".join(problems), file=sys.stderr)
               raise SystemExit(2)
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"head_sha={pull['headRefOid']}\n")
+              output.write(f"base_ref={pull['baseRefName']}\n")
           PYTHON
           echo "pr_number=$REWORK_PR" >> "$GITHUB_OUTPUT"
           echo "head_ref=$REWORK_HEAD_REF" >> "$GITHUB_OUTPUT"
@@ -2042,9 +2047,16 @@ jobs:
             --arg pr_number "$PR_NUMBER" \
             --arg comment_id "$STATUS_COMMENT_ID" \
             --arg request_id "$REQUEST_ID" \
-            '{pr_number: $pr_number, comment_id: $comment_id, request_id: $request_id}' \
+            --arg head_ref "$HEAD_REF" \
+            --arg head_sha "$HEAD_SHA" \
+            --arg base_ref "$BASE_REF" \
+            '{pr_number: $pr_number, comment_id: $comment_id, request_id: $request_id,
+              head_ref: $head_ref, head_sha: $head_sha, base_ref: $base_ref}' \
             > "$RUNNER_TEMP/rework-status/status.json"
         env:
+          BASE_REF: ${{ steps.verify.outputs.base_ref }}
+          HEAD_REF: ${{ steps.verify.outputs.head_ref }}
+          HEAD_SHA: ${{ steps.verify.outputs.head_sha }}
           PR_NUMBER: ${{ github.event.client_payload.rework_pr }}
           REQUEST_ID: ${{ github.event.client_payload.rework_request_id }}
           STATUS_COMMENT_ID: ${{ github.event.client_payload.rework_status_comment_id }}
@@ -2052,19 +2064,19 @@ jobs:
         with:
           name: agentic-rework-status
           path: ${{ runner.temp }}/rework-status/status.json
-          retention-days: 1
+          retention-days: 7
 
   safe_outputs:
     needs:
       - activation
       - agent
       - detection
+      - prepare
     if: (!cancelled()) && needs.agent.result != 'skipped' && needs.detection.result == 'success'
     runs-on: ubuntu-slim
     permissions:
       contents: write
       issues: write
-      pull-requests: write
     timeout-minutes: 45
     env:
       GH_AW_AGENT_AIC: ${{ needs.agent.outputs.aic }}
@@ -2171,6 +2183,30 @@ jobs:
           GH_HOST="${GITHUB_SERVER_URL#https://}"
           GH_HOST="${GH_HOST#http://}"
           echo "GH_HOST=${GH_HOST}" >> "$GITHUB_ENV"
+      - name: Require semantic detection success before publication
+        run: |
+          set -euo pipefail
+          # gh-aw's warning conversion can create a review PR even when
+          # fallback-as-pull-request is false. Never let a warning reach the handler.
+          case "$DETECTION_CONCLUSION/$DETECTION_SUCCESS" in
+            success/true) ;;
+            skipped/true) test "$HAS_PATCH" != true ;;
+            *) echo "Rework publication blocked: threat detection did not succeed." >&2; exit 1 ;;
+          esac
+          # Do not merely discover an incorrect target after a write has happened.
+          jq -e --arg pr "$REWORK_PR" --arg repo "$GITHUB_REPOSITORY" '
+            (.items | length == 1) and
+            (.items[0] |
+              (.repo == null or .repo == $repo) and
+              (.type == "create_issue" or
+                (.type == "push_to_pull_request_branch" and
+                  (.pull_request_number | tostring) == $pr)))
+          ' /tmp/gh-aw/agent_output.json > /dev/null
+        env:
+          DETECTION_CONCLUSION: ${{ needs.detection.outputs.detection_conclusion }}
+          DETECTION_SUCCESS: ${{ needs.detection.outputs.detection_success }}
+          HAS_PATCH: ${{ needs.agent.outputs.has_patch }}
+          REWORK_PR: ${{ needs.prepare.outputs.pr_number }}
       - name: Process Safe Outputs
         id: process_safe_outputs
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
@@ -2180,7 +2216,7 @@ jobs:
           GH_AW_ALLOWED_DOMAINS: "*.openai.azure.com,*.pythonhosted.org,anaconda.org,api.snapcraft.io,archive.ubuntu.com,azure.archive.ubuntu.com,binstar.org,bootstrap.pypa.io,conda.anaconda.org,conda.binstar.org,crl.geotrust.com,crl.globalsign.com,crl.identrust.com,crl.sectigo.com,crl.thawte.com,crl.usertrust.com,crl.verisign.com,crl3.digicert.com,crl4.digicert.com,crls.ssl.com,files.pythonhosted.org,json-schema.org,json.schemastore.org,keyserver.ubuntu.com,ocsp.digicert.com,ocsp.geotrust.com,ocsp.globalsign.com,ocsp.identrust.com,ocsp.sectigo.com,ocsp.ssl.com,ocsp.thawte.com,ocsp.usertrust.com,ocsp.verisign.com,packagecloud.io,packages.cloud.google.com,packages.microsoft.com,pip.pypa.io,ppa.launchpad.net,pypi.org,pypi.python.org,repo.anaconda.com,repo.continuum.io,s.symcb.com,s.symcd.com,security.ubuntu.com,ts-crl.ws.symantec.com,ts-ocsp.ws.symantec.com,www.googleapis.com"
           GITHUB_SERVER_URL: ${{ github.server_url }}
           GITHUB_API_URL: ${{ github.api_url }}
-          GH_AW_SAFE_OUTPUTS_HANDLER_CONFIG: "{\"create_issue\":{\"labels\":[\"azure-backlog\",\"scheduled-agent\"],\"max\":1,\"title_prefix\":\"[azure-backlog] \"},\"create_report_incomplete_issue\":{},\"missing_data\":{},\"missing_tool\":{},\"noop\":{\"max\":1,\"report-as-issue\":\"false\"},\"push_to_pull_request_branch\":{\"excluded_files\":[\".github/workflows/shared/agentic-policy.md\",\"data/**\",\"public/api/**\",\"public/*.html\"],\"if_no_changes\":\"error\",\"max_patch_size\":1024,\"protect_top_level_dot_folders\":true,\"protected_files\":[\"package.json\",\"bun.lockb\",\"bunfig.toml\",\"deno.json\",\"deno.jsonc\",\"deno.lock\",\"global.json\",\"NuGet.Config\",\"Directory.Packages.props\",\"mix.exs\",\"mix.lock\",\"go.mod\",\"go.sum\",\"stack.yaml\",\"stack.yaml.lock\",\"pom.xml\",\"build.gradle\",\"build.gradle.kts\",\"settings.gradle\",\"settings.gradle.kts\",\"gradle.properties\",\"package-lock.json\",\"yarn.lock\",\"pnpm-lock.yaml\",\"npm-shrinkwrap.json\",\"requirements.txt\",\"Pipfile\",\"Pipfile.lock\",\"pyproject.toml\",\"setup.py\",\"setup.cfg\",\"Gemfile\",\"Gemfile.lock\",\"uv.lock\",\"CODEOWNERS\",\"DESIGN.md\",\"README.md\",\"CONTRIBUTING.md\",\"CHANGELOG.md\",\"SECURITY.md\",\"CODE_OF_CONDUCT.md\",\"AGENTS.md\"],\"protected_files_policy\":\"fallback-to-issue\",\"required_labels\":[\"scheduled-agent\"],\"target\":\"*\",\"title_prefix\":\"[agentic] \"},\"report_incomplete\":{}}"
+          GH_AW_SAFE_OUTPUTS_HANDLER_CONFIG: "{\"create_issue\":{\"labels\":[\"azure-backlog\",\"scheduled-agent\"],\"max\":1,\"title_prefix\":\"[azure-backlog] \"},\"create_report_incomplete_issue\":{},\"missing_data\":{},\"missing_tool\":{},\"noop\":{\"max\":1,\"report-as-issue\":\"false\"},\"push_to_pull_request_branch\":{\"excluded_files\":[\".github/workflows/shared/agentic-policy.md\",\"data/**\",\"public/api/**\",\"public/*.html\"],\"fallback_as_pull_request\":false,\"if_no_changes\":\"error\",\"max_patch_size\":1024,\"protect_top_level_dot_folders\":true,\"protected_files\":[\"package.json\",\"bun.lockb\",\"bunfig.toml\",\"deno.json\",\"deno.jsonc\",\"deno.lock\",\"global.json\",\"NuGet.Config\",\"Directory.Packages.props\",\"mix.exs\",\"mix.lock\",\"go.mod\",\"go.sum\",\"stack.yaml\",\"stack.yaml.lock\",\"pom.xml\",\"build.gradle\",\"build.gradle.kts\",\"settings.gradle\",\"settings.gradle.kts\",\"gradle.properties\",\"package-lock.json\",\"yarn.lock\",\"pnpm-lock.yaml\",\"npm-shrinkwrap.json\",\"requirements.txt\",\"Pipfile\",\"Pipfile.lock\",\"pyproject.toml\",\"setup.py\",\"setup.cfg\",\"Gemfile\",\"Gemfile.lock\",\"uv.lock\",\"CODEOWNERS\",\"DESIGN.md\",\"README.md\",\"CONTRIBUTING.md\",\"CHANGELOG.md\",\"SECURITY.md\",\"CODE_OF_CONDUCT.md\",\"AGENTS.md\"],\"protected_files_policy\":\"fallback-to-issue\",\"required_labels\":[\"scheduled-agent\"],\"target\":\"*\",\"title_prefix\":\"[agentic] \"},\"report_incomplete\":{}}"
           GH_AW_CI_TRIGGER_TOKEN: ${{ secrets.GH_AW_CI_TRIGGER_TOKEN }}
         with:
           github-token: ${{ secrets.GH_AW_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
