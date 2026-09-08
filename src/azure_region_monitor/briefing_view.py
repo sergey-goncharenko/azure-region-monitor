@@ -7,6 +7,7 @@ import json
 from typing import Any
 from urllib.parse import urlsplit
 
+from azure_region_monitor.briefing import coalesce_briefing_groups
 from azure_region_monitor.display import plain_feature_name, region_name
 
 KIND_LABELS = {
@@ -51,12 +52,17 @@ def briefing_headline(briefing: dict[str, Any]) -> str:
         return f"{counts['delistings']:,} regional listings disappeared; review affected targets"
     if counts.get("scope_changes"):
         return "Monitoring coverage changed; compare like-for-like evidence"
-    gains = [group for group in briefing["groups"] if group["kind"] == "new_listings"]
+    gains = [
+        (group, status)
+        for group in coalesce_briefing_groups(briefing["groups"])
+        for status in group["statuses"]
+        if status["kind"] == "new_listings"
+    ]
     if gains:
-        largest = max(gains, key=lambda group: group["listing_count"])
+        group, largest = max(gains, key=lambda item: item[1]["listing_count"])
         subject = (
             f"{largest['feature_count']} VM sizes"
-            if largest["modality"] == "VM SKUs" else largest["modality"]
+            if group["modality"] == "VM SKUs" else group["modality"]
         )
         count = len(largest["regions"])
         return f"{subject} gained listings across {count} {'region' if count == 1 else 'regions'}"
@@ -119,13 +125,11 @@ def _feature_explanation(context: dict[str, Any]) -> str:
     </div>"""
 
 
-def _group_card(group: dict[str, Any], index: int) -> str:
-    modality, kind = group["modality"], group["kind"]
-    count = group["feature_count"]
-    singular, plural = _FEATURE_UNITS.get(modality, ("feature", "features"))
-    regions = ", ".join(region_name(region) for region in group["regions"])
+def _status_summary(status: dict[str, Any], modality: str, status_index: int) -> str:
+    kind = status["kind"]
+    regions = ", ".join(region_name(region) for region in status["regions"])
     examples = []
-    for example in group.get("examples", [])[:1]:
+    for example in status.get("examples", [])[:1]:
         before = _coverage_count(example.get("coverage_before"))
         after = _coverage_count(example.get("coverage_after"))
         coverage = (
@@ -155,14 +159,28 @@ def _group_card(group: dict[str, Any], index: int) -> str:
         guidance = "Measurement coverage changed. This is not a catalog rollout or evidence that a deployment was removed."
     else:
         guidance = _GUIDANCE.get(modality, "Review the exact evidence before changing regional plans.")
-    return f"""<article class="briefing-card" data-group="{index}">
-      <div class="briefing-card-top"><span class="briefing-kind">{_escape(KIND_LABELS.get(kind, kind))}</span>
-        <span class="briefing-modality">{_escape(modality)}</span></div>
-      <h3><span data-feature-count>{count:,}</span> <span data-feature-unit>{_escape(singular if count == 1 else plural)}</span></h3>
-      <p class="briefing-card-count"><strong data-listing-count>{group['listing_count']:,}</strong> feature-region <span data-record-unit>{'record' if group['listing_count'] == 1 else 'records'}</span></p>
-      <p class="briefing-regions" data-regions>{_escape(regions)}</p>
+    return f"""<section class="briefing-status" data-status="{status_index}">
+      <div class="briefing-card-top"><span class="briefing-kind">{_escape(KIND_LABELS.get(kind, kind))}</span></div>
+      <p class="briefing-card-count"><strong data-status-listing-count>{status['listing_count']:,}</strong> feature-region <span data-status-record-unit>{'record' if status['listing_count'] == 1 else 'records'}</span></p>
+      <p class="briefing-regions" data-status-regions>{_escape(regions)}</p>
       {''.join(examples)}
       <p class="briefing-guidance">{_escape(guidance)}</p>
+    </section>"""
+
+
+def _group_card(group: dict[str, Any], index: int) -> str:
+    modality = group["modality"]
+    count = group["feature_count"]
+    singular, plural = _FEATURE_UNITS.get(modality, ("feature", "features"))
+    statuses = "".join(
+        _status_summary(status, modality, status_index)
+        for status_index, status in enumerate(group["statuses"])
+    )
+    return f"""<article class="briefing-card" data-group="{index}">
+      <div class="briefing-card-top"><span class="briefing-modality">{_escape(modality)}</span></div>
+      <h3><span data-feature-count>{count:,}</span> <span data-feature-unit>{_escape(singular if count == 1 else plural)}</span></h3>
+      <p class="briefing-card-count"><strong data-listing-count>{group['listing_count']:,}</strong> feature-region <span data-record-unit>{'record' if group['listing_count'] == 1 else 'records'}</span></p>
+      {statuses}
       <button type="button" data-explore-group="{index}">Explore exact changes</button>
     </article>"""
 
@@ -183,12 +201,17 @@ def render_briefing(day: dict[str, Any], *, include_feedback: bool = True) -> st
         else ""
     )
     priority = {"observation_gaps": 0, "delistings": 1, "scope_changes": 2, "restorations": 3, "new_listings": 4}
-    groups = sorted(briefing["groups"], key=lambda group: (
-        priority.get(group["kind"], 5), -group["listing_count"], group["modality"],
+    groups = sorted(coalesce_briefing_groups(briefing["groups"]), key=lambda group: (
+        min(priority.get(status["kind"], 5) for status in group["statuses"]),
+        -group["listing_count"],
+        group["modality"],
     ))
     changed_regions = sorted({
         region for group in groups
-        if group["kind"] in {"new_listings", "restorations", "delistings", "observation_gaps"}
+        if any(
+            status["kind"] in {"new_listings", "restorations", "delistings", "observation_gaps"}
+            for status in group["statuses"]
+        )
         for region in group["regions"]
     }, key=region_name)
     affected = ", ".join(region_name(region) for region in changed_regions)

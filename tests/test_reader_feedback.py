@@ -88,7 +88,7 @@ def test_reading_check_embeds_shared_context_safely():
 def test_case_fingerprint_does_not_change_when_only_presentation_changes():
     day = reader_day()
     original = measurement_context(day, "before")
-    day["briefing"]["groups"][0]["examples"][0]["feature_note"] = "Different explanation."
+    day["briefing"]["groups"][0]["statuses"][0]["examples"][0]["feature_note"] = "Different explanation."
     modified = measurement_context(day, "after")
     assert original["case_id"] == modified["case_id"]
     assert original["view_id"] != modified["view_id"]

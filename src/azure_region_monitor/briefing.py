@@ -216,6 +216,41 @@ def compact_briefing(briefing: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in briefing.items() if key not in {"records", "feature_contexts"}}
 
 
+def coalesce_briefing_groups(groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Return modality cards, upgrading compact briefings written before status nesting."""
+    by_modality: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for group in groups:
+        by_modality[group["modality"]].append(group)
+
+    coalesced = []
+    for modality, modality_groups in sorted(by_modality.items()):
+        statuses = [
+            status
+            for group in modality_groups
+            for status in group.get("statuses", [group])
+        ]
+        statuses.sort(key=lambda status: BRIEFING_KINDS.index(status["kind"]))
+        region_counts = Counter(
+            {
+                region: sum(
+                    int(status["region_counts"].get(region, 0))
+                    for status in statuses
+                )
+                for region in {region for status in statuses for region in status["regions"]}
+            }
+        )
+        coalesced.append({
+            "modality": modality,
+            "feature_count": sum(int(status["feature_count"]) for status in statuses),
+            "listing_count": sum(int(status["listing_count"]) for status in statuses),
+            "regions": sorted(region_counts),
+            "region_counts": dict(sorted(region_counts.items())),
+            "region_feature_counts": dict(sorted(region_counts.items())),
+            "statuses": statuses,
+        })
+    return coalesced
+
+
 def enrich_briefing_features(briefing: dict[str, Any]) -> dict[str, Any]:
     """Refresh product documentation without recalculating historical change facts."""
     records = [dict(record) for record in briefing["records"]]
@@ -229,8 +264,9 @@ def enrich_briefing_features(briefing: dict[str, Any]) -> dict[str, Any]:
                 record["novelty"] = "New regional listing of an already observed feature."
     groups = _groups(records)
     for group in groups:
-        for example in group["examples"]:
-            example["feature_context"] = contexts[example["feature"]]
+        for status in group["statuses"]:
+            for example in status["examples"]:
+                example["feature_context"] = contexts[example["feature"]]
     return {**briefing, "records": records, "groups": groups, "feature_contexts": contexts}
 
 
@@ -332,23 +368,40 @@ def _evidence(
 
 
 def _groups(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    grouped: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for record in records:
-        grouped[(record["kind"], record["modality"])].append(record)
+        grouped[record["modality"]].append(record)
     result = []
-    for (kind, modality), items in sorted(
-        grouped.items(), key=lambda item: (BRIEFING_KINDS.index(item[0][0]), item[0][1])
-    ):
+    for modality, items in sorted(grouped.items()):
         region_counts = dict(sorted(Counter(item["region"] for item in items).items()))
+        status_groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for item in items:
+            status_groups[item["kind"]].append(item)
+        statuses = []
+        for kind, status_items in sorted(
+            status_groups.items(), key=lambda item: BRIEFING_KINDS.index(item[0])
+        ):
+            status_region_counts = dict(
+                sorted(Counter(item["region"] for item in status_items).items())
+            )
+            statuses.append({
+                "kind": kind,
+                "feature_count": len(
+                    {(item["service"], item["feature"]) for item in status_items}
+                ),
+                "listing_count": len(status_items),
+                "regions": list(status_region_counts),
+                "region_counts": status_region_counts,
+                "examples": [dict(status_items[0])],
+            })
         result.append({
-            "kind": kind,
             "modality": modality,
             "feature_count": len({(item["service"], item["feature"]) for item in items}),
             "listing_count": len(items),
             "regions": list(region_counts),
             "region_counts": region_counts,
             "region_feature_counts": dict(region_counts),
-            "examples": [dict(items[0])],
+            "statuses": statuses,
         })
     return result
 

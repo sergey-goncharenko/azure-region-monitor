@@ -166,6 +166,9 @@
     .briefing-context-sources { overflow-wrap: anywhere; }
     .briefing-novelty { color: #145578; font-size: 12px; line-height: 1.5; margin: 0 0 calc(var(--space-unit) * 5); }
     .briefing-feature h5 { font-size: 15px; margin: calc(var(--space-unit) * 6) 0 calc(var(--space-unit) * 3); }
+    .briefing-status { width: 100%; margin-top: calc(var(--space-unit) * 5); padding-top: calc(var(--space-unit) * 5); border-top: var(--border-width) solid var(--line); }
+    .briefing-status .briefing-card-top { margin-bottom: calc(var(--space-unit) * 2); }
+    .briefing-status .briefing-regions { margin: calc(var(--space-unit) * 2) 0; }
     .briefing-card button { margin-top: auto; }
     .briefing-context, .briefing-explorer { margin-top: calc(var(--space-unit) * 9); padding-top: calc(var(--space-unit) * 7); border-top: var(--border-width) solid var(--line); color: var(--muted); font-size: 13px; line-height: 1.5; }
     .reader-briefing summary, .reader-history > summary { cursor: pointer; color: #17334d; font-weight: 650; padding: calc(var(--space-unit) * 2) 0; }

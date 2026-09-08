@@ -34,8 +34,7 @@
 
     const regionName = value => data.regions[value] || value;
     const groupMatches = record => selectedGroup === null ||
-      (record.kind === data.groups[selectedGroup].kind &&
-       record.modality === data.groups[selectedGroup].modality);
+      record.modality === data.groups[selectedGroup].modality;
 
     function updateCards() {
       let matching = 0;
@@ -54,10 +53,20 @@
         card.querySelector("[data-feature-unit]").textContent = units[features === 1 ? 0 : 1];
         card.querySelector("[data-listing-count]").textContent = number(count);
         card.querySelector("[data-record-unit]").textContent = count === 1 ? "record" : "records";
-        card.querySelector("[data-regions]").textContent = region.value ?
-          regionName(region.value) : group.regions.map(regionName).join(", ");
         card.querySelectorAll(".briefing-example, .briefing-novelty, .briefing-feature-context").forEach(example => {
           example.hidden = Boolean(region.value);
+        });
+        group.statuses.forEach((status, statusIndex) => {
+          const statusCard = card.querySelector(`[data-status="${statusIndex}"]`);
+          const statusCount = region.value ?
+            (status.region_counts[region.value] || 0) : status.listing_count;
+          statusCard.hidden = statusCount === 0;
+          if (!statusCount) return;
+          statusCard.querySelector("[data-status-listing-count]").textContent = number(statusCount);
+          statusCard.querySelector("[data-status-record-unit]").textContent =
+            statusCount === 1 ? "record" : "records";
+          statusCard.querySelector("[data-status-regions]").textContent = region.value ?
+            regionName(region.value) : status.regions.map(regionName).join(", ");
         });
       });
       root.querySelector("[data-empty]").hidden = visibleGroups > 0;
@@ -170,7 +179,7 @@
         rows.append(article);
       });
       status.textContent = `${number(filtered.length)} records grouped into ${number(groups.length)} feature/status entries` +
-        (selectedGroup === null ? "." : ` \u00b7 ${data.kindLabels[data.groups[selectedGroup].kind]}. Change filters to view all groups.`);
+        (selectedGroup === null ? "." : ` \u00b7 ${data.groups[selectedGroup].modality}. Change filters to view all groups.`);
       pager.hidden = groups.length === 0;
       previous.disabled = page === 0;
       next.disabled = page >= pages - 1;

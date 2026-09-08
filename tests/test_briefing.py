@@ -3,7 +3,7 @@ import json
 import pytest
 
 from azure_region_monitor.briefing import (
-    BRIEFING_KINDS, build_briefing, compact_briefing, enrich_briefing_features,
+    BRIEFING_KINDS, build_briefing, coalesce_briefing_groups, compact_briefing, enrich_briefing_features,
 )
 from azure_region_monitor.display import plain_feature_name
 from azure_region_monitor.models import Snapshot
@@ -70,11 +70,15 @@ def test_all_54_sizes_and_266_size_region_additions_are_retained():
     assert sizes["region_feature_counts"] == sizes["region_counts"]
     assert sum(sizes["region_counts"].values()) == sizes["listing_count"]
     assert set(sizes) == {
-        "kind", "modality", "feature_count", "listing_count", "regions", "region_counts",
-        "region_feature_counts", "examples",
+        "modality", "feature_count", "listing_count", "regions", "region_counts",
+        "region_feature_counts", "statuses",
     }
-    assert len(sizes["examples"]) == 1
-    example = sizes["examples"][0]
+    assert len(sizes["statuses"]) == 1
+    status = sizes["statuses"][0]
+    assert status["kind"] == "new_listings"
+    assert status["listing_count"] == 266
+    assert len(status["examples"]) == 1
+    example = status["examples"][0]
     assert example["label"] == plain_feature_name(example["feature"])
     assert example["coverage_before"]["available"] == 0
     assert example["coverage_after"]["available"] == 5
@@ -103,6 +107,26 @@ def test_enrichment_refreshes_documentation_without_changing_records_classificat
     assert refreshed["counts"] == briefing["counts"]
     assert refreshed["feature_contexts"]["vmSkus.standard.target"]["summary"] != "Obsolete context."
     assert briefing["feature_contexts"]["vmSkus.standard.target"]["summary"] == "Obsolete context."
+
+
+def test_compact_briefing_groups_upgrade_legacy_status_cards_to_one_modality_card():
+    groups = coalesce_briefing_groups([
+        {
+            "kind": "new_listings", "modality": "VM SKUs", "feature_count": 1,
+            "listing_count": 1, "regions": ["eastus"], "region_counts": {"eastus": 1},
+            "region_feature_counts": {"eastus": 1}, "examples": [],
+        },
+        {
+            "kind": "delistings", "modality": "VM SKUs", "feature_count": 1,
+            "listing_count": 1, "regions": ["westus3"], "region_counts": {"westus3": 1},
+            "region_feature_counts": {"westus3": 1}, "examples": [],
+        },
+    ])
+
+    assert len(groups) == 1
+    assert groups[0]["listing_count"] == 2
+    assert groups[0]["regions"] == ["eastus", "westus3"]
+    assert [status["kind"] for status in groups[0]["statuses"]] == ["new_listings", "delistings"]
 
 
 def test_first_observation_states_its_history_bound_and_always_has_a_read_more_link():
