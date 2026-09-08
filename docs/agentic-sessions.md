@@ -115,9 +115,17 @@ are disabled. The manifest records exact base/head commits and the shared snapsh
 hash/date. This is a rendering comparison on repository fixtures, not a claim
 about the currently deployed dataset.
 
-The workflow runs for relevant PR changes. To validate an existing PR without
-changing its branch, use **Run workflow** and supply `pr_number`; this also covers
-cases where a bot-created PR event did not start a workflow. The run summary links
+The workflow runs for relevant PR changes and relevant pushes to `main`.
+PR comparisons keep the exact PR base/head revisions, including historical broken
+commits; squashing a later fix does not change those older results. Main pushes
+instead perform a clearly named **reference smoke check** on the new commit,
+building that same revision on both sides. This checks current rendering without
+pretending to be a historical before/after comparison.
+
+To validate an existing PR without changing its branch, use **Run workflow** and
+supply `pr_number`. Leave it blank to smoke-test the selected ref (normally `main`).
+Manual runs also cover cases where a bot-created event did not start a workflow.
+The run summary links
 an artifact containing an HTML before/after index, PNGs, a manifest, and build/server
 logs. If one revision fails to build, screenshots from the successful side are
 retained, the failed side is marked unavailable (not "added" or "removed"), and
@@ -134,6 +142,21 @@ Agentic runs expose prompts, outputs, patches, tool/firewall logs, token usage, 
 ## Requesting Changes On A Bot PR
 
 Both agentic `[agentic]` PRs and Aider fallback PRs can receive another Azure-funded coding pass without opening the Actions page. The dispatcher routes salted `agentic/issue-*` branches back to the agentic runner and `azure-issues/issue-<number>` branches to Aider:
+
+The shared workflow is named **PR rework dispatcher** (formerly **Azure BYOK PR
+rework**). It is not an Aider-only check. Its job skips non-human events and reviews
+other than **Request changes** before checkout; Python still performs the
+authoritative permission, target, and duplicate-request checks.
+
+GitHub may separately require approval for workflows triggered by Copilot activity,
+even on a same-repository PR and before a job's `if:` condition is evaluated. This
+is not an Azure environment approval or the gh-aw threat-detection gate. Old
+unapproved/expired runs do not need to be approved to make a later legitimate human
+Request changes review work. The early job guard reduces unnecessary runner work
+but cannot guarantee suppression of these admission banners. Do not disable
+repository-wide Copilot workflow protection merely to hide them. Moving to a
+trusted scheduled/manual review poller is a separate design decision if eliminating
+the event-triggered approval noise becomes necessary.
 
 1. Describe the required bounded correction in the **Request changes** review body. Ordinary comments record context but do not dispatch work.
 2. Submit the **Request changes** review. The triggering text is capped and carried as trusted acceptance criteria only after write-level permission and PR/source-issue validation; it cannot expand editable paths or override safety controls.

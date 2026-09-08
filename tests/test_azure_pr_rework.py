@@ -325,6 +325,12 @@ def test_dispatcher_wires_request_changes_without_azure_secrets():
 
     assert "issue_comment:" not in workflow
     assert "pull_request_review:" in workflow
+    assert workflow.startswith("name: PR rework dispatcher\n")
+    assert 'run-name: "PR rework for #' in workflow
+    guard = workflow.split("    if: ", 1)[1].splitlines()[0]
+    assert "github.event_name == 'pull_request_review'" in guard
+    assert "github.event.review.state == 'changes_requested'" in guard
+    assert "github.event.sender.type == 'User'" in guard
     assert "types: [submitted]" in workflow
     assert "azure-byok-pr-rework-${{ github.event.pull_request.number" in workflow
     assert "persist-credentials: false" in workflow

@@ -8,6 +8,11 @@ if (!evidenceDir) throw new Error("EVIDENCE_DIR is required.");
 for (const name of ["BASE_SHA", "HEAD_SHA"]) {
   if (!/^[0-9a-f]{40}$/.test(process.env[name] || "")) throw new Error(`${name} must be an exact commit SHA.`);
 }
+const comparisonMode = process.env.COMPARISON_MODE || "pr-comparison";
+if (!["pr-comparison", "reference-smoke"].includes(comparisonMode)) throw new Error("Invalid comparison mode.");
+if (comparisonMode === "reference-smoke" && process.env.BASE_SHA !== process.env.HEAD_SHA) {
+  throw new Error("A reference smoke check must build the same exact commit on both sides.");
+}
 const origins = [
   ["before", process.env.BEFORE_URL || "http://127.0.0.1:4173"],
   ["after", process.env.AFTER_URL || "http://127.0.0.1:4174"],
@@ -104,11 +109,14 @@ for (const path of pagePaths) {
   });
 }
 const manifest = {
+  comparison_mode: comparisonMode,
   pull_request: process.env.PR_NUMBER || null,
   base_sha: process.env.BASE_SHA, head_sha: process.env.HEAD_SHA,
   builds, comparable,
   input_snapshot: {
-    source: "PR head repository fixture (not a live deployment)",
+    source: comparisonMode === "reference-smoke" ?
+      "Selected ref repository fixture (not a live deployment)" :
+      "PR head repository fixture (not a live deployment)",
     timestamp: snapshot.timestamp, sha256: digest(snapshotBytes),
   },
   pages: pagePaths, comparison,
@@ -123,14 +131,16 @@ const panels = comparison.map(item => `<section><h2>${escape(item.path)}: ${item
 await writeFile(join(evidenceDir, "index.html"), `<!doctype html><html lang="en"><meta charset="utf-8">
 <meta name="viewport" content="width=device-width"><title>Paired visual evidence</title>
 <style>body{font:16px system-ui;margin:24px}.pair{display:grid;grid-template-columns:1fr 1fr;gap:16px}figure{margin:0;min-width:0}img{max-width:100%}section{margin:32px 0}code{overflow-wrap:anywhere}</style>
-<h1>Paired visual evidence</h1><p>PR ${escape(manifest.pull_request || "local smoke test")}</p>
+<h1>${comparisonMode === "reference-smoke" ? "Reference visual smoke check" : "Paired visual evidence"}</h1>
+<p>${comparisonMode === "reference-smoke" ? "The same exact revision is built twice. This verifies current rendering, not a historical before/after change." : `PR ${escape(manifest.pull_request || "local comparison")}`}</p>
 <p>Builds: before ${builds.before}, after ${builds.after}. ${comparable ? "Both builds are available for comparison." : "INCOMPLETE: inspect the build logs; this is not a successful comparison."}</p>
 <p>Base <code>${manifest.base_sha}</code><br>Head <code>${manifest.head_sha}</code></p>
 <p>Common repository fixture: ${escape(snapshot.timestamp)}. These are not live-site screenshots.</p>
 <p>Snapshot SHA-256: <code>${manifest.input_snapshot.sha256}</code></p>${panels}</html>`);
 if (process.env.GITHUB_STEP_SUMMARY) {
   await appendFile(process.env.GITHUB_STEP_SUMMARY,
-    `## Visual evidence\n\nBase: \`${manifest.base_sha}\`\n\nHead: \`${manifest.head_sha}\`\n\n` +
+    `## Visual evidence: ${comparisonMode}\n\nBase: \`${manifest.base_sha}\`\n\nHead: \`${manifest.head_sha}\`\n\n` +
+    (comparisonMode === "reference-smoke" ? "This checks the selected revision twice; it is not a historical PR comparison.\n\n" : "") +
     `${pagePaths.length} page paths; before build ${builds.before}, after build ${builds.after}. ` +
     `Comparable: ${comparable}. Input snapshot: ${snapshot.timestamp}.\n\n` +
     "The paired screenshot artifact includes `index.html`, `manifest.json`, and before/after PNGs. " +

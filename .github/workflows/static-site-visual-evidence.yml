@@ -1,5 +1,16 @@
 name: Static site visual evidence
+run-name: >-
+  Visual evidence - ${{ github.event.pull_request.number && format('PR #{0}', github.event.pull_request.number) || inputs.pr_number && format('PR #{0}', inputs.pr_number) || format('{0} smoke check', github.ref_name) }}
 on:
+  push:
+    branches: [main]
+    paths:
+      - "src/azure_region_monitor/**"
+      - "docs/**/*.html"
+      - "data/**"
+      - "scripts/prepare_visual_evidence.py"
+      - "scripts/capture_static_site_evidence.mjs"
+      - ".github/workflows/static-site-visual-evidence.yml"
   pull_request:
     types: [opened, synchronize, reopened]
     paths:
@@ -12,15 +23,15 @@ on:
   workflow_dispatch:
     inputs:
       pr_number:
-        description: "Pull request to compare at its current exact base/head SHAs"
-        required: true
-        type: number
+        description: "Optional PR number; leave blank to smoke-test the selected ref"
+        required: false
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: static-site-visual-evidence-${{ github.event.pull_request.number || inputs.pr_number }}
+  group: static-site-visual-evidence-${{ github.event.pull_request.number || inputs.pr_number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -33,15 +44,25 @@ jobs:
       pr_number: ${{ steps.pr.outputs.pr_number }}
       base_sha: ${{ steps.pr.outputs.base_sha }}
       head_sha: ${{ steps.pr.outputs.head_sha }}
+      comparison_mode: ${{ steps.pr.outputs.comparison_mode }}
     steps:
       - name: Resolve exact comparison
         id: pr
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
         with:
           script: |
+            const requested = String(context.payload.inputs?.pr_number || "").trim();
+            if (context.eventName === "push" || (context.eventName === "workflow_dispatch" && !requested)) {
+              if (!/^[0-9a-f]{40}$/.test(context.sha)) throw new Error("Expected an exact ref commit.");
+              core.setOutput("pr_number", "");
+              core.setOutput("base_sha", context.sha);
+              core.setOutput("head_sha", context.sha);
+              core.setOutput("comparison_mode", "reference-smoke");
+              return;
+            }
             let pr = context.payload.pull_request;
             if (context.eventName === "workflow_dispatch") {
-              const number = Number(context.payload.inputs.pr_number);
+              const number = Number(requested);
               if (!Number.isSafeInteger(number) || number < 1) throw new Error("A positive PR number is required.");
               ({ data: pr } = await github.rest.pulls.get({ ...context.repo, pull_number: number }));
             }
@@ -54,6 +75,7 @@ jobs:
             core.setOutput("pr_number", pr.number);
             core.setOutput("base_sha", pr.base.sha);
             core.setOutput("head_sha", pr.head.sha);
+            core.setOutput("comparison_mode", "pr-comparison");
 
   capture:
     needs: resolve
@@ -139,13 +161,14 @@ jobs:
             ~/.cache/ms-playwright
             .cache/static-site-browser/node_modules
           key: ${{ runner.os }}-node22-static-site-visual-evidence-playwright-v1-55-0
-      - name: Capture paired screenshots
+      - name: Capture available screenshots
         id: screenshots
         continue-on-error: true
         env:
           BASE_SHA: ${{ needs.resolve.outputs.base_sha }}
           HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
           PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
+          COMPARISON_MODE: ${{ needs.resolve.outputs.comparison_mode }}
           BUILD_STATUS_FILE: ${{ runner.temp }}/static-site-evidence/build-status.json
         run: |
           set -euo pipefail
@@ -180,7 +203,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: static-site-visual-evidence-pr-${{ needs.resolve.outputs.pr_number }}-${{ github.run_attempt }}
+          name: static-site-visual-evidence-${{ needs.resolve.outputs.pr_number && format('pr-{0}', needs.resolve.outputs.pr_number) || format('ref-{0}', github.sha) }}-${{ github.run_attempt }}
           path: |
             ${{ runner.temp }}/static-site-evidence/before/*.png
             ${{ runner.temp }}/static-site-evidence/after/*.png

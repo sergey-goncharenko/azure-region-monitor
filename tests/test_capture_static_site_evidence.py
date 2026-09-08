@@ -9,7 +9,7 @@ import pytest
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "capture_static_site_evidence.mjs"
 
 
-def capture_fixture(tmp_path, *, mismatch=False, failed=()):
+def capture_fixture(tmp_path, *, mismatch=False, failed=(), mode="pr-comparison", head_sha="b" * 40):
     node = shutil.which("node")
     if not node:
         pytest.skip("Node is required for the visual capture orchestration test.")
@@ -47,7 +47,10 @@ export const chromium = { async launch() { return {
             snapshot["regions"] = {"unexpected": {}}
         (site / "api" / "latest.json").write_text(json.dumps(snapshot), encoding="utf-8")
         (site / "index.html").write_text("<h1>Shared page</h1>", encoding="utf-8")
-        (site / ("removed.html" if label == "before" else "added.html")).write_text("<p>Fixture</p>", encoding="utf-8")
+        name = "extra.html" if mode == "reference-smoke" else (
+            "removed.html" if label == "before" else "added.html"
+        )
+        (site / name).write_text("<p>Fixture</p>", encoding="utf-8")
     statuses = evidence / "build-status.json"
     statuses.write_text(json.dumps({
         label: "failure" if label in failed else "success" for label in ("before", "after")
@@ -55,8 +58,9 @@ export const chromium = { async launch() { return {
     result = subprocess.run(
         [node, str(script)], cwd=tooling, capture_output=True, text=True, encoding="utf-8",
         timeout=30, env={
-            **os.environ, "EVIDENCE_DIR": str(evidence), "BASE_SHA": "a" * 40, "HEAD_SHA": "b" * 40,
-            "GITHUB_STEP_SUMMARY": str(tmp_path / "summary.txt"), "PR_NUMBER": "119",
+            **os.environ, "EVIDENCE_DIR": str(evidence), "BASE_SHA": "a" * 40, "HEAD_SHA": head_sha,
+            "GITHUB_STEP_SUMMARY": str(tmp_path / "summary.txt"),
+            "PR_NUMBER": "119" if mode == "pr-comparison" else "", "COMPARISON_MODE": mode,
             "BUILD_STATUS_FILE": str(statuses),
             "SNAPSHOT_FILE": str(evidence / "before-site" / "api" / "latest.json"),
         },
@@ -88,6 +92,27 @@ def test_capture_refuses_incomparable_snapshot_inputs(tmp_path):
     result, evidence = capture_fixture(tmp_path, mismatch=True)
     assert result.returncode != 0
     assert "identical snapshot bytes" in result.stderr
+    assert not (evidence / "manifest.json").exists()
+
+
+def test_reference_smoke_identifies_current_ref_without_claiming_a_historical_diff(tmp_path):
+    result, evidence = capture_fixture(tmp_path, mode="reference-smoke", head_sha="a" * 40)
+    assert result.returncode == 0, result.stderr
+    manifest = json.loads((evidence / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["comparison_mode"] == "reference-smoke"
+    assert manifest["base_sha"] == manifest["head_sha"]
+    assert manifest["pull_request"] is None
+    assert manifest["comparable"] is True
+    assert all(item["status"] == "unchanged" for item in manifest["comparison"])
+    report = (evidence / "index.html").read_text(encoding="utf-8")
+    assert "Reference visual smoke check" in report
+    assert "not a historical before/after change" in report
+
+
+def test_reference_smoke_rejects_mismatched_revisions(tmp_path):
+    result, evidence = capture_fixture(tmp_path, mode="reference-smoke")
+    assert result.returncode != 0
+    assert "same exact commit" in result.stderr
     assert not (evidence / "manifest.json").exists()
 
 
