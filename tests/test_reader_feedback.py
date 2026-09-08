@@ -92,6 +92,8 @@ def test_case_fingerprint_does_not_change_when_only_presentation_changes():
     modified = measurement_context(day, "after")
     assert original["case_id"] == modified["case_id"]
     assert original["view_id"] != modified["view_id"]
+    day["briefing"]["groups"][0]["statuses"][0]["listing_count"] = 2
+    assert measurement_context(day, "after")["case_id"] != original["case_id"]
     day["briefing"]["counts"]["delistings"] = 1
     assert measurement_context(day, "after")["case_id"] != original["case_id"]
 
