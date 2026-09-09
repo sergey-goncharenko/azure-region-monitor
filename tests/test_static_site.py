@@ -347,6 +347,9 @@ def test_build_static_site_writes_dashboard_and_latest_json(tmp_path):
     assert "Unknown means no trustworthy probe result, not unavailable." in index_html
     assert "GitHub repository" in index_html
     assert "https://github.com/sergey-goncharenko/azure-region-monitor" in index_html
+    assert index_html.index("Public Alpha") < index_html.index("Snapshot overview")
+    assert index_html.index("Snapshot overview") < index_html.index("Availability summary")
+    assert index_html.index("Availability summary") < index_html.index("Project repository")
     assert "swedencentral" in latest_json
     assert (output_dir / "index.html").stat().st_size < 1_000_000
     assert "extensions.gitops" in latest_json
@@ -526,6 +529,9 @@ def test_build_static_site_copies_history_and_renders_recent_changes(tmp_path):
     assert 'href="api/history/changes/2026-05-10.json"' in index_html
     assert "eastus flux unavailable -> available" in index_html
     assert "History baseline starts today" in index_html
+    assert index_html.index('aria-label="Availability summary"') < index_html.index(
+        'aria-label="Recent availability changes"'
+    )
     assert (output_dir / "api" / "history" / "recent-changes.json").exists()
     assert (output_dir / "api" / "history" / "changes" / "2026-05-10.json").exists()
 
