@@ -607,7 +607,13 @@ def test_build_static_site_writes_blog_from_history_index(tmp_path):
     assert "Germany North floods with DCv5" not in post
     assert "Change counts are not available without a baseline" in post
     assert (output_dir / "assets" / "briefing.js").exists()
-    assert index_html.index('aria-label="Daily change briefing"') < index_html.index('aria-label="Snapshot overview"')
+    assert (
+        index_html.index('aria-label="Snapshot overview"')
+        < index_html.index('aria-label="Availability summary"')
+        < index_html.index('aria-label="Status totals"')
+        < index_html.index('aria-label="Daily change briefing"')
+        < index_html.index('aria-label="Project repository"')
+    )
     # Sitemap lists the blog index and dated posts.
     assert "<loc>https://azwatch.operator.lat/blog/</loc>" in sitemap
     assert "<loc>https://azwatch.operator.lat/blog/2026-07-04.html</loc>" in sitemap
