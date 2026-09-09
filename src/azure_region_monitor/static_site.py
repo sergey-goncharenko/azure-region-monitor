@@ -853,7 +853,7 @@ def _render_index(snapshot: Snapshot, recent_changes: dict[str, Any] | None = No
         <a href="{_REPOSITORY_URL}">GitHub repository</a>
       </nav>
     </header>
-    {recent_changes_panel}
+    {_render_alpha_notice(len(regions))}
     <section class="opening-summary" aria-label="Snapshot overview">
       <div class="opening-summary-item">
         <span class="opening-summary-label">Data freshness</span>
@@ -871,14 +871,6 @@ def _render_index(snapshot: Snapshot, recent_changes: dict[str, Any] | None = No
         <span class="opening-summary-detail">Unknown means no trustworthy probe result, not unavailable.</span>
       </div>
     </section>
-    {_render_alpha_notice(len(regions))}
-    <section class="repo-callout" aria-label="Project repository">
-      <div>
-        <h2>Open Source Monitor</h2>
-        <p>Source code, methodology notes, workflows, and release tracking are public in the GitHub repository.</p>
-      </div>
-      <a href="{_REPOSITORY_URL}">View repository</a>
-    </section>
     <section class="metrics" aria-label="Availability summary">
       {region_metric}
       {feature_metric}
@@ -890,6 +882,14 @@ def _render_index(snapshot: Snapshot, recent_changes: dict[str, Any] | None = No
       {_render_metric("Unavailable", status_counts.get("unavailable", 0))}
       {_render_metric("Partial", status_counts.get("partial", 0))}
       {_render_metric("Unknown", status_counts.get("unknown", 0))}
+    </section>
+    {recent_changes_panel}
+    <section class="repo-callout" aria-label="Project repository">
+      <div>
+        <h2>Open Source Monitor</h2>
+        <p>Source code, methodology notes, workflows, and release tracking are public in the GitHub repository.</p>
+      </div>
+      <a href="{_REPOSITORY_URL}">View repository</a>
     </section>
     {history_resources_panel}
     <section class="layout" aria-label="Coverage overview">
