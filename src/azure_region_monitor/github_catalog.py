@@ -7,7 +7,9 @@ import urllib.request
 from azure_region_monitor.config import LatencyModel
 
 DEFAULT_CATALOG_URL = "https://models.github.ai/catalog/models"
-DEFAULT_PUBLISHERS = ("openai",)
+# An empty allowlist intentionally includes every text-chat model listed by GitHub
+# Models, rather than treating one provider's catalog as the Copilot leaderboard.
+DEFAULT_PUBLISHERS: tuple[str, ...] = ()
 # Substrings that mark non-chat or unsuitable models for a latency leaderboard.
 DEFAULT_EXCLUDE = (
     "audio",
@@ -22,21 +24,22 @@ DEFAULT_EXCLUDE = (
     "dall",
     "codex",
 )
-DEFAULT_MAX_MODELS = 24
+DEFAULT_MAX_MODELS: int | None = None
 
 
 def select_catalog_models(
     catalog: list[dict],
     publishers: tuple[str, ...] = DEFAULT_PUBLISHERS,
     exclude: tuple[str, ...] = DEFAULT_EXCLUDE,
-    max_models: int = DEFAULT_MAX_MODELS,
+    max_models: int | None = DEFAULT_MAX_MODELS,
 ) -> list[LatencyModel]:
     """Select chat-capable text models from a GitHub Models catalog payload.
 
     Keeps models whose publisher is in ``publishers`` and that take and return text,
     excluding ids containing any ``exclude`` substring (audio, embeddings, codex, ...).
-    Returns deterministic LatencyModel entries, capped at ``max_models``. Pure: no
-    network, so it is fully unit-testable.
+    Returns deterministic LatencyModel entries. Pass ``max_models`` to cap the
+    result; the default retains the full catalog. Pure: no network, so it is fully
+    unit-testable.
     """
 
     allowed = {p.lower() for p in publishers}
@@ -63,7 +66,7 @@ def select_catalog_models(
         selected.append(LatencyModel(feature=feature, model=model_id))
 
     selected.sort(key=lambda model: model.model)
-    return selected[:max_models]
+    return selected if max_models is None else selected[:max_models]
 
 
 def _is_text_chat(item: dict) -> bool:

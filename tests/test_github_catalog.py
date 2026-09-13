@@ -17,11 +17,12 @@ def _catalog():
 def test_select_catalog_models_filters_and_keys():
     models = select_catalog_models(_catalog())
     ids = {m.model for m in models}
-    # OpenAI text chat models kept; audio/codex/embeddings and non-OpenAI dropped.
-    assert ids == {"openai/gpt-4o", "openai/gpt-5"}
+    # Every publisher's text-chat model is included; unsuitable modalities stay out.
+    assert ids == {"openai/gpt-4o", "openai/gpt-5", "meta/Llama-3.3-70B-Instruct"}
     features = {m.feature for m in models}
     assert "modelLatency.openai.gpt-4o" in features
     assert "modelLatency.openai.gpt-5" in features
+    assert "modelLatency.meta.Llama-3.3-70B-Instruct" in features
 
 
 def test_select_catalog_models_respects_publisher_allowlist_and_cap():
@@ -29,6 +30,20 @@ def test_select_catalog_models_respects_publisher_allowlist_and_cap():
     assert len(models) == 2
     # Deterministic by model id sort.
     assert [m.model for m in models] == sorted(m.model for m in models)
+
+
+def test_select_catalog_models_keeps_full_catalog_by_default():
+    catalog = [
+        {
+            "id": f"publisher/model-{index}",
+            "publisher": "Publisher",
+            "supported_input_modalities": ["text"],
+            "supported_output_modalities": ["text"],
+        }
+        for index in range(25)
+    ]
+
+    assert len(select_catalog_models(catalog)) == 25
 
 
 def test_select_catalog_models_handles_garbage_entries():
@@ -52,7 +67,11 @@ def test_probe_auto_discover_uses_catalog():
         catalog_fetcher=_catalog,
     )
     features = {r.feature for r in probe.run("github-global")}
-    assert features == {"modelLatency.openai.gpt-4o", "modelLatency.openai.gpt-5"}
+    assert features == {
+        "modelLatency.meta.Llama-3.3-70B-Instruct",
+        "modelLatency.openai.gpt-4o",
+        "modelLatency.openai.gpt-5",
+    }
 
 
 def test_probe_auto_discover_keeps_non_openai_anchors():
@@ -68,7 +87,7 @@ def test_probe_auto_discover_keeps_non_openai_anchors():
         catalog_fetcher=_catalog,
     )
     models = {r.feature for r in probe.run("github-global")}
-    # Discovered OpenAI models plus the non-OpenAI anchor; the OpenAI anchor is not duplicated.
+    # The existing anchor keeps its feature ID; the OpenAI anchor is not duplicated.
     assert "modelLatency.openai.gpt-4o" in models
     assert "modelLatency.openai.gpt-5" in models
     assert "modelLatency.meta.llama" in models

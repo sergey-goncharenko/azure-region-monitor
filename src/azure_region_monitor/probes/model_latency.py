@@ -137,15 +137,17 @@ class ModelLatencyProbe:
             return []
         if not discovered:
             return []
-        # Keep the curated cross-publisher anchors (Phi, DeepSeek, Llama, ...) so the
-        # leaderboard stays multi-publisher while OpenAI releases surface automatically.
-        anchors = [
-            model
+        # Keep curated feature IDs for models already present in the leaderboard, so
+        # their existing history remains attached as the catalog expands.
+        anchors = {
+            model.model.lower(): model
             for model in self._fallback_models
             if not model.model.lower().startswith("openai/")
+        }
+        seen = {model.model.lower() for model in discovered}
+        return [anchors.get(model.model.lower(), model) for model in discovered] + [
+            model for model_id, model in anchors.items() if model_id not in seen
         ]
-        seen = {model.model for model in discovered}
-        return discovered + [model for model in anchors if model.model not in seen]
 
     def _get_client(self) -> InferenceLatencyClient:
         if self._client is None:
