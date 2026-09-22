@@ -1,6 +1,7 @@
 from azure_region_monitor.probes.github_models import (
     REASONING_MIN_COMPLETION_TOKENS,
     GitHubModelsClient,
+    LatencyClientError,
     _build_request_payload,
     _is_reasoning_model,
 )
@@ -30,6 +31,42 @@ class _CapturingOpener:
         self.body = json.loads(request.data.decode("utf-8"))
         reply = json.dumps({"choices": [{"message": {"content": "ok"}}]}).encode("utf-8")
         return _CapturingResponse(reply)
+
+
+class _EmptyStreamThenCompletionOpener:
+    def __init__(self, completion):
+        self.requests = []
+        self._completion = completion
+
+    def open(self, request, timeout=None):
+        import json
+
+        self.requests.append(json.loads(request.data.decode("utf-8")))
+        if len(self.requests) == 1:
+            return _StreamingResponse(
+                [
+                    b'data: {"choices":[{"delta":{"role":"assistant"}}]}\n',
+                    b"data: [DONE]\n",
+                ]
+            )
+        return _CapturingResponse(json.dumps(self._completion).encode("utf-8"))
+
+
+class _StreamingResponse:
+    def __init__(self, lines):
+        self._lines = iter(lines)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        return next(self._lines)
 
 
 def test_complete_uses_max_tokens_and_temperature_for_standard_models():
@@ -109,3 +146,32 @@ def test_is_reasoning_model_classification():
     assert not _is_reasoning_model("openai/gpt-4o")
     assert not _is_reasoning_model("openai/gpt-4o-mini")
     assert not _is_reasoning_model("openai/gpt-5-chat")
+
+
+def test_measure_falls_back_to_non_streaming_response_after_empty_stream():
+    opener = _EmptyStreamThenCompletionOpener(
+        {
+            "choices": [{"message": {"content": "one two three"}}],
+            "usage": {"completion_tokens": 3},
+        }
+    )
+    client = GitHubModelsClient(token="t", opener=opener)
+
+    measurement = client.measure("openai/gpt-4o", prompt="hi", max_tokens=8)
+
+    assert measurement.output_tokens == 3
+    assert len(opener.requests) == 2
+    assert opener.requests[0]["stream"] is True
+    assert "stream" not in opener.requests[1]
+
+
+def test_measure_keeps_empty_response_unknown_when_fallback_has_no_tokens():
+    opener = _EmptyStreamThenCompletionOpener({"choices": []})
+    client = GitHubModelsClient(token="t", opener=opener)
+
+    try:
+        client.measure("openai/gpt-4o", prompt="hi", max_tokens=8)
+    except LatencyClientError as error:
+        assert error.error_code == "GitHubModelsEmptyResponse"
+    else:
+        raise AssertionError("Expected an empty fallback response to remain unknown.")

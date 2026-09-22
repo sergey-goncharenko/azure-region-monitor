@@ -112,13 +112,66 @@ class GitHubModelsClient(InferenceLatencyClient):
         output_tokens = usage_output_tokens if usage_output_tokens is not None else content_chunks
 
         if output_tokens <= 0 and ttft_ms is None:
-            raise LatencyClientError(
-                "GitHubModelsEmptyResponse",
-                f"GitHub Models returned no streamed tokens for '{model}'.",
-            )
+            return self._measure_non_streaming(model, prompt, max_tokens)
 
         return LatencyMeasurement(
             ttft_ms=ttft_ms if ttft_ms is not None else total_ms,
+            total_ms=total_ms,
+            output_tokens=output_tokens,
+        )
+
+    def _measure_non_streaming(
+        self, model: str, prompt: str, max_tokens: int
+    ) -> LatencyMeasurement:
+        """Recover a usable measurement when a streamed response has no token chunks.
+
+        Some GitHub Models responses terminate a valid stream without emitting
+        content deltas. Retrying once without streaming preserves the evidence when
+        the compatible non-streaming response includes completion content or usage.
+        """
+
+        payload = _build_request_payload(model, prompt, max_tokens)
+        payload.pop("stream")
+        payload.pop("stream_options")
+        body = json.dumps(payload).encode("utf-8")
+        request = urllib.request.Request(
+            f"{self._endpoint}/chat/completions",
+            data=body,
+            method="POST",
+            headers={
+                "Authorization": f"Bearer {self._token}",
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+            },
+        )
+
+        started = time.perf_counter()
+        try:
+            with self._opener.open(request, timeout=self._timeout_seconds) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as error:
+            detail = _read_error_body(error)
+            retry_after = _parse_retry_after(error.headers.get("Retry-After"))
+            raise LatencyClientError(
+                f"GitHubModelsHttp{error.code}",
+                detail or f"GitHub Models returned HTTP {error.code} for '{model}'.",
+                retry_after=retry_after,
+            ) from error
+        except (urllib.error.URLError, http.client.HTTPException, OSError, json.JSONDecodeError) as error:
+            raise LatencyClientError(
+                "GitHubModelsUnreachable",
+                f"GitHub Models fallback request failed for '{model}': {error}",
+            ) from error
+
+        total_ms = (time.perf_counter() - started) * 1000
+        output_tokens = _completion_output_tokens(payload)
+        if output_tokens <= 0:
+            raise LatencyClientError(
+                "GitHubModelsEmptyResponse",
+                f"GitHub Models returned no tokens for '{model}' in streamed or fallback responses.",
+            )
+        return LatencyMeasurement(
+            ttft_ms=total_ms,
             total_ms=total_ms,
             output_tokens=output_tokens,
         )
@@ -252,6 +305,16 @@ def _completion_text(payload: object) -> str:
     message = choices[0].get("message") if isinstance(choices[0], dict) else None
     content = message.get("content") if isinstance(message, dict) else None
     return content.strip() if isinstance(content, str) else ""
+
+
+def _completion_output_tokens(payload: object) -> int:
+    if not isinstance(payload, dict):
+        return 0
+    usage = _usage_output_tokens(payload)
+    if usage is not None:
+        return usage
+    text = _completion_text(payload)
+    return len(text.split()) if text else 0
 
 
 def _is_reasoning_model(model: str) -> bool:
