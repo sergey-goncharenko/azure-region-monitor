@@ -157,7 +157,12 @@ class GitHubModelsClient(InferenceLatencyClient):
                 detail or f"GitHub Models returned HTTP {error.code} for '{model}'.",
                 retry_after=retry_after,
             ) from error
-        except (urllib.error.URLError, http.client.HTTPException, OSError, json.JSONDecodeError) as error:
+        except json.JSONDecodeError as error:
+            raise LatencyClientError(
+                "GitHubModelsEmptyResponse",
+                f"GitHub Models fallback response for '{model}' was not valid JSON: {error}",
+            ) from error
+        except (urllib.error.URLError, http.client.HTTPException, OSError) as error:
             raise LatencyClientError(
                 "GitHubModelsUnreachable",
                 f"GitHub Models fallback request failed for '{model}': {error}",

@@ -49,7 +49,12 @@ class _EmptyStreamThenCompletionOpener:
                     b"data: [DONE]\n",
                 ]
             )
-        return _CapturingResponse(json.dumps(self._completion).encode("utf-8"))
+        completion = (
+            self._completion
+            if isinstance(self._completion, bytes)
+            else json.dumps(self._completion).encode("utf-8")
+        )
+        return _CapturingResponse(completion)
 
 
 class _StreamingResponse:
@@ -173,5 +178,18 @@ def test_measure_keeps_empty_response_unknown_when_fallback_has_no_tokens():
         client.measure("openai/gpt-4o", prompt="hi", max_tokens=8)
     except LatencyClientError as error:
         assert error.error_code == "GitHubModelsEmptyResponse"
+    else:
+        raise AssertionError("Expected an empty fallback response to remain unknown.")
+
+
+def test_measure_classifies_empty_fallback_body_as_empty_response():
+    opener = _EmptyStreamThenCompletionOpener(b"")
+    client = GitHubModelsClient(token="t", opener=opener)
+
+    try:
+        client.measure("openai/gpt-4o", prompt="hi", max_tokens=8)
+    except LatencyClientError as error:
+        assert error.error_code == "GitHubModelsEmptyResponse"
+        assert "not valid JSON" in error.message
     else:
         raise AssertionError("Expected an empty fallback response to remain unknown.")
