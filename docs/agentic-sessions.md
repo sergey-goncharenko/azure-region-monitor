@@ -244,6 +244,16 @@ The canary disables catalog-based model substitution and whole-session retries.
 Review actual model/usage provenance, local commit and patch capture, validation,
 and the published result before interpreting the run as successful.
 
+The first [Astra coding canary](https://github.com/sergey-goncharenko/azure-region-monitor/actions/runs/36253553476)
+on issue #130 failed closed before commit/publication. Its recorded error was
+`Maximum AI credits exceeded (701.847400 / 700)`, not an invalid Azure key,
+despite the CLI's generic authentication message. It recorded 1,108,468 input
+tokens (939,912 cached reads) and 12,330 output tokens. The conservative
+accounting total was approximately $7.02 equivalent, not a verified Azure bill.
+No draft PR or independently validated patch was produced. No retry, ceiling
+increase, or production model switch followed. The deployed model passed API
+smokes, but this did not establish a successful end-to-end coding canary.
+
 **Automatic Astra-to-Terra failover is not implemented.** The pinned runtime's
 model-resolution fallback is not transient-error failover. Keep Terra as the
 production default until a separately reviewed trusted router can provide one
