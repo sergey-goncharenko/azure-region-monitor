@@ -9,6 +9,14 @@ on:
         required: false
         type: string
         default: ""
+      model:
+        description: "Canary only; repository-default keeps AZWATCH_AGENTIC_MODEL. No automatic failover."
+        required: false
+        type: choice
+        default: repository-default
+        options:
+          - repository-default
+          - gpt-6-astra
 
 permissions:
   contents: read
@@ -18,6 +26,7 @@ permissions:
 strict: true
 imports:
   - shared/agentic-policy.md
+  - shared/agentic-models.md
 concurrency:
   group: codex-canary
   cancel-in-progress: false
@@ -122,16 +131,24 @@ if: needs.prepare.outputs.has_task == 'true'
 model: ${{ vars.AZWATCH_AGENTIC_MODEL }}
 engine:
   id: copilot
+  model: ${{ inputs.model == 'gpt-6-astra' && 'gpt-6-astra' || vars.AZWATCH_AGENTIC_MODEL }}
   version: ${{ vars.AZWATCH_AGENTIC_COPILOT_VERSION }}
   max-continuations: 3
+  # A canary must not resume/restart coding work after an inference failure.
+  harness:
+    max-retries: 0
   env:
     COPILOT_PROVIDER_BASE_URL: ${{ secrets.AZWATCH_AGENTIC_AZURE_BASE_URL }}
     COPILOT_PROVIDER_API_KEY: ${{ secrets.AZURE_CODING_OPENAI_KEY }}
-    COPILOT_PROVIDER_MODEL_ID: ${{ vars.AZWATCH_AGENTIC_MODEL }}
+    COPILOT_PROVIDER_MODEL_ID: ${{ inputs.model == 'gpt-6-astra' && 'gpt-6-astra' || vars.AZWATCH_AGENTIC_MODEL }}
+    COPILOT_PROVIDER_WIRE_MODEL: ${{ inputs.model == 'gpt-6-astra' && 'gpt-6-astra' || vars.AZWATCH_AGENTIC_MODEL }}
     COPILOT_PROVIDER_WIRE_API: responses
 
 sandbox:
-  agent: awf
+  agent:
+    id: awf
+    # This is catalog substitution, not availability/rate-limit failover.
+    model-fallback: false
 network:
   allowed:
     - defaults
@@ -208,6 +225,14 @@ safe-outputs:
   threat-detection:
     continue-on-error: true
     max-ai-credits: 200
+    # Keep the independent detector on the existing repository model, not the canary.
+    engine:
+      id: copilot
+      model: ${{ vars.AZWATCH_AGENTIC_MODEL }}
+      version: ${{ vars.AZWATCH_AGENTIC_COPILOT_VERSION }}
+      env:
+        COPILOT_PROVIDER_MODEL_ID: ${{ vars.AZWATCH_AGENTIC_MODEL }}
+        COPILOT_PROVIDER_WIRE_MODEL: ${{ vars.AZWATCH_AGENTIC_MODEL }}
     prompt: |
       Flag patches that do not directly address the trusted Objective or cited live error evidence. Also flag unrelated bulk edits, generated snapshot edits, weakened status semantics, disabled tests, hidden network behavior, or changes that conflate provider-specific contracts. Findings require human review but should not erase a coherent draft.
     post-steps:
@@ -271,8 +296,8 @@ The imported **Human-Agent CI/CD Policy** is normative for trust, evidence, impl
 - Dependencies are installed. Do not run another installer. Before committing, run `python scripts/check.py --fix` and address its reported findings.
 - Use `rg -F` for literal searches. Do not retry malformed expressions or out-of-range reads.
 - If roughly forty tool calls pass without a justified edit, call `noop` and identify the missing evidence.
-- Review the final diff and `git status --short`; stage every changed file together and make one concise commit without literal `\n` sequences.
-- If a command is denied, use an allowed equivalent. Call `missing_tool` only when no configured tool can complete the task, and never alongside `create_pull_request`, `add_comment`, or `noop`.
+- Follow the imported **Local Commands And Publication** policy. This lane starts from a fresh default-branch checkout: review the final diff, then use three separate shell tool calls in order: `git checkout -b agentic/issue-<issue_number>`, `git add -- <reviewed paths>`, and `git commit -m "<concise single-line subject>"`. No branch-existence probe is needed. Verify the resulting commit with `git log -1` before requesting publication.
+- Call `missing_tool` only when no configured tool can complete the task, and never alongside `create_pull_request`, `add_comment`, or `noop`.
 - Stop immediately after the single terminal `create_pull_request`, `add_comment`, or `noop` call.
 
 ## Required result

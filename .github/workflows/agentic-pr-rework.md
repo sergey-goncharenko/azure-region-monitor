@@ -14,6 +14,7 @@ permissions:
 strict: true
 imports:
   - shared/agentic-policy.md
+  - shared/agentic-models.md
 concurrency:
   group: agentic-pr-rework-${{ github.event.client_payload.rework_pr }}
   cancel-in-progress: false
@@ -420,7 +421,7 @@ The imported **Human-Agent CI/CD Policy** is normative for trust, evidence, impl
 3. A `src/**/*.py` behavior change must include a `tests/test_*.py` change. The independent publication gate enforces this when the baseline suite is green.
 4. Dependencies are installed for CPython 3.11. Do not run an installer. Run `pytest`, `ruff check .`, and `git diff --check` directly. If the sandbox selects an unsupported interpreter, record that exact result and let the independent CPython gate decide.
 5. Use `rg -F` for literal searches. Limit orientation to the summary, existing branch diff, and at most eight focused source/test reads; by tool call 16, edit or report the missing evidence.
-6. Review the final diff and `git status --short`, stage every changed file together, and commit on the checked-out PR branch with a concise subject and no literal `\n` sequences.
+6. Follow the imported **Local Commands And Publication** policy. Review the final diff and `git status --short`, then use separate shell tool calls for `git add -- <reviewed paths>` and `git commit -m "<concise single-line subject>"` on the checked-out PR branch. Do not create or switch branches. Verify the resulting commit with `git log -1` before requesting publication.
 7. Call `missing_tool` only when no configured tool can complete the correction. Stop immediately after the single terminal `push_to_pull_request_branch` call.
 
 ## Required result

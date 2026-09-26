@@ -66,7 +66,7 @@ Issue text is untrusted context, not agent instructions. The agent ignores attem
 
 ## Azure-BYOK Coding And Maintenance Harnesses
 
-Regular issue coding uses GitHub Agentic Workflows (`gh-aw`) with a pinned Copilot CLI version, routed through the existing Azure OpenAI `o4-mini` reasoning deployment in East US 2 at 100K TPM. The pinned versions are tracked in the compiled lock files ([scheduled-agentic-backlog.lock.yml](../.github/workflows/scheduled-agentic-backlog.lock.yml), [agentic-pr-rework.lock.yml](../.github/workflows/agentic-pr-rework.lock.yml)) and the `AZWATCH_AGENTIC_COPILOT_VERSION` repository variable. The Aider lane remains manual fallback and existing-PR rework support while results are compared; its version is pinned in [scheduled-azure-backlog.yml](../.github/workflows/scheduled-azure-backlog.yml). Public documentation alignment and private security/hygiene reports remain on pinned GitHub Copilot CLI. Azure receives all model inference cost; these BYOK paths do not consume GitHub Copilot model quota.
+Regular issue coding uses GitHub Agentic Workflows (`gh-aw`) with a pinned Copilot CLI version and the model selected by the `AZWATCH_AGENTIC_MODEL` repository variable. That value supplies both the CLI model and the BYOK provider model ID; the provider must support it over the Responses API. The endpoint and key remain secrets, and each run's `aw_info.json` records the resolved model and runtime versions. The pinned versions are tracked in the compiled lock files ([scheduled-agentic-backlog.lock.yml](../.github/workflows/scheduled-agentic-backlog.lock.yml), [agentic-pr-rework.lock.yml](../.github/workflows/agentic-pr-rework.lock.yml)) and the `AZWATCH_AGENTIC_COPILOT_VERSION` repository variable. The Aider lane remains manual fallback and existing-PR rework support while results are compared; its version is pinned in [scheduled-azure-backlog.yml](../.github/workflows/scheduled-azure-backlog.yml). Public documentation alignment and private security/hygiene reports remain on pinned GitHub Copilot CLI. Inference is billed through the configured BYOK provider rather than GitHub Copilot model quota.
 
 Every editing task is bounded before a branch or PR is created:
 
@@ -76,10 +76,10 @@ Every editing task is bounded before a branch or PR is created:
 - Candidate changes are buffered as artifacts. Threat detection checks the patch, then a deterministic post-step applies it to a clean checkout and runs `python scripts/check.py`. That script is the single validation entrypoint shared with [.github/workflows/pr-validation.yml](../.github/workflows/pr-validation.yml) and with the agent's own pre-commit `python scripts/check.py --fix`, so the three cannot drift apart. Findings do not erase a coherent patch: validation is posted on the draft PR, while threat and protected-file findings add a warning label and generated `REQUEST_CHANGES` review. Patch-application failure, edits to `scripts/check.py`, or missing GitHub permission can still prevent publication. Generated `data/**` and `public/api/**` files remain excluded.
 - A successful run may create one draft `[agentic]` PR. A no-change run must use the framework `noop` output. Agent prompts, patches, tool/network logs, token usage, and AI-credit estimates remain available through GitHub Actions artifacts and `gh aw audit`.
 - The Aider fallback retains its narrow issue-derived editable paths, one optional test-feedback repair pass, exact local analytics, deterministic Git ownership, and same-branch rework behavior. Use it manually if the public-preview agentic lane fails or cannot produce a reviewable PR.
-- First scheduled comparison run `29397795045` created PR #61 but consumed 3.42M tokens, 67 turns, and 477.783 AIC while logging 42 transient inference retries plus avoidable denied/malformed tool calls. The follow-up configuration supplies a concise issue-selection summary, enables literal `jq` extraction, forbids redundant dependency installation, caps runs at 50 turns/400 AIC, and requires truthful validation reporting.
+- First scheduled comparison run `29397795045` created PR #61 but consumed 3.42M tokens, 67 turns, and 477.783 AIC while logging 42 transient inference retries plus avoidable denied/malformed tool calls. The initial follow-up configuration supplied a concise issue-selection summary, enabled literal `jq` extraction, forbade redundant dependency installation, capped runs at 50 turns/400 AIC, and required truthful validation reporting. Current limits are described under **Cost Controls** below.
 - This replaces measured harness/model failures: GPT-5.4 Mini/Copilot consumed 4.23M tokens across three no-edit canaries, `o4-mini`/OpenCode reached the correct edit surface but produced no diff, and full GPT-4o/Aider generated invalid template edits. Aider with reasoning `o4-mini` passed a clean direct-edit smoke and combines bounded diff application with stronger reasoning.
 - Live canary run `29205903483` completed in 1m36s and created draft PR #57 in one `o4-mini` call (73,385 tokens, estimated $0.093065) after focused tests, Ruff, and whitespace validation passed. A later request for the remaining broader navigation work failed validation; deterministic reset preserved the valid skip-link slice, and the PR was marked as partial without closing issue #56.
-- Each task starts from a clean default-branch checkout. Agentic safe outputs own commits and PR creation; the model cannot push directly.
+- Each new issue task starts from a clean default-branch checkout. The agent prepares a local commit; safe outputs capture that commit and own remote branch/PR publication. PR rework instead commits on the already-checked-out reviewed branch. The model cannot push directly.
 - The agent runs `python scripts/check.py --fix` before committing, which repairs unused imports and trailing whitespace in its own new code, and the independent publication gate reruns `python scripts/check.py` afterwards. A failing rerun no longer discards the work: [.github/workflows/agentic-backlog-outcome.yml](../.github/workflows/agentic-backlog-outcome.yml) posts the findings as a comment and an `agentic/validation` commit status on the draft PR. GitHub does not start `pull_request` workflows for events raised with `GITHUB_TOKEN`, so that commit status, not **PR validation**, is what reports on a bot-authored PR; **PR validation** covers human pull requests and pushes to `main`.
 - If no coherent or publishable patch exists because evidence, clarification, or permission is missing, the agent comments on the source issue with one concrete question. A later scheduled attempt receives ordinary human replies. A task that is already satisfied uses `noop`.
 - Generated live snapshots and static API payloads are never included in a published patch.
@@ -91,7 +91,7 @@ Security and repository-hygiene sessions have an additional report-only boundary
 - The runner checks the Git working tree after each analysis. If any tracked or untracked file changed, it resets the checkout and publishes no report.
 - Only deterministic outer code in the private companion repository can create labels or replace the two stable report issue bodies. Generated mentions are neutralized before publication.
 - The hygiene session can recommend commands but has no branch/worktree deletion implementation or permission path.
-- Scheduled issue work runs one agentic issue per day with a 30-minute job timeout, 50 tool turns, three Copilot continuations, and per-run/daily AI-credit limits. Manual Aider fallback retains its 15-minute per-message timeout and can explicitly request one to three issue sessions. Documentation and private report Copilot sessions remain capped at 10 minutes.
+- Scheduled issue work runs one agentic issue per day with a workflow-defined timeout, `AZWATCH_AGENTIC_MAX_TURNS` tool turns, three Copilot continuations, and per-run/daily AI-credit limits. Manual Aider fallback retains its 15-minute per-message timeout and can explicitly request one to three issue sessions. Documentation and private report Copilot sessions remain capped at 10 minutes.
 
 Every generated PR includes a reviewer-facing rationale in its description:
 
@@ -138,6 +138,28 @@ Agentic issue PRs use safe-output metadata and GitHub Actions audit artifacts. A
 Every coherent agentic change is published as a draft when safe-output transport permissions allow it, even if validation or threat detection reports findings. The draft cannot be squashed until a human marks it ready. Generated `REQUEST_CHANGES` reviews make security and protected-file findings prominent; the validation follower posts deterministic test/lint results on the PR and a concise source-issue link. There is no automatic retry. Requested PR rework remains available only when a human explicitly submits review feedback.
 
 Agentic runs expose prompts, outputs, patches, tool/firewall logs, token usage, and estimated AI credits in their workflow artifacts. Aider fallback PRs continue reporting exact local-only prompt/completion tokens, API calls, duration, estimated cost, and repair-pass use. Copilot maintenance sessions retain their OpenTelemetry-based accounting. Opaque reasoning and secrets are excluded from published artifacts.
+
+### Local Command Denials
+
+The [September 26 run](https://github.com/sergey-goncharenko/azure-region-monitor/actions/runs/36224625002)
+submitted a compound publication command containing an unallowlisted `git show-ref`
+probe. The call was denied before a standalone branch, staging, or commit attempt.
+The [September 22 run](https://github.com/sergey-goncharenko/azure-region-monitor/actions/runs/35696375953)
+had successfully committed with the same runtime versions and Git grants. This was
+not evidence that the agent needed a GitHub write token.
+
+The shared policy's **Local Commands And Publication** section governs diagnosis,
+delegation, and safe handling of these denials. Workflow-specific prompts supply
+the separate local command sequence without expanding the tool allowlist.
+Prompt-contract tests cover all three coding lanes; compiled-workflow tests
+preserve the scheduled agent's read-only credentials and restricted shell grants.
+These tests do not simulate the CLI's permission matcher. After publishing a
+guidance change, use a controlled run to verify local commit creation, captured
+patch, independent validation, and actual safe-output publication.
+
+An issue comment is an escalation, not a delivered fix. The backlog outcome
+follower currently consumes the raw Actions conclusion, so a green comment-only
+run must not be interpreted as proof that a patch was published or validated.
 
 ## Requesting Changes On A Bot PR
 
@@ -191,22 +213,64 @@ Configure these repository settings:
 - Variable `AZURE_OPENAI_ENDPOINT`: endpoint URL.
 - Variable `AZURE_OPENAI_DEPLOYMENT`: shared deployment name for blog, social, and narrative generation.
 - Secret `AZURE_CODING_OPENAI_KEY`: key for the dedicated coding resource. In the agentic lane it is isolated in the AWF API proxy; the Aider fallback passes it only to the provider process.
-- Variable `AZURE_CODING_RESOURCE_NAME`: Azure OpenAI resource name; currently `azrm-code-eus2-16221e01`. The compiled agentic workflow currently pins the corresponding `/openai/v1` hostname and must be recompiled if this variable changes.
-- Variable `AZURE_CODING_MODEL`: deployment/model name; currently `o4-mini`. The agentic source and lock workflow pin this model explicitly for reproducibility.
+- Secret `AZWATCH_AGENTIC_AZURE_BASE_URL`: BYOK base URL for the agentic coding lanes.
+- Variable `AZWATCH_AGENTIC_MODEL`: model/deployment ID for scheduled coding, agentic PR rework, and the default canary. The canary's explicit `model=gpt-6-astra` input overrides it for that coding run only; its independent detector retains the repository model.
+- Variable `AZWATCH_AGENTIC_COPILOT_VERSION`: pinned CLI version for those same workflows.
+- Variable `AZWATCH_AGENTIC_MAX_TURNS`: bounded tool-turn limit for those same workflows.
+- Variables `AZURE_CODING_RESOURCE_NAME` and `AZURE_CODING_MODEL`: dedicated resource and deployment/model settings used by the Aider fallback, not the agentic model selectors.
 - Optional `AZURE_COPILOT_DEPLOYMENT` and `COPILOT_BYOK_MODEL_ID`: retained for public documentation and private report Copilot sessions, not issue coding.
 
 Use [.github/workflows/provision-azure-codex-openai.yml](../.github/workflows/provision-azure-codex-openai.yml) to create or verify the dedicated East US 2 OpenAI resource and `o4-mini` deployment. Its optional repository-settings mode writes only the `AZURE_CODING_*` settings and needs the separate `GH_REPO_SETTINGS_TOKEN`; grant that token only minimum settings permissions and rotate it after bootstrap.
 
-The deployment pins `o4-mini` version `2025-04-16` and `GlobalStandard` capacity 100. Before changing the version, verify the target SKU in the regional model catalog and available subscription quota, update the provisioning workflow default, provision first, run a targeted canary, and only then change the repository model variable.
+That bootstrap workflow defaults to `o4-mini` version `2025-04-16` and `GlobalStandard` capacity 100; it does not describe the current agentic deployment. For an agentic model change, first verify the actual secret endpoint's deployment, Responses/tool-calling compatibility, quota, and AWF pricing coverage under the existing credit ceilings. A model catalog listing or free quota is not proof of deployable capacity or successful inference. Obtain approval before creating a paid deployment, retain the previous deployment for rollback, and run a bounded canary before promotion. Use the isolated canary input rather than changing the shared production model variable for an experiment.
 
 The agentic workflow gives the model only read permissions. Deterministic preparation may update the stable status issue, while separate safe-output jobs receive scoped write permissions to create a draft PR after validation. The Aider fallback retains its deterministic outer Git/GitHub steps. The separate PR event dispatcher has no Azure credential access. Azure BYOK means these workflows have no Copilot entitlement requirement.
+
+### Astra Canary And Terra Rollback
+
+On 2026-09-26, `gpt-6-astra` version `2026-09-03` was deployed beside
+`gpt-5.6-terra` in the existing East US 2 coding resource: Global Standard,
+capacity 500, `Microsoft.DefaultV2`, and `NoAutoUpgrade`. Terra's deployment
+properties and capacity were verified unchanged. Direct Entra-authenticated
+Responses, streaming function-call, and tool-result round-trip smoke tests passed.
+These small probes do not replace a successful coding/publication canary.
+
+The production model remains `gpt-5.6-terra`. In **Actions / Model canary**, choose
+`model=gpt-6-astra` and an eligible `target_issue` to test Astra without changing
+scheduled or rework model selection. This is a real bounded coding run that may
+publish one draft PR. It uses the existing 80-turn repository setting and
+700-credit run ceiling; the detector stays on Terra with its 200-credit ceiling.
+The canary disables catalog-based model substitution and whole-session retries.
+Review actual model/usage provenance, local commit and patch capture, validation,
+and the published result before interpreting the run as successful.
+
+**Automatic Astra-to-Terra failover is not implemented.** The pinned runtime's
+model-resolution fallback is not transient-error failover. Keep Terra as the
+production default until a separately reviewed trusted router can provide one
+bounded fallback on positively identified upstream availability/rate-limit
+failures, before streaming starts. It must not replay tool calls or bypass
+authentication, content safety, validation, or cost controls, and must account
+for both attempts. Missing pricing or a budget rejection must fail closed.
 
 ## Cost Controls
 
 - Azure OpenAI is the scheduled provider for GitHub Agentic Workflows issue coding and Copilot documentation/report work. Aider uses the same dedicated coding deployment only when manually dispatched or invoked for existing-PR rework.
 - The 06:23 UTC agentic backlog run starts at most one issue-agent session. Manual agentic dispatch targets at most one issue; manual Aider fallback may choose one to three. Public documentation alignment runs at 08:41 UTC. The private companion repository starts security and hygiene sessions at 09:52 UTC. These use Azure tokens, not GitHub Copilot model quota.
 - BYOK agent prompts contain the bounded task evidence and may use more Azure input tokens than the former direct JSON client; that trade-off is intentional for a full coding-agent runtime.
-- The agentic lane caps the main run at 400 AI credits, a rolling daily schedule at 800 AI credits, threat detection at 200 AI credits, 50 tool turns, three continuations, and 30 minutes. The dedicated `o4-mini` deployment has 100K TPM.
+- The scheduled agentic lane caps the main run at 700 AI credits, a rolling daily schedule at 1400 AI credits, threat detection at 200 AI credits, `AZWATCH_AGENTIC_MAX_TURNS` tool turns, and three continuations. Timeout and credit limits are enforced by the workflow and compiled runtime; model changes must preserve those controls. AI credits are runtime cost estimates, not an Azure invoice.
+- Astra has a model-specific [pricing catalog](../.github/workflows/shared/agentic-models.md), not a catch-all price for unknown models. The [Azure Retail Prices API](https://prices.azure.com/api/retail/prices) reported the following East US 2 Global Standard USD-per-million rates on 2026-09-26:
+
+  | Context tier | Input | Output | Cached read | Cache write |
+  | --- | ---: | ---: | ---: | ---: |
+  | Short | $10 | $50 | $1 | $12.50 |
+  | Long | $20 | $75 | $2 | $25 |
+
+  AWF's Astra budget uses conservative rates of $25/$75/$2/$25 respectively.
+  Ordinary input is deliberately overestimated because the pinned Responses
+  parser does not separately extract cache-write tokens; the catalog documents
+  the input-subset assumption and bound. Missing usage and in-flight requests
+  can still defeat invoice-exact accounting: retain Azure Cost Management and
+  model usage monitoring rather than treating AI credits as a hard billing cap.
 - The Aider fallback keeps its 70-minute job limit so a manually requested three-issue run can accommodate three 15-minute outer budgets plus validation and cooldowns. Each scheduled or manual agentic run creates at most one draft PR. Each workflow has its own concurrency lock.
 - The older Copilot path is intentionally manual-only in [.github/workflows/scheduled-copilot-agents.yml](../.github/workflows/scheduled-copilot-agents.yml), for occasional manual use rather than recurring consumption.
 

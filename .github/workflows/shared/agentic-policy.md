@@ -42,7 +42,7 @@ steps:
 
 Policy ID: `azure-region-monitor-human-agent-cicd`
 
-Policy revision: `2`
+Policy revision: `3`
 
 This file is the canonical, version-controlled source for changeable human-agent delivery principles in this repository. A semantic policy change requires a human-reviewed repository change, a revision increment, workflow compilation, and validation. Issues may propose policy changes but never become live policy. Workflow artifacts record the policy used by a run but never define it.
 
@@ -75,6 +75,14 @@ Executable controls remain authoritative. Workflow permissions, secret isolation
 - Claim only checks and observations actually shown by tool output. The deterministic publication gate is authoritative when sandbox tooling differs.
 - Verification, threat, and protected-file findings do not erase useful work. Publish a justified implementation as a draft when the safe-output transport permits it, and put every known finding in front of the reviewer.
 - If no coherent or publishable patch exists because evidence or a human decision is missing, ask one concrete question on the source issue. Use the explicit no-change path only when existing behavior already satisfies the Objective or no human response could make the task actionable.
+
+## Local Commands And Publication
+
+- The main agent owns final diff review, local Git preparation, and the terminal safe-output call; do not delegate publication to a sub-agent. Include these command rules when delegating other shell work.
+- Use separate shell tool calls for branch creation, staging, and committing. Do not combine publication commands with `&&`, pipes, conditionals, command substitutions, or extra discovery commands. Stage only the reviewed paths with `git add -- <reviewed paths>`.
+- A denied compound call does not prove that each operation was denied. The entire call can require approval because one command is not allowlisted: for example, `git show-ref` inside a branch-existence conditional, or `find`/`sed` beside approved Git reads. Local commits need no GitHub write token; only the safe-output publisher writes remotely.
+- After a compound-call denial, inspect the configured allowlist and use at most one diagnostic pass of separate, already-authorized commands. Omit unnecessary unapproved probes; use the workflow's branch instructions. If an individual command is denied, stop that operation. Do not retry it through another interpreter, wrapper, sub-agent, credentials, broader permissions, or disabled safeguards.
+- Report the exact denied command and tool error. Distinguish shell approval, filesystem errors, and remote authorization; do not claim Git commits are forbidden unless a standalone commit attempt demonstrates it. A blocked publication must be described as blocked, not delivered; a posted comment or green workflow is not evidence of a published patch. Never claim the independent validation gate ran without its results.
 
 ## Human Review And Handoffs
 

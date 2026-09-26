@@ -20,6 +20,7 @@ permissions:
 strict: true
 imports:
   - shared/agentic-policy.md
+  - shared/agentic-models.md
 concurrency:
   group: scheduled-agentic-backlog
   cancel-in-progress: false
@@ -357,8 +358,8 @@ The imported **Human-Agent CI/CD Policy** is normative for trust, evidence, impl
 - `pytest` and `ruff` are not importable from this sandbox. Do not report that as a blocker. Run `python scripts/check_css.py` and `git diff --check`; the independent gate applies the patch and runs `python scripts/check.py` under CPython 3.11.
 - Use `rg -F` for literal searches. Do not retry malformed expressions or out-of-range reads.
 - If roughly forty tool calls pass without a justified edit, call `noop` and identify the missing evidence.
-- Before publishing, review the final diff, then run `git checkout -b agentic/issue-<issue_number>`, `git add -A`, and one `git commit` with a concise single-line subject. The safe output rejects an uncommitted tree with "no commits were found".
-- If a command is denied, use an allowed equivalent. Call `missing_tool` only when no configured tool can complete the task, and never alongside `create_pull_request`, `add_comment`, or `noop`.
+- Follow the imported **Local Commands And Publication** policy. This lane starts from a fresh default-branch checkout: review the final diff, then use three separate shell tool calls in order: `git checkout -b agentic/issue-<issue_number>`, `git add -- <reviewed paths>`, and `git commit -m "<concise single-line subject>"`. No branch-existence probe is needed. Verify the resulting commit with `git log -1` before requesting publication. The safe output rejects an uncommitted tree with "no commits were found".
+- Call `missing_tool` only when no configured tool can complete the task, and never alongside `create_pull_request`, `add_comment`, or `noop`.
 - Stop immediately after the single terminal `create_pull_request`, `add_comment`, or `noop` call.
 
 ## Required result

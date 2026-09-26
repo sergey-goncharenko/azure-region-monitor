@@ -80,6 +80,32 @@ def test_agentic_backlog_preserves_deterministic_selection_without_write_scope()
     assert "issues: write" in source
 
 
+def test_local_publication_does_not_grant_remote_git_or_unrestricted_shell():
+    source = SOURCE.read_text(encoding="utf-8")
+    lock = LOCK.read_text(encoding="utf-8")
+    shell_tools = source.split("  bash:\n", 1)[1].split("  github:\n", 1)[0]
+    grants = [
+        line.strip().removeprefix("# --allow-tool ")
+        for line in lock.splitlines()
+        if line.strip().startswith("# --allow-tool ")
+    ]
+    agent_job = lock.split("\n  agent:\n", 1)[1].split("\n    env:\n", 1)[0]
+
+    assert "contents: read" in agent_job
+    assert "issues: read" in agent_job
+    assert "pull-requests: read" in agent_job
+    assert ": write" not in agent_job
+    for command in ("git checkout", "git add", "git commit"):
+        assert f'"{command}:*"' in shell_tools
+        assert f"shell({command}:*)" in grants
+    for command in ("git", "git push", "git show-ref", "bash", "sh"):
+        assert f'"{command}:*"' not in shell_tools
+        assert f"shell({command}:*)" not in grants
+        assert f"shell({command})" not in grants
+    assert "shell" not in grants
+    assert "shell(*)" not in grants
+
+
 def test_agentic_backlog_gates_prs_on_full_validation_and_safe_outputs():
     source = SOURCE.read_text(encoding="utf-8")
     lock = LOCK.read_text(encoding="utf-8")
