@@ -10,7 +10,7 @@ from azure_region_monitor.probes.azure_cli import AzureCliError, CliRunner, az_e
 from azure_region_monitor.probes.base import ProbeResult
 
 
-_MIN_AKS_EXTENSION_AZ_CLI_TIMEOUT_SECONDS = 120
+_MIN_AKS_EXTENSION_AZ_CLI_TIMEOUT_SECONDS = 180
 
 
 class AksExtensionCatalogCliProbe:
@@ -23,9 +23,8 @@ class AksExtensionCatalogCliProbe:
             return
 
         def cli_runner_with_min_timeout(command: list[str]):
-            # Some workflows set AZURE_CLI_TIMEOUT_SECONDS too low for the
-            # k8s-extension extension catalog command; enforce a minimum so
-            # timeouts don't unnecessarily increase `unknown` results.
+            # The regional extension catalog has exceeded the ordinary
+            # 120-second limit; enforce its longer provider-specific minimum.
             timeout_seconds = int(os.environ.get("AZURE_CLI_TIMEOUT_SECONDS", "90"))
             if timeout_seconds >= _MIN_AKS_EXTENSION_AZ_CLI_TIMEOUT_SECONDS:
                 return run_az(command)
