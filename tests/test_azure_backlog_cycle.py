@@ -369,7 +369,17 @@ def test_current_unknown_context_selects_top_group_scope(monkeypatch):
 
 
 def test_docs_task_keeps_workflows_as_evidence_not_edit_scope():
-    task = backlog_cycle._build_docs_task()
+    source_review = {
+        "changed_paths": [".github/workflows/scheduled-agentic-backlog.md"],
+        "diff": "-timeout-minutes: 50\n+timeout-minutes: 10",
+    }
+    task = backlog_cycle._build_docs_task(source_review)
 
     assert ".github/workflows/scheduled-azure-backlog.yml" not in task["allowed_paths"]
-    assert ".github/workflows/scheduled-azure-backlog.yml" in task["evidence"]["files"]
+    assert task["source_review"] == source_review
+    assert set(task["allowed_paths"]).issubset(task["evidence"]["files"])
+    assert "docs/reader-improvement.md" in task["evidence"]["files"]
+    assert "external product changes" in task["evidence"]["objective"]
+    assert "even when repository code is unchanged" in task["evidence"]["objective"]
+    assert "recent_git_history" not in task["evidence"]
+    assert task["tests"] == []

@@ -414,6 +414,7 @@ def build_cycle(
     default_branch: str = "main",
     now: datetime | None = None,
     session_set: str = "all",
+    source_review: dict[str, Any] | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
     if not re.fullmatch(r"[^/\s]+/[^/\s]+", repository):
         raise RuntimeError("The source repository must use the owner/name format.")
@@ -423,7 +424,10 @@ def build_cycle(
     backlog_cycle = _load_backlog_cycle()
     tasks = []
     if session_set in {"all", "docs"}:
-        tasks.append(backlog_cycle._build_docs_task())
+        tasks.append(
+            backlog_cycle._build_docs_task(source_review=source_review)
+            if source_review is not None else backlog_cycle._build_docs_task()
+        )
     if session_set in {"all", "reports"}:
         tasks.extend(
             [
@@ -456,12 +460,17 @@ def main() -> None:
     parser.add_argument("--default-branch", default="main")
     parser.add_argument("--session-set", choices=("all", "docs", "reports"), default="all")
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--source-review", type=Path)
     args = parser.parse_args()
 
     cycle = build_cycle(
         args.repository,
         default_branch=args.default_branch,
         session_set=args.session_set,
+        source_review=(
+            json.loads(args.source_review.read_text(encoding="utf-8"))
+            if args.source_review else None
+        ),
     )
     args.output.write_text(json.dumps(cycle, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(render_cycle_markdown(cycle))

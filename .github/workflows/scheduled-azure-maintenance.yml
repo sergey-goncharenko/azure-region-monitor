@@ -15,6 +15,7 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  issues: read
 
 concurrency:
   group: scheduled-azure-maintenance
@@ -23,6 +24,7 @@ concurrency:
 jobs:
   maintenance:
     name: Documentation alignment
+    if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch || 'main') }}
     runs-on: ubuntu-latest
     timeout-minutes: 50
     steps:
@@ -42,25 +44,53 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Restore documentation source checkpoint
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/documentation-review-state.json
+          key: documentation-review-v2-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            documentation-review-v2-
+
+      - name: Check source changes and weekly augmentation cadence
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python scripts/prepare_documentation_review.py prepare \
+            --repository "$GITHUB_REPOSITORY" \
+            --default-branch "${{ github.event.repository.default_branch || 'main' }}" \
+            --state "$RUNNER_TEMP/documentation-review-state.json" \
+            --plan "$RUNNER_TEMP/documentation-review-plan.json" \
+            --result "$RUNNER_TEMP/documentation-review-result.json" \
+            --github-output "$GITHUB_OUTPUT" | tee -a "$GITHUB_STEP_SUMMARY"
+
       - name: Install project dependencies
+        if: ${{ steps.gate.outputs.run_agent == 'true' && !inputs.dry_run }}
         run: python -m pip install ".[dev]"
 
       - name: Install pinned GitHub Copilot CLI
+        if: ${{ steps.gate.outputs.run_agent == 'true' && !inputs.dry_run }}
         run: |
           npm install --global @github/copilot@1.0.70
           copilot --version
 
       - name: Build bounded documentation session
+        if: ${{ steps.gate.outputs.run_agent == 'true' }}
         run: |
           set -euo pipefail
           python scripts/run_azure_maintenance_cycle.py \
             --repository "$GITHUB_REPOSITORY" \
             --default-branch "${{ github.event.repository.default_branch || 'main' }}" \
             --session-set docs \
+            --source-review "$RUNNER_TEMP/documentation-review-plan.json" \
             --output "$RUNNER_TEMP/azure-maintenance-manifest.json" \
             >> "$GITHUB_STEP_SUMMARY"
 
       - name: Run Azure BYOK documentation session
+        id: review
+        if: ${{ steps.gate.outputs.run_agent == 'true' && !inputs.dry_run }}
         env:
           DRY_RUN: ${{ inputs.dry_run || false }}
           BASE_BRANCH: ${{ github.event.repository.default_branch || 'main' }}
@@ -71,6 +101,7 @@ jobs:
           COPILOT_BYOK_MODEL_ID: ${{ vars.COPILOT_BYOK_MODEL_ID || 'gpt-5.4-mini' }}
           BYOK_AGENT_TIMEOUT_SECONDS: "600"
           BYOK_AUDIT_DIR: ${{ runner.temp }}/byok-audit
+          BYOK_DOCS_RESULT_PATH: ${{ runner.temp }}/documentation-review-result.json
         run: |
           set -euo pipefail
 
@@ -98,6 +129,36 @@ jobs:
             args+=(--dry-run)
           fi
           python scripts/run_azure_byok_task.py "${args[@]}" 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Record documentation source outcome
+        id: checkpoint
+        if: ${{ always() && !cancelled() && !inputs.dry_run && steps.gate.outcome == 'success' && (steps.gate.outputs.checkpoint == 'true' || steps.review.outcome == 'success' || steps.review.outcome == 'failure') }}
+        run: |
+          set -euo pipefail
+          python scripts/prepare_documentation_review.py complete \
+            --repository "$GITHUB_REPOSITORY" \
+            --state "$RUNNER_TEMP/documentation-review-state.json" \
+            --plan "$RUNNER_TEMP/documentation-review-plan.json" \
+            --result "$RUNNER_TEMP/documentation-review-result.json" \
+            --github-output "$GITHUB_OUTPUT" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Save documentation source checkpoint
+        if: ${{ always() && steps.checkpoint.outputs.save_state == 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/documentation-review-state.json
+          key: documentation-review-v2-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Upload documentation gate evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: documentation-review-gate-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/documentation-review-plan.json
+            ${{ runner.temp }}/documentation-review-result.json
+          if-no-files-found: ignore
+          retention-days: 30
 
       - name: Upload sanitized documentation chat and usage
         if: ${{ always() }}

@@ -6,6 +6,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "run_azure_byok_task.py"
 SPEC = importlib.util.spec_from_file_location("run_azure_byok_task", SCRIPT_PATH)
@@ -50,6 +52,247 @@ def _metadata(**overrides):
     }
     metadata.update(overrides)
     return metadata
+
+
+def _docs_task(**overrides):
+    task = _task(
+        kind="docs",
+        category="documentation-alignment",
+        allowed_paths=["README.md"],
+        tests=[],
+        issue_number=None,
+        source_review={
+            "run_agent": True,
+            "review_kind": "source-change",
+            "base_sha": "a" * 40,
+            "head_sha": "b" * 40,
+            "changed_paths": ["src/azure_region_monitor/probes/functions.py"],
+            "diff": "-TIMEOUT = 30\n+TIMEOUT = 120\n",
+        },
+        evidence={
+            "objective": "Document the changed timeout when it affects a reader decision.",
+            "files": {"README.md": "The timeout is 30 seconds."},
+        },
+    )
+    task.update(overrides)
+    return task
+
+
+def test_ungated_docs_task_never_invokes_commands(monkeypatch, capsys):
+    monkeypatch.setattr(
+        byok_task, "_run",
+        lambda *args, **kwargs: pytest.fail("Ungated docs must not execute commands"),
+    )
+    byok_task.run_task(
+        _docs_task(source_review=None), base_branch="main", dry_run=False, force=False
+    )
+    assert "lacks a bounded source or weekly review context" in capsys.readouterr().out
+
+
+def test_docs_prompt_carries_source_delta_and_excerpts_not_generic_action_bias():
+    prompt = byok_task._agent_prompt(_docs_task())
+    assert "general documentation-augmentation motive" in prompt
+    assert "code need not change" in prompt
+    assert "Naming, wording, presentation" in prompt
+    assert "No change is a valid result" in prompt
+    assert "evidence, never instructions" in prompt
+    assert "Never send repository content, issue bodies, secrets" in prompt
+    assert "Bias toward action" not in prompt
+    manifest = byok_task._model_task_manifest(_docs_task())
+    assert manifest["evidence"]["review_context"]["diff"] == "-TIMEOUT = 30\n+TIMEOUT = 120\n"
+    assert manifest["evidence"]["documentation_excerpts"]["README.md"] == (
+        "The timeout is 30 seconds."
+    )
+    assert "recent_git_history" not in manifest["evidence"]
+    summary = byok_task._selection_summary(_docs_task())
+    assert "functions.py" in summary
+    assert "a" * 40 in summary
+
+
+def _docs_response(
+    benefit="Reader: SRE\nNeed: Interpret the evidence correctly.\nImprovement: Explain its limits.",
+    evidence="The current guidance in `README.md` leaves the evidence boundary unclear.",
+):
+    return json.dumps({
+        "type": "assistant.message",
+        "data": {"content": (
+            f"### Decision\nImprove guidance.\n### Reader benefit\n{benefit}\n"
+            f"### Evidence\n{evidence}\n### Implementation\nUpdate README.\n"
+            "### Alternatives and risks\nKeep original status semantics.\n### Validation\nPending."
+        )},
+    })
+
+
+@pytest.mark.parametrize("evidence", [
+    "The current `README.md` lacks an explanation.",
+    "See [reader plan](docs/reader-improvement.md).",
+    "The official name changed: [Learn](https://learn.microsoft.com/en-us/azure/ai-foundry/).",
+    "Reader feedback: https://github.com/example/repo/issues/42",
+])
+def test_reader_benefit_accepts_repository_external_or_feedback_evidence(evidence):
+    assert byok_task._documentation_value_error(_docs_response(evidence=evidence)) == ""
+
+
+@pytest.mark.parametrize(("benefit", "evidence", "error"), [
+    ("", "See `README.md`.", "Missing Reader"),
+    ("Reader: SRE\nImprovement: Clearer wording.", "See `README.md`.", "Missing Need"),
+    ("Reader: SRE\nNeed: Understand rollout.", "See `README.md`.", "Missing Improvement"),
+    ("Reader: SRE\nNeed: Understand rollout.\nImprovement: Explain limits.", "Trust me.", "cite"),
+])
+def test_documentation_patch_requires_reviewable_benefit_and_citation(benefit, evidence, error):
+    assert error in byok_task._documentation_value_error(_docs_response(benefit, evidence))
+
+
+def test_weekly_context_without_source_changes_is_valid_and_reaches_model():
+    task = _docs_task()
+    task["source_review"].update(
+        review_kind="weekly-augmentation", changed_paths=[], diff="",
+        reader_context=[{"number": 42, "title": "New architect use case"}],
+    )
+    assert byok_task._validate_task(task) == ""
+    manifest = byok_task._model_task_manifest(task)
+    assert manifest["evidence"]["review_context"]["reader_context"][0]["number"] == 42
+    assert "weekly-augmentation" in byok_task._selection_summary(task)
+    assert "no source changes" in byok_task._selection_summary(task)
+
+
+@pytest.mark.parametrize(("candidate", "model_exit", "justified", "expected", "validate"), [
+    (None, 0, False, "no-change", False),
+    ("Analysis runs at 09:52 UTC.\n", 0, False, "needs-evidence", False),
+    ("Analysis runs at 09:52 UTC.\n", 0, True, "published", True),
+    ("Documentation alignment runs separately.\n", 0, True, "published", True),
+    ("Use the current official product name to find relevant guidance.\n", 0, True, "published", True),
+    ("Architects can compare region candidates before planning a migration.\n", 0, True, "published", True),
+    ("## Evidence\n\nCatalog absence does not mean quota failure.\n", 0, True, "published", True),
+    (None, 1, False, "failed", False),
+])
+@pytest.mark.parametrize("review_kind", ["source-change", "weekly-augmentation"])
+def test_docs_outcomes_and_benefit_gate_precede_validation_and_publication(
+    monkeypatch, tmp_path, candidate, model_exit, justified, expected, validate, review_kind
+):
+    before = "Analysis runs at 10:00 UTC.\n"
+    (tmp_path / "README.md").write_text(before, encoding="utf-8")
+    result_path = tmp_path / "result.json"
+    monkeypatch.setenv("BYOK_DOCS_RESULT_PATH", str(result_path))
+    monkeypatch.setattr(byok_task, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(byok_task, "_existing_pr", lambda branch: "")
+    monkeypatch.setattr(byok_task, "_reset", lambda: None)
+    monkeypatch.setattr(
+        byok_task, "_audit_paths",
+        lambda task: (tmp_path / "chat.md", tmp_path / "telemetry.jsonl", tmp_path / "metadata.json"),
+    )
+    calls = []
+    validations = []
+
+    def agent(*args):
+        if candidate is not None:
+            (tmp_path / "README.md").write_text(candidate, encoding="utf-8")
+        return subprocess.CompletedProcess(
+            ("copilot",), model_exit, _docs_response() if justified else "", ""
+        )
+
+    def run(*args, **kwargs):
+        calls.append(args)
+        output = ""
+        if args[:2] == ("git", "rev-parse"):
+            output = "b" * 40
+        elif args[:2] == ("git", "show"):
+            output = before
+        elif args[:4] == ("git", "diff", "--cached", "--name-only"):
+            output = "README.md" if candidate is not None else ""
+        elif args[:3] == ("git", "diff", "--name-only") and len(args) > 3:
+            output = "README.md"
+        elif args[:3] == ("gh", "pr", "create"):
+            output = "https://example.test/pr/1"
+        return subprocess.CompletedProcess(args, 0, output, "")
+
+    monkeypatch.setattr(byok_task, "_run_agent", agent)
+    monkeypatch.setattr(byok_task, "_run", run)
+    monkeypatch.setattr(
+        byok_task, "_run_task_tests",
+        lambda task: validations.append(True) or subprocess.CompletedProcess(("pytest",), 0, "", ""),
+    )
+    task = _docs_task()
+    if review_kind == "weekly-augmentation":
+        task["source_review"].update(review_kind=review_kind, changed_paths=[], diff="")
+    byok_task.run_task(task, base_branch="main", dry_run=False, force=False)
+    assert json.loads(result_path.read_text(encoding="utf-8"))["outcome"] == expected
+    assert bool(validations) == validate
+    assert any(call[:3] == ("git", "commit", "-m") for call in calls) == validate
+    assert any(call[:3] == ("gh", "pr", "create") for call in calls) == validate
+
+
+@pytest.mark.parametrize(("open_pr", "actual_head", "outcome"), [
+    ("139", "b" * 40, "skipped-open-pr"),
+    ("", "c" * 40, "stale-source"),
+])
+def test_docs_races_stop_before_model_even_when_forced(
+    monkeypatch, tmp_path, open_pr, actual_head, outcome
+):
+    result_path = tmp_path / "result.json"
+    monkeypatch.setenv("BYOK_DOCS_RESULT_PATH", str(result_path))
+    monkeypatch.setattr(byok_task, "_existing_pr", lambda branch: open_pr)
+    monkeypatch.setattr(
+        byok_task, "_run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(args, 0, actual_head, ""),
+    )
+    monkeypatch.setattr(
+        byok_task, "_run_agent", lambda *args: pytest.fail("Skipped docs must not invoke a model")
+    )
+    byok_task.run_task(_docs_task(), base_branch="main", dry_run=False, force=True)
+    assert json.loads(result_path.read_text(encoding="utf-8"))["outcome"] == outcome
+
+
+def test_docs_dry_run_does_not_write_completion_or_call_commands(monkeypatch, tmp_path):
+    result_path = tmp_path / "result.json"
+    monkeypatch.setenv("BYOK_DOCS_RESULT_PATH", str(result_path))
+    monkeypatch.setattr(
+        byok_task, "_run", lambda *args: pytest.fail("Dry run must not execute commands")
+    )
+    byok_task.run_task(_docs_task(), base_branch="main", dry_run=True, force=False)
+    assert not result_path.exists()
+    assert "BYOK_DOCS_RESULT_PATH" not in byok_task._inherited_agent_environment()
+
+
+def test_docs_pr_lookup_fails_closed_without_changing_issue_lookup(monkeypatch):
+    monkeypatch.setattr(
+        byok_task, "_run",
+        lambda *args: subprocess.CompletedProcess(args, 1, "", "unavailable"),
+    )
+    with pytest.raises(RuntimeError, match="Could not check"):
+        byok_task._existing_pr("azure-docs/documentation-alignment")
+    assert byok_task._existing_pr("azure-issues/issue-42") == ""
+
+
+def test_docs_research_is_read_only_bounded_and_not_added_to_issue_or_report_agents(monkeypatch):
+    calls = []
+    monkeypatch.setattr(byok_task, "_copilot_command", lambda: ["copilot"])
+    monkeypatch.setattr(
+        byok_task, "_agent_environment", lambda: {"COPILOT_PROVIDER_MODEL_ID": "gpt-5.4-mini"}
+    )
+    monkeypatch.setattr(
+        byok_task, "_run_with_graceful_timeout",
+        lambda *args, **kwargs: calls.append(args) or subprocess.CompletedProcess(args, 0, "", ""),
+    )
+    byok_task._run_copilot_agent(_docs_task())
+    args = calls[-1]
+    config = json.loads(args[args.index("--additional-mcp-config") + 1])
+    assert list(config["mcpServers"]) == ["microsoft-learn"]
+    server = config["mcpServers"]["microsoft-learn"]
+    assert server["url"] == "https://learn.microsoft.com/api/mcp?maxTokenBudget=2000"
+    assert server["type"] == "http"
+    assert server["tools"] == ["microsoft_docs_search"]
+    assert "headers" not in server and "env" not in server
+    for flag in (
+        "--allow-url=https://learn.microsoft.com", "--deny-tool=web_fetch",
+        "--deny-tool=web_search", "--disable-builtin-mcps", "--deny-tool=shell(curl)",
+        "--deny-tool=shell(gh:*)", "--deny-tool=shell(az:*)",
+    ):
+        assert flag in args
+    byok_task._run_copilot_agent(_task())
+    assert "--additional-mcp-config" not in calls[-1]
+    byok_task._run_copilot_agent(_task(kind="report"), report_only=True, prompt="Report only.")
+    assert "--additional-mcp-config" not in calls[-1]
 
 
 def test_dry_run_never_invokes_commands(monkeypatch, capsys):

@@ -1,6 +1,6 @@
 # Azure-Funded Agent Sessions
 
-This repository runs bounded Azure-funded schedules. The regular issue backlog runs daily at 06:23 UTC through the GitHub Agentic Workflows source [.github/workflows/scheduled-agentic-backlog.md](../.github/workflows/scheduled-agentic-backlog.md) and its generated lock workflow. The former Aider workflow [.github/workflows/scheduled-azure-backlog.yml](../.github/workflows/scheduled-azure-backlog.yml) remains available only for manual fallback and existing PR rework. The separate public documentation alignment session runs at 08:41 UTC through [.github/workflows/scheduled-azure-maintenance.yml](../.github/workflows/scheduled-azure-maintenance.yml). Maintainer-only security and repository-hygiene analysis runs at 10:00 UTC in the private `azure-region-monitor-maintainers` companion repository. Actionable public coding work lives in GitHub Issues, not in repository configuration files.
+This repository runs bounded Azure-funded schedules. The regular issue backlog runs daily at 06:23 UTC through the GitHub Agentic Workflows source [.github/workflows/scheduled-agentic-backlog.md](../.github/workflows/scheduled-agentic-backlog.md) and its generated lock workflow. The former Aider workflow [.github/workflows/scheduled-azure-backlog.yml](../.github/workflows/scheduled-azure-backlog.yml) remains available only for manual fallback and existing PR rework. The separate public [documentation augmentation](#documentation-augmentation) workflow checks daily through [.github/workflows/scheduled-azure-maintenance.yml](../.github/workflows/scheduled-azure-maintenance.yml): it starts a general review weekly, plus source-triggered reviews between them. Maintainer-only security and repository-hygiene analysis runs on the schedule owned by the private `azure-region-monitor-maintainers` companion repository. Actionable public coding work lives in GitHub Issues, not in repository configuration files.
 
 ## Policy And Enforcement
 
@@ -262,10 +262,76 @@ failures, before streaming starts. It must not replay tool calls or bypass
 authentication, content safety, validation, or cost controls, and must account
 for both attempts. Missing pricing or a budget rejection must fail closed.
 
+## Documentation Augmentation
+
+The goal is ongoing reader improvement, not merely synchronizing prose with code.
+External products and naming conventions evolve; readers discover new use cases
+or pivot their needs. The documentation agent should look for one useful
+explanation, example, terminology update, or correction even when code has not
+changed. Naming, presentation, and one-line edits are not automatically cosmetic:
+their value depends on the reader problem they address.
+
+The default-branch [documentation workflow](../.github/workflows/scheduled-azure-maintenance.yml)
+runs a deterministic, standard-library-only gate before dependency installation,
+Copilot installation, or Azure inference:
+
+- Run a **general augmentation review every seven days**, independently of source
+  activity. Intervening source-triggered reviews do not postpone this opportunity.
+- Also compare source fingerprints for application code, scripts, infrastructure,
+  workflow configuration, and root package/deployment manifests. Documentation,
+  tests, generated snapshots/site output, compiled workflow locks, and workflow
+  prompt/comment/cron-clock-only changes do not trigger an extra paid review.
+  They can still inform the next weekly augmentation.
+- Between weekly opportunities, unchanged relevant source means zero model calls.
+  An open documentation PR skips inference without consuming pending source
+  changes or the weekly opportunity.
+- On first use or cache loss, establish a baseline without inference; the first
+  general review becomes due seven days later. This may delay missed work, which
+  the gate summary makes visible.
+- Supply bounded source hints (up to 12 paths and 12,000 diff characters), current
+  documentation and reader-plan excerpts, and the five most recently updated
+  issues as untrusted reader/product context. Large diffs are explicitly marked
+  truncated, not rejected as ineligible. The agent is not claiming to audit every
+  change; it selects one coherent reader improvement.
+
+For current Microsoft/Azure facts, the documentation agent has the
+[Microsoft Learn MCP server](https://learn.microsoft.com/training/support/mcp)
+with only `microsoft_docs_search` enabled, a
+[2,000-token search-response budget](https://learn.microsoft.com/training/support/mcp-best-practices),
+and no credentials sent to that server. The prompt requests at most three
+focused public-product searches; this is guidance, not a hard request counter.
+Full-page fetching, arbitrary web research, network shell commands, and
+write-capable GitHub/Azure tools are not added. Repository text, issue bodies,
+and secrets must not be sent as search queries. If research fails, the agent must
+say so rather than invent a current fact. Independently supported repository
+improvements may still proceed. Existing model, timeout, scope, and validation
+controls remain in place; this does not grant research tools to issue coding or
+private report agents.
+
+Before tests or publication, the runner requires a **Reader benefit** section
+with `Reader:`, `Need:`, and `Improvement:` lines and an **Evidence** section
+citing a repository file or HTTPS source. The same check applies to a new use-case
+explanation, a naming correction, or a small operational fix. It checks that a
+reviewable justification and citation exist, not that the claim is true or that
+comprehension has measurably improved. Humans still review the draft PR and its
+sources using the [reader-improvement plan](reader-improvement.md).
+No patch is required if there is no supported improvement. Avoid arbitrary polish,
+repeated synonym swaps, duplicated volatile facts, and guesses about private live
+configuration; do not ban useful augmentation by word pattern or line count.
+
+The default-branch Actions cache stores the source fingerprint, commit, outcome,
+and independent weekly attempt timestamp, not model memory. Published, no-change,
+needs-evidence, and failed outcomes prevent daily reattempts of unchanged source;
+they do **not** suppress the next weekly general review. A failed attempt stays a
+failed workflow, never a successful delivery. Dry runs never invoke a model or
+advance either checkpoint. Invalid state and reported restore failures fail
+closed. The `documentation-review-gate` artifact records the decision and context
+alongside existing sanitized chat/usage artifacts.
+
 ## Cost Controls
 
 - Azure OpenAI is the scheduled provider for GitHub Agentic Workflows issue coding and Copilot documentation/report work. Aider uses the same dedicated coding deployment only when manually dispatched or invoked for existing-PR rework.
-- The 06:23 UTC agentic backlog run starts at most one issue-agent session. Manual agentic dispatch targets at most one issue; manual Aider fallback may choose one to three. Public documentation alignment runs at 08:41 UTC. The private companion repository starts security and hygiene sessions at 09:52 UTC. These use Azure tokens, not GitHub Copilot model quota.
+- The 06:23 UTC agentic backlog run starts at most one issue-agent session. Manual agentic dispatch targets at most one issue; manual Aider fallback may choose one to three. Public documentation inference runs weekly plus source-triggered opportunities, not unconditionally every day. Security and hygiene remain separately scheduled in the private companion repository. These use Azure tokens, not GitHub Copilot model quota.
 - BYOK agent prompts contain the bounded task evidence and may use more Azure input tokens than the former direct JSON client; that trade-off is intentional for a full coding-agent runtime.
 - The scheduled agentic lane caps the main run at 700 AI credits, a rolling daily schedule at 1400 AI credits, threat detection at 200 AI credits, `AZWATCH_AGENTIC_MAX_TURNS` tool turns, and three continuations. Timeout and credit limits are enforced by the workflow and compiled runtime; model changes must preserve those controls. AI credits are runtime cost estimates, not an Azure invoice.
 - Astra has a model-specific [pricing catalog](../.github/workflows/shared/agentic-models.md), not a catch-all price for unknown models. The [Azure Retail Prices API](https://prices.azure.com/api/retail/prices) reported the following East US 2 Global Standard USD-per-million rates on 2026-09-26:
@@ -295,7 +361,7 @@ For coding backlog work:
 
 For manual fallback or existing Aider PR rework, select **Scheduled Azure backlog**. Use its dry run first, then disable `dry_run` only when the selected task is correct. Use `force` only to deliberately update an existing Aider task branch; it does not bypass scope, test, lint, or whitespace validation.
 
-For public documentation work, select **Scheduled Azure documentation alignment**. For security/hygiene work, use **Scheduled private Azure analysis** in the private companion repository. Dry runs build the relevant manifests without starting a model, creating a PR, or updating reports.
+For public documentation work, select **Scheduled Azure documentation alignment** on the default branch. Manual dispatch uses the same weekly/source cadence; it is not a force-review switch. Its dry run reports the decision and builds a manifest when a source-triggered or weekly review is due, without advancing either checkpoint. For security/hygiene work, use **Scheduled private Azure analysis** in the private companion repository. Dry runs never start a model, create a PR, or update reports.
 
 The schedules are reversible: disable the agentic schedule before restoring the Aider schedule so regular issue work never runs twice.
 <!-- End of Azure-funded agent session guide. -->

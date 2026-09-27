@@ -270,33 +270,34 @@ def _git_history() -> str:
     return completed.stdout.strip() or "[git history unavailable]"
 
 
-def _build_docs_task() -> dict[str, Any]:
+def _build_docs_task(source_review: dict[str, Any] | None = None) -> dict[str, Any]:
     allowed_candidates = (
         "README.md",
         ".github/copilot-instructions.md",
         "docs/agentic-sessions.md",
     )
-    evidence_candidates = (
-        *allowed_candidates,
-        ".github/workflows/daily-scan.yml",
-        ".github/workflows/scheduled-azure-backlog.yml",
-        ".github/workflows/scheduled-copilot-agents.yml",
-    )
     allowed_paths = [path for path in allowed_candidates if (REPO_ROOT / path).is_file()]
-    evidence_paths = [path for path in evidence_candidates if (REPO_ROOT / path).is_file()]
-    tests = (
-        ["tests/test_static_site.py"]
-        if (REPO_ROOT / "tests/test_static_site.py").is_file()
-        else []
-    )
+    evidence_paths = [
+        path for path in (*allowed_candidates, "docs/reader-improvement.md")
+        if (REPO_ROOT / path).is_file()
+    ]
     return {
         "kind": "docs",
         "category": "documentation-alignment",
-        "summary": "Documentation alignment runs as a separate scheduled maintenance session.",
+        "summary": "Augment documentation for current reader needs and supported capabilities.",
         "allowed_paths": allowed_paths,
-        "tests": tests,
+        "tests": [],
+        "source_review": source_review,
         "evidence": {
-            "recent_git_history": _git_history(),
+            "objective": (
+                "Find one worthwhile documentation augmentation for a cloud architect, SRE, "
+                "manager, or engineer. Consider external product changes, evolving terminology, "
+                "new use cases, unanswered reader questions, and clearer explanations, even "
+                "when repository code is unchanged. Name the reader need, explain how the edit "
+                "helps, and cite repository, reader-feedback, or current official evidence. "
+                "No patch is required when there is no supported improvement; avoid arbitrary "
+                "polish and terminology oscillation, not useful naming or clarity changes."
+            ),
             "files": {path: _read_excerpt(path) for path in evidence_paths},
         },
     }

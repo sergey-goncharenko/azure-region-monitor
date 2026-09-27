@@ -267,6 +267,35 @@ def test_public_maintenance_workflow_runs_documentation_only():
     assert "*-metadata.json" in workflow
     assert "*-telemetry.jsonl" not in workflow
     assert 'BYOK_AGENT_TIMEOUT_SECONDS: "600"' in workflow
+    assert workflow.index("prepare_documentation_review.py prepare") < workflow.index("pip install")
+    assert "actions/cache/restore@v4" in workflow
+    assert "actions/cache/save@v4" in workflow
+    assert "documentation-review-v2-" in workflow
+    assert "issues: read" in workflow
+    assert "issues: write" not in workflow
+    assert "--source-review" in workflow
+    assert "BYOK_DOCS_RESULT_PATH:" in workflow
+    assert "steps.checkpoint.outputs.save_state == 'true'" in workflow
+    assert "steps.review.outcome == 'failure'" in workflow
+    assert "github.ref == format('refs/heads/{0}'" in workflow
+    assert "steps.gate.outputs.run_agent == 'true' && !inputs.dry_run" in workflow
+    checkpoint = workflow.split("- name: Record documentation source outcome", 1)[1]
+    assert "!inputs.dry_run" in checkpoint.split("run: |", 1)[0]
+
+
+def test_maintenance_passes_source_review_to_docs_builder(monkeypatch):
+    source_review = {"changed_paths": ["src/feature.py"]}
+
+    class BacklogCycle:
+        @staticmethod
+        def _build_docs_task(*, source_review):
+            return {"kind": "docs", "source_review": source_review}
+
+    monkeypatch.setattr(maintenance, "_load_backlog_cycle", lambda: BacklogCycle)
+    cycle = maintenance.build_cycle(
+        "example/repo", session_set="docs", source_review=source_review
+    )
+    assert cycle["tasks"][0]["source_review"] == source_review
 
 
 def test_private_analysis_template_keeps_reports_out_of_public_repository():
