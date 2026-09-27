@@ -1,6 +1,8 @@
+import os
 import subprocess
 
 from azure_region_monitor.runner import run_probes
+from azure_region_monitor.probes import aks_extension_catalog
 from azure_region_monitor.probes.aks_extension_catalog import AksExtensionCatalogCliProbe
 
 
@@ -36,6 +38,22 @@ def test_aks_extension_catalog_probe_captures_cli_error_as_unknown():
     assert results[0].feature == "extensionCatalog"
     assert results[0].result.status == "unknown"
     assert results[0].result.error_code == "AzureCliCommandFailed"
+
+
+def test_aks_extension_catalog_probe_enforces_extended_timeout(monkeypatch):
+    observed_timeouts = []
+
+    def run_az(command: list[str]) -> subprocess.CompletedProcess[str]:
+        observed_timeouts.append(os.getenv("AZURE_CLI_TIMEOUT_SECONDS"))
+        return subprocess.CompletedProcess(command, 0, stdout="[]", stderr="")
+
+    monkeypatch.setenv("AZURE_CLI_TIMEOUT_SECONDS", "30")
+    monkeypatch.setattr(aks_extension_catalog, "run_az", run_az)
+
+    list(AksExtensionCatalogCliProbe().run("eastus"))
+
+    assert observed_timeouts == ["180"]
+    assert os.getenv("AZURE_CLI_TIMEOUT_SECONDS") == "30"
 
 
 def test_aks_extension_catalog_probe_treats_unsupported_location_as_empty_catalog():
