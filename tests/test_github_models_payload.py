@@ -74,6 +74,35 @@ class _StreamingResponse:
         return next(self._lines)
 
 
+class _JsonCompletionResponse:
+    headers = {"Content-Type": "application/json; charset=utf-8"}
+
+    def __init__(self, payload):
+        self._payload = payload
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def read(self):
+        return self._payload
+
+
+class _JsonCompletionOpener:
+    def __init__(self):
+        self.requests = []
+
+    def open(self, request, timeout=None):
+        import json
+
+        self.requests.append(json.loads(request.data.decode("utf-8")))
+        return _JsonCompletionResponse(
+            b'{"choices":[{"message":{"content":"one two three"}}],"usage":{"completion_tokens":3}}'
+        )
+
+
 def test_complete_uses_max_tokens_and_temperature_for_standard_models():
     opener = _CapturingOpener()
     client = GitHubModelsClient(token="t", opener=opener)
@@ -168,6 +197,17 @@ def test_measure_falls_back_to_non_streaming_response_after_empty_stream():
     assert len(opener.requests) == 2
     assert opener.requests[0]["stream"] is True
     assert "stream" not in opener.requests[1]
+
+
+def test_measure_accepts_json_completion_returned_for_streaming_request():
+    opener = _JsonCompletionOpener()
+    client = GitHubModelsClient(token="t", opener=opener)
+
+    measurement = client.measure("openai/gpt-4o", prompt="hi", max_tokens=8)
+
+    assert measurement.output_tokens == 3
+    assert len(opener.requests) == 1
+    assert opener.requests[0]["stream"] is True
 
 
 def test_measure_keeps_empty_response_unknown_when_fallback_has_no_tokens():
