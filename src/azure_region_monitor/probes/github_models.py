@@ -74,6 +74,16 @@ class GitHubModelsClient(InferenceLatencyClient):
 
         try:
             with self._opener.open(request, timeout=self._timeout_seconds) as response:
+                if _response_is_json(response):
+                    payload = json.loads(response.read().decode("utf-8"))
+                    output_tokens = _completion_output_tokens(payload)
+                    if output_tokens > 0:
+                        total_ms = (time.perf_counter() - started) * 1000
+                        return LatencyMeasurement(
+                            ttft_ms=total_ms,
+                            total_ms=total_ms,
+                            output_tokens=output_tokens,
+                        )
                 for raw_line in response:
                     line = raw_line.decode("utf-8", errors="replace").strip()
                     if not line or not line.startswith("data:"):
@@ -408,3 +418,14 @@ def _usage_output_tokens(chunk: dict) -> int | None:
         return None
     tokens = usage.get("completion_tokens")
     return tokens if isinstance(tokens, int) else None
+
+
+def _response_is_json(response: object) -> bool:
+    headers = getattr(response, "headers", None)
+    if headers is None:
+        return False
+    get_content_type = getattr(headers, "get_content_type", None)
+    if callable(get_content_type):
+        return get_content_type() == "application/json"
+    content_type = headers.get("Content-Type", "")
+    return isinstance(content_type, str) and content_type.lower().startswith("application/json")
