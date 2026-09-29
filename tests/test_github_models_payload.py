@@ -199,6 +199,21 @@ def test_measure_falls_back_to_non_streaming_response_after_empty_stream():
     assert "stream" not in opener.requests[1]
 
 
+def test_measure_accepts_sse_completion_returned_for_non_streaming_fallback():
+    opener = _EmptyStreamThenCompletionOpener(
+        b'data: {"choices":[{"delta":{"content":"one"}}]}\n'
+        b'data: {"choices":[{"delta":{"content":" two"}}]}\n'
+        b"data: [DONE]\n"
+    )
+    client = GitHubModelsClient(token="t", opener=opener)
+
+    measurement = client.measure("openai/gpt-4o", prompt="hi", max_tokens=8)
+
+    assert measurement.output_tokens == 2
+    assert len(opener.requests) == 2
+    assert "stream" not in opener.requests[1]
+
+
 def test_measure_accepts_json_completion_returned_for_streaming_request():
     opener = _JsonCompletionOpener()
     client = GitHubModelsClient(token="t", opener=opener)

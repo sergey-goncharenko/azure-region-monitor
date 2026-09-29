@@ -158,7 +158,9 @@ class GitHubModelsClient(InferenceLatencyClient):
         started = time.perf_counter()
         try:
             with self._opener.open(request, timeout=self._timeout_seconds) as response:
-                payload = json.loads(response.read().decode("utf-8"))
+                output_tokens = _completion_response_output_tokens(
+                    response.read().decode("utf-8")
+                )
         except urllib.error.HTTPError as error:
             detail = _read_error_body(error)
             retry_after = _parse_retry_after(error.headers.get("Retry-After"))
@@ -167,11 +169,6 @@ class GitHubModelsClient(InferenceLatencyClient):
                 detail or f"GitHub Models returned HTTP {error.code} for '{model}'.",
                 retry_after=retry_after,
             ) from error
-        except json.JSONDecodeError as error:
-            raise LatencyClientError(
-                "GitHubModelsEmptyResponse",
-                f"GitHub Models fallback response for '{model}' was not valid JSON: {error}",
-            ) from error
         except (urllib.error.URLError, http.client.HTTPException, OSError) as error:
             raise LatencyClientError(
                 "GitHubModelsUnreachable",
@@ -179,7 +176,11 @@ class GitHubModelsClient(InferenceLatencyClient):
             ) from error
 
         total_ms = (time.perf_counter() - started) * 1000
-        output_tokens = _completion_output_tokens(payload)
+        if output_tokens is None:
+            raise LatencyClientError(
+                "GitHubModelsEmptyResponse",
+                f"GitHub Models fallback response for '{model}' was not valid JSON or SSE.",
+            )
         if output_tokens <= 0:
             raise LatencyClientError(
                 "GitHubModelsEmptyResponse",
@@ -397,6 +398,35 @@ def _safe_json(payload: str) -> dict | None:
     except json.JSONDecodeError:
         return None
     return parsed if isinstance(parsed, dict) else None
+
+
+def _completion_response_output_tokens(response_body: str) -> int | None:
+    """Extract completion output from either JSON or an SSE compatibility response."""
+
+    payload = _safe_json(response_body)
+    if payload is not None:
+        return _completion_output_tokens(payload)
+
+    content_chunks = 0
+    usage_output_tokens: int | None = None
+    saw_sse_data = False
+    for raw_line in response_body.splitlines():
+        line = raw_line.strip()
+        if not line.startswith("data:"):
+            continue
+        saw_sse_data = True
+        chunk = _safe_json(line[len("data:") :].strip())
+        if chunk is None:
+            continue
+        if _chunk_has_content(chunk):
+            content_chunks += 1
+        tokens = _usage_output_tokens(chunk)
+        if tokens is not None:
+            usage_output_tokens = tokens
+
+    if not saw_sse_data:
+        return None
+    return usage_output_tokens if usage_output_tokens is not None else content_chunks
 
 
 def _chunk_has_content(chunk: dict) -> bool:
