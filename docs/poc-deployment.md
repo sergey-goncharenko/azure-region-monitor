@@ -227,6 +227,24 @@ Enabling archive mode requires a separately approved operator rollout:
    `https://<account>.blob.core.windows.net/<container>`. The existing
    `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, and `AZURE_SUBSCRIPTION_ID` deployment
    secrets select the approved identity. No new secret belongs in source control.
+   The [archive Bicep template](../infra/archive/main.bicep) provisions this boundary
+   in an existing resource group: StorageV2 Hot LRS, HTTPS/TLS 1.2, shared keys
+   disabled, 30-day blob/container soft delete, versioning, anonymous blob-only
+   reads, and a container-scoped role for the supplied publisher object ID.
+   Validate and inspect its `what-if` before an incremental deployment:
+
+   ```sh
+   az deployment group validate --resource-group <existing-group> \
+     --template-file infra/archive/main.bicep \
+     --parameters storageAccountName=<unique-name> publisherPrincipalId=<object-id>
+   az deployment group what-if --resource-group <existing-group> \
+     --template-file infra/archive/main.bicep \
+     --parameters storageAccountName=<unique-name> publisherPrincipalId=<object-id>
+   az deployment group create --resource-group <existing-group> \
+     --template-file infra/archive/main.bicep \
+     --parameters storageAccountName=<unique-name> publisherPrincipalId=<object-id>
+   ```
+
 4. For the first migration only, set `AZWATCH_ARCHIVE_BOOTSTRAP=true`. The workflow
    then requires and preserves the existing public history. A missing archive
    pointer is otherwise a hard error, not permission to start a new empty archive.
