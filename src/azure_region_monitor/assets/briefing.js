@@ -17,6 +17,7 @@
     const modality = root.querySelector("#briefing-modality");
     const reset = root.querySelector("[data-reset-briefing]");
     const search = root.querySelector("#briefing-search");
+    const fullEvidence = root.querySelector(".briefing-full-evidence");
     const explorer = root.querySelector(".briefing-explorer");
     const status = root.querySelector("[data-evidence-status]");
     const retry = root.querySelector("[data-evidence-retry]");
@@ -229,6 +230,7 @@
       button.addEventListener("click", () => {
         selectedGroup = Number(button.dataset.exploreGroup);
         page = 0;
+        if (fullEvidence) fullEvidence.open = true;
         explorer.open = true;
         loadEvidence();
         renderEvidence();

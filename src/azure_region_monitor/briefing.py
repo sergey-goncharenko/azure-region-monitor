@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
-from typing import Any, Mapping
+from typing import Any, Iterable, Mapping
 
 from azure_region_monitor.display import plain_feature_name
 from azure_region_monitor.feature_context import describe_feature
 from azure_region_monitor.models import FeatureResult, Snapshot
+from azure_region_monitor.region_groups import region_group
 from azure_region_monitor.summary import ChangeContext, ChangeKey, _modality, feature_details
 
 BRIEFING_KINDS = (
@@ -63,6 +64,7 @@ def build_briefing(
     after_failures = _catalog_failures(after)
     before_coverage = _coverage(previous, before)
     after_coverage = _coverage(current, after)
+    before_geographies = _available_geographies(before)
     prior = _prior_briefing(prior_day, previous)
     tracked = {
         (item["region"], item["service"], item["feature"]): item
@@ -171,6 +173,9 @@ def build_briefing(
                 if kind == "new_listings" and context is not None and context.expansion_kind == "new_feature"
                 else None
             ),
+            "new_geography": _new_geography(
+                kind, region, before_geographies.get((service, feature), set())
+            ),
         }
         records.append(record)
 
@@ -214,6 +219,125 @@ def build_briefing(
 def compact_briefing(briefing: dict[str, Any]) -> dict[str, Any]:
     """The index carries groups, while change_path carries the full records."""
     return {key: value for key, value in briefing.items() if key not in {"records", "feature_contexts"}}
+
+
+def build_digest(
+    records: list[dict[str, Any]],
+    contexts: Mapping[str, Mapping[str, Any]],
+    *,
+    previous_digest: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build a per-feature glance digest from full briefing records."""
+    entries: dict[tuple[str, str], dict[str, Any]] = {}
+    previous_learn = _previous_learn_references(previous_digest)
+
+    for record in records:
+        kind = record.get("kind")
+        if kind not in {"new_listings", "restorations", "delistings"}:
+            continue
+        feature = str(record["feature"])
+        modality = str(record["modality"])
+        key = (modality, feature)
+        entry = entries.get(key)
+        if entry is None:
+            context = contexts.get(feature, {})
+            before = _available_coverage(record.get("coverage_before"))
+            after = _available_coverage(record.get("coverage_after"))
+            entry = {
+                "feature": feature,
+                "label": str(record.get("label") or plain_feature_name(feature)),
+                "modality": modality,
+                "short": str(context.get("short") or ""),
+                "cluster": {
+                    "key": str(context.get("family_key") or feature),
+                    "label": str(context.get("family_label") or plain_feature_name(feature)),
+                },
+                "specificity": str(
+                    context.get("specificity") or record.get("specificity") or "unverified"
+                ),
+                "details_url": record.get("details_url"),
+                "gained_regions": [],
+                "restored_regions": [],
+                "lost_regions": [],
+                "coverage_before": before,
+                "coverage_after": after,
+                "first_seen": False,
+                "new_geographies": [],
+                "learn_reference": previous_learn.get(feature),
+                "_has_new_listings": False,
+            }
+            entries[key] = entry
+
+        region = str(record["region"])
+        if kind in {"new_listings", "restorations"}:
+            entry["gained_regions"].append(region)
+            if kind == "new_listings":
+                entry["_has_new_listings"] = True
+            elif kind == "restorations":
+                entry["restored_regions"].append(region)
+            geography = record.get("new_geography")
+            if isinstance(geography, str) and geography:
+                entry["new_geographies"].append(geography)
+        elif kind == "delistings":
+            entry["lost_regions"].append(region)
+
+    for entry in entries.values():
+        entry["gained_regions"] = sorted(set(entry["gained_regions"]))
+        entry["restored_regions"] = sorted(set(entry["restored_regions"]))
+        entry["lost_regions"] = sorted(set(entry["lost_regions"]))
+        entry["new_geographies"] = sorted(set(entry["new_geographies"]))
+        entry["first_seen"] = (
+            entry["coverage_before"] == 0
+            and bool(entry.pop("_has_new_listings", False))
+            and not entry["restored_regions"]
+        )
+
+    gaps = _digest_gaps(records)
+    modalities = []
+    for modality, feature_entries in sorted(_entries_by_modality(entries.values()).items()):
+        feature_entries.sort(
+            key=lambda entry: (
+                not bool(entry["lost_regions"]),
+                -len(set(entry["gained_regions"]) | set(entry["lost_regions"])),
+                entry["label"].casefold(),
+            )
+        )
+        gained_entries = [entry for entry in feature_entries if entry["gained_regions"]]
+        lost_entries = [entry for entry in feature_entries if entry["lost_regions"]]
+        gained_regions = sorted(
+            {region for entry in gained_entries for region in entry["gained_regions"]}
+        )
+        lost_regions = sorted(
+            {region for entry in lost_entries for region in entry["lost_regions"]}
+        )
+        modalities.append({
+            "modality": modality,
+            "gained_features": len(gained_entries),
+            "gained_listings": sum(len(entry["gained_regions"]) for entry in gained_entries),
+            "gained_regions": gained_regions,
+            "lost_features": len(lost_entries),
+            "lost_listings": sum(len(entry["lost_regions"]) for entry in lost_entries),
+            "lost_regions": lost_regions,
+            "features": feature_entries,
+        })
+
+    return {
+        "version": 1,
+        "totals": {
+            "gained_features": sum(modality["gained_features"] for modality in modalities),
+            "gained_listings": sum(modality["gained_listings"] for modality in modalities),
+            "lost_features": sum(modality["lost_features"] for modality in modalities),
+            "lost_listings": sum(modality["lost_listings"] for modality in modalities),
+            "catalog_gap_listings": sum(
+                gap["listing_count"] for gap in gaps if not gap["measurement"]
+            ),
+            "measurement_gap_listings": sum(
+                gap["listing_count"] for gap in gaps if gap["measurement"]
+            ),
+        },
+        "modalities": modalities,
+        "gaps": gaps,
+    }
 
 
 def coalesce_briefing_groups(groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -267,7 +391,13 @@ def enrich_briefing_features(briefing: dict[str, Any]) -> dict[str, Any]:
         for status in group["statuses"]:
             for example in status["examples"]:
                 example["feature_context"] = contexts[example["feature"]]
-    return {**briefing, "records": records, "groups": groups, "feature_contexts": contexts}
+    return {
+        **briefing,
+        "records": records,
+        "groups": groups,
+        "feature_contexts": contexts,
+        "digest": build_digest(records, contexts, previous_digest=briefing.get("digest")),
+    }
 
 
 def _prior_briefing(
@@ -323,6 +453,26 @@ def _coverage(
     return coverage
 
 
+def _available_geographies(
+    results: dict[ChangeKey, FeatureResult],
+) -> dict[tuple[str, str], set[str]]:
+    geographies: dict[tuple[str, str], set[str]] = defaultdict(set)
+    for (region, service, feature), result in results.items():
+        geography = region_group(region)
+        if result.status == "available" and geography is not None:
+            geographies[(service, feature)].add(geography)
+    return geographies
+
+
+def _new_geography(kind: str, region: str, before_geographies: set[str]) -> str | None:
+    if kind != "new_listings":
+        return None
+    geography = region_group(region)
+    if geography is None or geography in before_geographies:
+        return None
+    return geography
+
+
 def _empty_coverage(snapshot: Snapshot | None) -> dict[str, int]:
     return {
         "available": 0,
@@ -343,6 +493,59 @@ def _feature_coverage(
     if snapshot is None:
         return None
     return coverage.get((service, feature), _empty_coverage(snapshot))
+
+
+def _available_coverage(coverage: Any) -> int | None:
+    if not isinstance(coverage, dict):
+        return None
+    available = coverage.get("available")
+    return available if isinstance(available, int) else None
+
+
+def _previous_learn_references(
+    previous_digest: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    if not isinstance(previous_digest, Mapping):
+        return {}
+    references = {}
+    for modality in previous_digest.get("modalities", []):
+        if not isinstance(modality, Mapping):
+            continue
+        for entry in modality.get("features", []):
+            if (
+                isinstance(entry, Mapping)
+                and isinstance(entry.get("feature"), str)
+                and entry.get("learn_reference") is not None
+            ):
+                references[entry["feature"]] = entry["learn_reference"]
+    return references
+
+
+def _entries_by_modality(
+    entries: Iterable[dict[str, Any]],
+) -> dict[str, list[dict[str, Any]]]:
+    by_modality: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for entry in entries:
+        by_modality[entry["modality"]].append(entry)
+    return by_modality
+
+
+def _digest_gaps(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for record in records:
+        if record.get("kind") == "observation_gaps":
+            grouped[str(record["modality"])].append(record)
+
+    gaps = []
+    for modality, items in sorted(grouped.items()):
+        gaps.append({
+            "modality": modality,
+            "measurement": modality in {"Model latency", "Azure model latency"},
+            "feature_count": len({(item["service"], item["feature"]) for item in items}),
+            "listing_count": len(items),
+            "regions": sorted({str(item["region"]) for item in items}),
+        })
+    return gaps
 
 
 def _evidence(

@@ -60,8 +60,7 @@ def test_rule_summary_when_no_client():
 
     assert result["narrative_source"] == "rule"
     assert result["narrative_fallback_reason"] == "no_narrative_client"
-    assert "1 new availability signal" in result["narrative"]
-    assert "1 regression" in result["narrative"]
+    assert result["narrative"].startswith("1 new listing, 1 no longer listed")
     assert "eastus" in result["narrative"]
     assert "westus3" in result["narrative"]
 
@@ -96,7 +95,29 @@ def test_ai_path_used_when_client_and_signals_present():
     assert "new_availability" in user and "eastus" in user
 
 
-def test_ai_prompt_requires_plain_language_and_azure_user_impact_section():
+def test_ai_narrative_allows_optional_azure_users_closing():
+    changes = [
+        _change("eastus", "aiModels.openai.gpt-5.2025", "unavailable", "available", "new_availability"),
+    ]
+    reply = json.dumps(
+        {
+            "narrative": (
+                "Model listing expanded\n"
+                "Azure AI model/version catalog entry (openai.gpt-5.2025) now lists East US."
+            ),
+            "excerpt": "East US now lists the monitored Azure AI model/version.",
+            "linkedin": "2026-07-03: 1 new listing for the monitored Azure AI model.",
+            "short_post": "2026-07-03: 1 new listing for openai.gpt-5.2025.",
+        }
+    )
+
+    result = build_change_narrative(changes, client=_FakeClient(reply=reply), date="2026-07-03")
+
+    assert result["narrative_source"] == "ai"
+    assert result["narrative_fallback_reason"] is None
+
+
+def test_ai_prompt_requires_compact_memo_and_plain_language_identifiers():
     changes = [
         _change(
             "eastus",
@@ -111,12 +132,12 @@ def test_ai_prompt_requires_plain_language_and_azure_user_impact_section():
     build_change_narrative(changes, client=client)
 
     system, _user = client.calls[0]
-    assert "simple language" in system
+    assert "compact, evidence-grounded editorial package" in system
     assert "raw SKU, model ID, version, or feature code unexplained" in system
-    assert "broader movement in the monitored Azure" in system
-    assert 'beginning "What this means for Azure users:"' in system
+    assert "Mention each feature once" in system
+    assert "Group many similar VM sizes into one line" in system
     assert "delta from the immediately preceding snapshot" in system
-    assert "do not replace the daily story" in system
+    assert "around 150 to 200 words" in system
 
 
 def test_ai_facts_include_history_classification_and_sre_impact():
@@ -207,17 +228,17 @@ def test_rule_fallback_is_a_concise_daily_comparison():
     ]
 
     narrative = build_change_narrative(changes)["narrative"]
-    sections = narrative.split("\n\n")
+    lines = narrative.splitlines()
 
-    assert sections[0] == "30 new listings and 10 regressions"
-    assert sections[1].startswith("Compared with the previous daily snapshot")
-    assert sections[2].startswith("In everyday terms,")
-    assert sections[3].startswith("Regressions to review:")
-    assert sections[4].startswith("New options to validate:")
-    assert sections[5].startswith("What this means for Azure users:")
-    assert narrative.count("Example:") == 2
-    assert "and 29 more" in narrative
-    assert len(narrative.split()) < 220
+    assert lines[0] == "30 new listings, 10 no longer listed"
+    assert len(lines) <= 6
+    assert "Azure AI model/version catalog entry" in narrative
+    assert "now listed in 30 more regions" in narrative
+    assert "no longer listed in 10 regions" in narrative
+    assert narrative.count("openai.gpt-6.test-version") == 1
+    assert narrative.count("openai.gpt-5.test-version") == 1
+    assert "Example:" not in narrative
+    assert len(narrative.split()) < 140
 
 
 def test_ai_empty_reply_falls_back_to_rule():
@@ -243,7 +264,7 @@ def test_invalid_editorial_package_falls_back_to_rule():
     )
 
     assert result["narrative_source"] == "rule"
-    assert result["narrative_fallback_reason"] == "unsupported_generation"
+    assert result["narrative_fallback_reason"] == "unsupported_generation:invalid_schema"
     assert result["social_drafts"]["linkedin"].startswith("2026-07-03")
 
 
@@ -252,28 +273,174 @@ def test_ai_unsupported_claim_falls_back_with_observable_reason():
         _change("eastus", "aiModels.openai.gpt-5.2025", "unavailable", "available", "new_availability"),
     ]
 
+    reply = json.dumps(
+        {
+            "narrative": (
+                "Model listing expanded\n"
+                "Azure AI model/version catalog entry (openai.gpt-5.2025) now lists East US.\n"
+                "What this means for Azure users: East US has available capacity and a new quota."
+            ),
+            "excerpt": "East US now lists the monitored model.",
+            "linkedin": "2026-07-03: 1 new listing.",
+            "short_post": "2026-07-03: 1 new listing.",
+        }
+    )
     result = build_change_narrative(
         changes,
-        client=_FakeClient(reply="East US has available capacity and a new quota."),
+        client=_FakeClient(reply=reply),
+        date="2026-07-03",
     )
 
     assert result["narrative_source"] == "rule"
-    assert result["narrative_fallback_reason"] == "unsupported_generation"
+    assert result["narrative_fallback_reason"] == "unsupported_generation:narrative_unsupported_claim"
 
 
-def test_ai_requires_user_impact_section_and_rejects_unsupported_claims():
+def test_compact_editorial_package_accepts_social_count_synonyms():
+    changes = [
+        _change("eastus", "aiModels.openai.gpt-5.2025", "unavailable", "available", "new_availability"),
+    ]
+    reply = json.dumps(
+        {
+            "narrative": (
+                "Model listing expanded\n"
+                "Azure AI model/version catalog entry (openai.gpt-5.2025) now lists East US.\n"
+                "What this means for Azure users: validate the new placement option before planning."
+            ),
+            "excerpt": "East US now lists the monitored Azure AI model/version.",
+            "linkedin": "2026-07-03: 1 new listing for the monitored Azure AI model.",
+            "short_post": "2026-07-03: 1 new listing for openai.gpt-5.2025.",
+        }
+    )
+
+    result = build_change_narrative(changes, client=_FakeClient(reply=reply), date="2026-07-03")
+
+    assert result["narrative_source"] == "ai"
+    assert result["narrative_fallback_reason"] is None
+
+
+def test_social_count_synonyms_still_reject_unsupported_numbers():
+    changes = [
+        _change("eastus", "aiModels.openai.gpt-5.2025", "unavailable", "available", "new_availability"),
+    ]
+    reply = json.dumps(
+        {
+            "narrative": (
+                "Model listing expanded\n"
+                "Azure AI model/version catalog entry (openai.gpt-5.2025) now lists East US.\n"
+                "What this means for Azure users: validate the new placement option before planning."
+            ),
+            "excerpt": "East US now lists the monitored Azure AI model/version.",
+            "linkedin": "2026-07-03: 2 new listings for the monitored Azure AI model.",
+            "short_post": "2026-07-03: 1 new listing for openai.gpt-5.2025.",
+        }
+    )
+
+    result = build_change_narrative(changes, client=_FakeClient(reply=reply), date="2026-07-03")
+
+    assert result["narrative_source"] == "rule"
+    assert result["narrative_fallback_reason"] == "unsupported_generation:social_linkedin_unsupported_new_count"
+
+
+def test_social_count_scan_rejects_later_unsupported_synonym_counts():
+    changes = [
+        _change("eastus", "aiModels.openai.gpt-5.2025", "unavailable", "available", "new_availability"),
+    ]
+    reply = json.dumps(
+        {
+            "narrative": "Model listing expanded\nEast US now lists the monitored Azure AI model/version.",
+            "excerpt": "East US now lists the monitored Azure AI model/version.",
+            "linkedin": (
+                "2026-07-03: 1 new listing for the monitored Azure AI model; "
+                "later 99 new listings and 40 delistings."
+            ),
+            "short_post": "2026-07-03: 1 new listing for openai.gpt-5.2025.",
+        }
+    )
+
+    result = build_change_narrative(changes, client=_FakeClient(reply=reply), date="2026-07-03")
+
+    assert result["narrative_source"] == "rule"
+    assert result["narrative_fallback_reason"] == "unsupported_generation:social_linkedin_unsupported_new_count"
+
+
+def test_social_count_validator_accepts_label_colon_counts_and_derived_region_count():
+    changes = [
+        _change("eastus", "aiModels.openai.gpt-5.2025", "unavailable", "available", "new_availability"),
+        _change("westus3", "vmSkus.standard.d2as.v5", "available", "unavailable", "regression"),
+    ]
+    reply = json.dumps(
+        {
+            "narrative": "Regional catalog update\nOne model listing appeared and one VM size disappeared.",
+            "excerpt": "The scan found one model listing gain and one VM size loss.",
+            "linkedin": "2026-07-03: new listings: 1; delistings: 1 across 2 regions.",
+            "short_post": "2026-07-03: regressions: 1; new availabilities: 1 across 2 regions.",
+        }
+    )
+
+    result = build_change_narrative(changes, client=_FakeClient(reply=reply), date="2026-07-03")
+
+    assert result["narrative_source"] == "ai"
+    assert result["narrative_fallback_reason"] is None
+
+
+def test_social_count_validator_requires_nonzero_gain_and_loss_counts():
+    changes = [
+        _change("eastus", "aiModels.openai.gpt-5.2025", "unavailable", "available", "new_availability"),
+    ]
+    reply = json.dumps(
+        {
+            "narrative": "Model listing expanded\nEast US now lists the monitored Azure AI model/version.",
+            "excerpt": "East US now lists the monitored Azure AI model/version.",
+            "linkedin": "2026-07-03: East US gained the monitored Azure AI model listing.",
+            "short_post": "2026-07-03: 1 new listing for openai.gpt-5.2025.",
+        }
+    )
+
+    result = build_change_narrative(changes, client=_FakeClient(reply=reply), date="2026-07-03")
+
+    assert result["narrative_source"] == "rule"
+    assert result["narrative_fallback_reason"] == "unsupported_generation:social_linkedin_missing_new_count"
+
+
+def test_social_count_validator_rejects_unsupported_standalone_numbers():
+    changes = [
+        _change("eastus", "aiModels.openai.gpt-5.2025", "unavailable", "available", "new_availability"),
+    ]
+    reply = json.dumps(
+        {
+            "narrative": "Model listing expanded\nEast US now lists the monitored Azure AI model/version.",
+            "excerpt": "East US now lists the monitored Azure AI model/version.",
+            "linkedin": "2026-07-03: 1 new listing for the monitored Azure AI model; 99 teams can use it.",
+            "short_post": "2026-07-03: 1 new listing for openai.gpt-5.2025.",
+        }
+    )
+
+    result = build_change_narrative(changes, client=_FakeClient(reply=reply), date="2026-07-03")
+
+    assert result["narrative_source"] == "rule"
+    assert result["narrative_fallback_reason"] == "unsupported_generation:social_linkedin_unsupported_number"
+
+
+def test_ai_rejects_unsupported_claims_without_requiring_user_impact_section():
     changes = [
         _change("eastus", "vmSkus.standard.d2as.v5", "unavailable", "available", "new_availability"),
     ]
 
-    for reply in (
-        "A VM SKU is listed.",
-        "What this means for Azure users: this SKU is eligible because of a root cause.",
-        "What this means for Azure users: deployment success is guaranteed.",
+    for narrative in (
+        "VM SKU listed\nThis SKU is eligible because of a root cause.",
+        "VM SKU listed\nDeployment success is guaranteed.",
     ):
+        reply = json.dumps(
+            {
+                "narrative": narrative,
+                "excerpt": "East US now lists the monitored VM size.",
+                "linkedin": "2026-07-03: 1 new listing for the monitored VM size.",
+                "short_post": "2026-07-03: 1 new listing for the monitored VM size.",
+            }
+        )
         result = build_change_narrative(changes, client=_FakeClient(reply=reply))
         assert result["narrative_source"] == "rule"
-        assert result["narrative_fallback_reason"] == "unsupported_generation"
+        assert result["narrative_fallback_reason"] == "unsupported_generation:narrative_unsupported_claim"
 
 
 def test_rule_fallback_expands_known_identifier_modalities():
@@ -313,28 +480,40 @@ def test_rule_summary_does_not_infer_launch_or_retirement_from_listings():
 
     narrative = build_change_narrative(changes, client=None)["narrative"]
 
-    assert "models/versions newly listed" in narrative
-    assert "no longer listed (not confirmed retirement)" in narrative
-    # Modality is the sentence prefix and regions are named.
-    assert "Azure AI models:" in narrative
+    assert "now listed in 1 more region" in narrative
+    assert "no longer listed in 1 region" in narrative
+    assert "retirement" not in narrative
     assert "eastus" in narrative and "westeurope" in narrative
 
 
-def test_rule_summary_starts_with_a_plain_language_azure_movement():
+def test_rule_summary_uses_compact_headline_and_single_closing():
     changes = [
         _change("eastus", "aiModels.openai.gpt-5.2025", "unavailable", "available", "new_availability"),
         _change("westeurope", "vmSkus.standard.d2as.v5", "available", "unavailable", "regression"),
     ]
 
     narrative = build_change_narrative(changes, client=None)["narrative"]
+    lines = narrative.splitlines()
 
-    assert (
-        "In everyday terms, the monitor now has 1 newly listed option and no longer has 1 "
-        "previously listed option"
-        in narrative
-    )
-    assert "These catalog changes can affect where teams plan workloads or select services." in narrative
-    assert narrative.index("In everyday terms") < narrative.index("Azure AI models:")
+    assert lines[0] == "1 new listing, 1 no longer listed"
+    assert lines[-1].startswith("What this means for Azure users:")
+    assert narrative.count("What this means for Azure users:") == 1
+    assert len(lines) <= 5
+
+
+def test_rule_summary_groups_vm_sizes_by_feature_context_family():
+    changes = [
+        _change("eastus", "vmSkus.standard.d2s.v7", "unavailable", "available", "new_availability"),
+        _change("eastus", "vmSkus.standard.d4s.v7", "unavailable", "available", "new_availability"),
+        _change("eastus", "vmSkus.standard.d2ds.v7", "unavailable", "available", "new_availability"),
+        _change("eastus", "vmSkus.standard.e2s.v6", "unavailable", "available", "new_availability"),
+    ]
+
+    narrative = build_change_narrative(changes, client=None)["narrative"]
+
+    assert "4 VM sizes, mostly Dv7-series (3 sizes) and Ev6-series (1 size), gained eastus." in narrative
+    assert "D2s" not in narrative
+    assert "D4s" not in narrative
 
 
 def test_rule_summary_frames_latency_additions_and_removals():
@@ -345,9 +524,8 @@ def test_rule_summary_frames_latency_additions_and_removals():
 
     narrative = build_change_narrative(changes, client=None)["narrative"]
 
-    assert "started measuring" in narrative
-    assert "measurement coverage no longer present" in narrative
-    assert "Azure model latency:" in narrative
+    assert "Azure model latency (openai.gpt-5.1) now listed" in narrative
+    assert "Azure model latency (openai.gpt-4o) no longer listed" in narrative
 
 
 def test_complete_aggregate_facts_are_not_lost_when_examples_are_bounded():
@@ -373,8 +551,7 @@ def test_longstanding_absence_before_a_listing_is_not_called_instability():
     )
     narrative = build_change_narrative([change], contexts={change_key(change): context})["narrative"]
     assert "noisiest" not in narrative
-    assert "not service instability" in narrative
-    assert "20 of 64" in narrative
+    assert "0 -> 20 monitored regions" in narrative
     assert "20 to 20" not in narrative
     assert "GitOps" not in narrative
 
@@ -421,10 +598,7 @@ def test_rule_summary_uses_history_classification_breakdown():
         },
     )["narrative"]
 
-    assert "1 net-new regional availability" in narrative
-    assert "1 restored availability" in narrative
-    assert "up to 1 prior disappearance" in narrative
-    assert "Current listing coverage: 2 of 4 monitored regions" in narrative
-    assert "Historical listing absence reached 100.0% of prior observations" in narrative
+    assert "now listed in 2 more regions" in narrative
+    assert "0 -> 2 monitored regions" in narrative
     assert "first observed anywhere" in narrative
-    assert "Why it matters:" in narrative
+    assert "Why it matters:" not in narrative

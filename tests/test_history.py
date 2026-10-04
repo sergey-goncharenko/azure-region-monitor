@@ -795,6 +795,24 @@ def test_prepare_reader_history_rebuilds_full_latest_facts_without_mutating_inpu
     }
 
 
+def test_prepare_reader_history_logs_cached_learn_reference_failure(tmp_path, monkeypatch, caplog):
+    history_dir = tmp_path / "history"
+    output_dir = tmp_path / "public" / "api" / "history"
+    current = _legacy_reader_history(history_dir)
+
+    def failing_cached_references(_briefing, _cache_path):
+        raise UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte")
+
+    monkeypatch.setattr(history, "attach_cached_learn_references", failing_cached_references)
+
+    reader_index, reader_recent = history.prepare_reader_history(history_dir, output_dir, current)
+
+    assert reader_index is not None
+    assert reader_recent is not None
+    assert "Cached Microsoft Learn reference attachment failed" in caplog.text
+    assert "UnicodeDecodeError" in caplog.text
+
+
 def test_update_history_persists_continuing_records_and_restorations(tmp_path):
     history_dir = tmp_path / "history"
     for date, status in [

@@ -114,6 +114,7 @@ jobs:
           AZURE_OPENAI_ENDPOINT: ${{ vars.AZURE_OPENAI_ENDPOINT }}
           AZURE_OPENAI_DEPLOYMENT: ${{ vars.AZURE_OPENAI_DEPLOYMENT }}
           AI_SUMMARY_MAX_TOKENS: "900"
+          LEARN_LOOKUP_ENABLED: "1"
         run: |
           azure-region-monitor update-history \
             --snapshot data/snapshots/latest.json \

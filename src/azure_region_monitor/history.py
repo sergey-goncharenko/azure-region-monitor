@@ -26,6 +26,13 @@ from azure_region_monitor.latency_view import (
     extract_latency_metrics,
     extract_regional_latency_metrics,
 )
+from azure_region_monitor.learn_lookup import (
+    LEARN_REFERENCE_CACHE,
+    LearnLookupClient,
+    attach_cached_learn_references,
+    learn_lookup_enabled_from_env,
+    lookup_learn_references,
+)
 from azure_region_monitor.models import Change, Snapshot
 from azure_region_monitor.storage import load_snapshot
 from azure_region_monitor.summary import (
@@ -196,6 +203,8 @@ def update_history(
     narrative_client: NarrativeClient | None = None,
     *,
     require_existing: bool = False,
+    learn_lookup_enabled: bool | None = None,
+    learn_lookup_client: LearnLookupClient | None = None,
 ) -> dict[str, Any]:
     if base_url:
         fetch_history(history_dir, base_url, require_existing=require_existing)
@@ -229,11 +238,19 @@ def update_history(
         ),
         change_contexts=change_contexts,
     )
-    day_summary["briefing"] = build_briefing(
-        current,
-        previous,
-        contexts=change_contexts,
-        prior_day=_briefing_prior_day(history_dir, existing_index, previous_entry, previous),
+    day_summary["briefing"] = enrich_briefing_features(
+        build_briefing(
+            current,
+            previous,
+            contexts=change_contexts,
+            prior_day=_briefing_prior_day(history_dir, existing_index, previous_entry, previous),
+        )
+    )
+    day_summary["learn_lookup"] = _attach_live_learn_references(
+        day_summary["briefing"],
+        history_dir,
+        enabled=learn_lookup_enabled,
+        client=learn_lookup_client,
     )
     _write_json(history_dir / change_history_path, day_summary)
 
@@ -257,6 +274,9 @@ def update_history(
         "latency_history_path": "latency-history.json",
         "days": days,
     }
+    feature_references_path = _feature_references_path(history_dir)
+    if feature_references_path is not None:
+        index["feature_references_path"] = feature_references_path
     recent_changes = {
         "generated_at": generated_at,
         "days": _recent_change_days(days, current_date),
@@ -266,6 +286,33 @@ def update_history(
     _write_json(history_dir / "recent-changes.json", recent_changes)
     _update_latency_history(history_dir, current, current_date, generated_at)
     return recent_changes
+
+
+def _attach_live_learn_references(
+    briefing: dict[str, Any],
+    history_dir: Path,
+    *,
+    enabled: bool | None,
+    client: LearnLookupClient | None,
+) -> dict[str, Any]:
+    if enabled is None:
+        enabled = learn_lookup_enabled_from_env()
+    try:
+        return lookup_learn_references(
+            briefing,
+            history_dir / LEARN_REFERENCE_CACHE,
+            enabled=enabled,
+            client=client,
+        )
+    except Exception as error:
+        _LOGGER.warning("Microsoft Learn reference lookup failed: %s", error)
+        return {
+            "status": "failed",
+            "looked_up": 0,
+            "cached": 0,
+            "matched": 0,
+            "error": str(error),
+        }
 
 
 def _update_latency_history(
@@ -838,6 +885,9 @@ def _migrate_history_snapshot_paths(history_dir: Path, index: dict[str, Any]) ->
 
 def _history_paths(index: dict[str, Any]) -> set[str]:
     paths: set[str] = set()
+    feature_references = index.get("feature_references_path")
+    if isinstance(feature_references, str) and _is_safe_relative_path(feature_references):
+        paths.add(feature_references)
     for day in index.get("days", []):
         if not isinstance(day, dict):
             continue
@@ -861,6 +911,7 @@ def _required_history_paths(document: dict[str, Any]) -> set[str]:
         for key in (
             "snapshot_path", "previous_snapshot_path", "change_path",
             "latest_snapshot_path", "recent_changes_path", "latency_history_path",
+            "feature_references_path",
         ):
             value = entry.get(key)
             if value is None:
@@ -1007,6 +1058,9 @@ def copy_history_to_api(history_dir: Path, api_history_dir: Path) -> None:
 
     recent_changes = _read_json(history_dir / "recent-changes.json") or {}
     paths.update(_history_paths(recent_changes))
+    feature_references_path = _feature_references_path(history_dir)
+    if feature_references_path is not None:
+        paths.add(feature_references_path)
 
     for relative_path in sorted(paths):
         source = _safe_history_path(history_dir, relative_path)
@@ -1067,9 +1121,19 @@ def prepare_reader_history(
     full_day["change_path"] = change_path.as_posix()
     if not _briefing_matches_comparison(full_day.get("briefing"), snapshot, previous):
         prior_day = _briefing_prior_day(history_dir, index, previous_entry, previous)
-        full_day["briefing"] = build_briefing(snapshot, previous, prior_day=prior_day)
+        full_day["briefing"] = enrich_briefing_features(
+            build_briefing(snapshot, previous, prior_day=prior_day)
+        )
     else:
         full_day["briefing"] = enrich_briefing_features(full_day["briefing"])
+    try:
+        attach_cached_learn_references(full_day["briefing"], history_dir / LEARN_REFERENCE_CACHE)
+    except Exception as error:
+        _LOGGER.warning(
+            "Cached Microsoft Learn reference attachment failed: %s: %s",
+            type(error).__name__,
+            error,
+        )
     _write_json(_safe_history_path(api_history_dir, change_path.as_posix()), full_day)
     days_by_date[current_date] = full_day
 
@@ -1085,6 +1149,9 @@ def prepare_reader_history(
         "latest_snapshot_path": days[0].get("snapshot_path"),
         "days": days,
     }
+    feature_references_path = _feature_references_path(history_dir)
+    if feature_references_path is not None:
+        index["feature_references_path"] = feature_references_path
     recent = {
         **(_read_json(history_dir / "recent-changes.json") or {}),
         "generated_at": index.get("generated_at"),
@@ -1093,6 +1160,11 @@ def prepare_reader_history(
     _write_json(_safe_history_path(api_history_dir, "index.json"), index)
     _write_json(_safe_history_path(api_history_dir, "recent-changes.json"), recent)
     return index, recent
+
+
+def _feature_references_path(history_dir: Path) -> str | None:
+    path = history_dir / LEARN_REFERENCE_CACHE
+    return LEARN_REFERENCE_CACHE if path.is_file() else None
 
 
 def _compact_reader_day(day: dict[str, Any]) -> dict[str, Any]:

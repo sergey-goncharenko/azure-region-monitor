@@ -22,6 +22,7 @@ from azure_region_monitor.config import (
 )
 from azure_region_monitor.diff import build_diff
 from azure_region_monitor.history import fetch_history, update_history
+from azure_region_monitor.learn_lookup import learn_lookup_enabled_from_env
 from azure_region_monitor.probes.ai_model_latency import AzureOpenAiLatencyProbe
 from azure_region_monitor.probes.aks_extension import AksExtensionCliProbe
 from azure_region_monitor.probes.aks_extension_catalog import AksExtensionCatalogCliProbe
@@ -211,6 +212,7 @@ def _update_history(args: argparse.Namespace) -> None:
         base_url=args.base_url or None,
         narrative_client=_build_narrative_client(),
         require_existing=args.require_existing,
+        learn_lookup_enabled=learn_lookup_enabled_from_env(),
     )
     print(
         f"Updated history in {args.history_dir} with "

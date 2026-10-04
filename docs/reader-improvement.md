@@ -23,6 +23,14 @@ Optimize **verified reader improvement**, not PR count, agent activity, generate
 word count, or the number of green workflow runs. Preserve all records through
 filters, paging, and progressive detail.
 
+The primary reading surface is the deterministic **At a glance** briefing, not
+generated prose. A reader should be able to distinguish green ▲ gained listings,
+red ▼ lost listings, and grey/amber observation gaps before opening the full
+evidence. Measurement-only latency gaps should communicate a measurement limit,
+not become the daily headline when catalog evidence did not regress. Long region
+sets can be summarized inline, but the full region list must remain reachable by
+keyboard and pointer and the full evidence explorer must remain available.
+
 Concrete example: the September 6, 2026 comparison contains 54 distinct VM sizes
 gaining 266 size-region listings, plus one AKS extension listing. It does not
 contain 267 distinct products. Zero new delistings does not imply the 41 tracked
@@ -72,14 +80,20 @@ the feature. Keep those evidence sources separate.
   resource type rather than recycling a modality-wide benefit.
 - Label exact, family-level, category-level, and unverified descriptions honestly.
   Keep source links and a verification date for researched claims.
+- Keep the one-line feature meaning (`short`) plain and specific enough for the
+  glance card. VM size names may be decoded from Microsoft Learn naming
+  conventions when that only supports family-level context; do not present that
+  as an exact SKU specification.
 - New in a regional comparison is not a Microsoft launch announcement. Use
   "first observed in this comparison" when longer history is unavailable.
 - A missing listing is not a confirmed retirement. A retirement claim needs an
   explicit authoritative announcement for that exact product/version.
 - Unknown identifiers still get an official documentation/catalog lookup link;
   never fabricate a direct product URL or hide them because enrichment is missing.
-- Enrichment is offline and reviewable. Do not add per-reader LLM calls or make
-  dashboard availability depend on a search service.
+- Enrichment is offline, cached, and reviewable. Microsoft Learn lookup may add
+  relevance-gated Learn references during history updates, but it must fail open:
+  do not add per-reader LLM calls or make dashboard availability depend on a
+  search service.
 
 ## Initial phase: maintainer page feedback
 

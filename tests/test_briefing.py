@@ -3,7 +3,12 @@ import json
 import pytest
 
 from azure_region_monitor.briefing import (
-    BRIEFING_KINDS, build_briefing, coalesce_briefing_groups, compact_briefing, enrich_briefing_features,
+    BRIEFING_KINDS,
+    build_briefing,
+    build_digest,
+    coalesce_briefing_groups,
+    compact_briefing,
+    enrich_briefing_features,
 )
 from azure_region_monitor.display import plain_feature_name
 from azure_region_monitor.models import Snapshot
@@ -21,6 +26,15 @@ def vm_snapshot(date, status, *, extra=None):
         **(extra or {}),
     }
     return snapshot(date, {"eastus": {"compute": features}})
+
+
+def digest_feature(briefing, feature):
+    return next(
+        entry
+        for modality in briefing["digest"]["modalities"]
+        for entry in modality["features"]
+        if entry["feature"] == feature
+    )
 
 
 @pytest.mark.parametrize("prefix", ["modelLatency.", "aiLatency."])
@@ -107,6 +121,265 @@ def test_enrichment_refreshes_documentation_without_changing_records_classificat
     assert refreshed["counts"] == briefing["counts"]
     assert refreshed["feature_contexts"]["vmSkus.standard.target"]["summary"] != "Obsolete context."
     assert briefing["feature_contexts"]["vmSkus.standard.target"]["summary"] == "Obsolete context."
+
+
+def test_digest_splits_gains_losses_and_restorations_with_first_seen_geographies():
+    previous = snapshot("2026-09-05", {
+        "eastus": {"compute": {
+            "vmSkus.standard.target": {"status": "unavailable"},
+            "vmSkus.standard.lost": {"status": "available"},
+        }},
+        "eastasia": {"compute": {
+            "vmSkus.standard.target": {"status": "unavailable"},
+            "vmSkus.standard.lost": {"status": "available"},
+        }},
+    })
+    current = snapshot("2026-09-06", {
+        "eastus": {"compute": {
+            "vmSkus.standard.target": {"status": "available"},
+            "vmSkus.standard.lost": {"status": "unavailable"},
+        }},
+        "eastasia": {"compute": {
+            "vmSkus.standard.target": {"status": "available"},
+            "vmSkus.standard.lost": {"status": "unavailable"},
+        }},
+    })
+    restored_key = ("eastasia", "compute", "vmSkus.standard.target")
+    briefing = build_briefing(
+        current,
+        previous,
+        contexts={
+            restored_key: ChangeContext(
+                classification="restored_availability",
+                available_days=1,
+                last_available_date="2026-09-01",
+            )
+        },
+    )
+
+    assert briefing["digest"]["totals"] == {
+        "gained_features": 1,
+        "gained_listings": 2,
+        "lost_features": 1,
+        "lost_listings": 2,
+        "catalog_gap_listings": 0,
+        "measurement_gap_listings": 0,
+    }
+    modality = briefing["digest"]["modalities"][0]
+    assert modality["modality"] == "VM SKUs"
+    assert modality["gained_regions"] == ["eastasia", "eastus"]
+    assert modality["lost_regions"] == ["eastasia", "eastus"]
+    assert [entry["feature"] for entry in modality["features"]] == [
+        "vmSkus.standard.lost",
+        "vmSkus.standard.target",
+    ]
+    target = digest_feature(briefing, "vmSkus.standard.target")
+    assert target["gained_regions"] == ["eastasia", "eastus"]
+    assert target["restored_regions"] == ["eastasia"]
+    assert target["lost_regions"] == []
+    assert target["coverage_before"] == 0
+    assert target["coverage_after"] == 2
+    assert target["first_seen"] is False
+    assert target["new_geographies"] == ["North America"]
+    assert isinstance(target["short"], str)
+    assert set(target) == {
+        "feature",
+        "label",
+        "modality",
+        "short",
+        "cluster",
+        "specificity",
+        "details_url",
+        "gained_regions",
+        "restored_regions",
+        "lost_regions",
+        "coverage_before",
+        "coverage_after",
+        "first_seen",
+        "new_geographies",
+        "learn_reference",
+    }
+    assert target["cluster"] == {
+        "key": "vmSkus.standard.target",
+        "label": "Standard Target VM size",
+    }
+
+
+def test_digest_entries_include_cluster_metadata_for_families_versions_and_singletons():
+    features = [
+        "vmSkus.standard.e48s.v7",
+        "vmSkus.standard.d248ds.v7",
+        "vmSkus.standard.m416ms.v3",
+        "aiModels.openai.gpt-4.1.2025-04-14",
+        "aiModels.openai.gpt-4-1.future-version",
+        "extensionTypes.microsoft.vmware",
+    ]
+    previous = snapshot("2026-09-05", {"eastus": {"service": {
+        feature: {"status": "unavailable"} for feature in features
+    }}})
+    current = snapshot("2026-09-06", {"eastus": {"service": {
+        feature: {"status": "available"} for feature in features
+    }}})
+
+    briefing = build_briefing(current, previous)
+
+    clusters = {
+        entry["feature"]: entry["cluster"]
+        for modality in briefing["digest"]["modalities"]
+        for entry in modality["features"]
+    }
+    assert clusters["vmSkus.standard.e48s.v7"] == {
+        "key": "vm:E:v7",
+        "label": "Ev7-series · memory optimized",
+    }
+    assert clusters["vmSkus.standard.d248ds.v7"] == {
+        "key": "vm:D:v7",
+        "label": "Dv7-series · general purpose",
+    }
+    assert clusters["vmSkus.standard.m416ms.v3"] == {
+        "key": "vm:M:v3",
+        "label": "Mv3-series · memory optimized",
+    }
+    assert (
+        clusters["aiModels.openai.gpt-4.1.2025-04-14"]
+        == clusters["aiModels.openai.gpt-4-1.future-version"]
+        == {"key": "model:openai:gpt-4-1", "label": "GPT-4.1"}
+    )
+    assert clusters["extensionTypes.microsoft.vmware"] == {
+        "key": "extensionTypes.microsoft.vmware",
+        "label": "microsoft.vmware AKS extension",
+    }
+
+
+def test_digest_restored_only_feature_is_not_first_seen_or_new_geography():
+    previous = snapshot("2026-09-05", {
+        "eastus": {"compute": {"vmSkus.standard.target": {"status": "unavailable"}}}
+    })
+    current = snapshot("2026-09-06", {
+        "eastus": {"compute": {"vmSkus.standard.target": {"status": "available"}}}
+    })
+
+    briefing = build_briefing(
+        current,
+        previous,
+        contexts={
+            ("eastus", "compute", "vmSkus.standard.target"): ChangeContext(
+                classification="restored_availability",
+                available_days=1,
+                last_available_date="2026-09-01",
+            )
+        },
+    )
+
+    target = digest_feature(briefing, "vmSkus.standard.target")
+    assert briefing["records"][0]["kind"] == "restorations"
+    assert briefing["records"][0]["new_geography"] is None
+    assert target["gained_regions"] == ["eastus"]
+    assert target["restored_regions"] == ["eastus"]
+    assert target["coverage_before"] == 0
+    assert target["first_seen"] is False
+    assert target["new_geographies"] == []
+
+
+def test_digest_gaps_track_catalog_and_measurement_gaps():
+    previous = snapshot("2026-09-05", {
+        "eastus": {"compute": {"vmSkus.standard.target": {"status": "unavailable"}}},
+        "github-global": {"ai": {"modelLatency.openai.gpt": {"status": "available"}}},
+    })
+    current = snapshot("2026-09-06", {
+        "eastus": {"compute": {"vmSkus.standard.target": {"status": "unknown"}}},
+        "github-global": {"ai": {"modelLatency.openai.gpt": {"status": "unknown"}}},
+    })
+    briefing = build_briefing(current, previous)
+
+    assert briefing["digest"]["modalities"] == []
+    assert briefing["digest"]["totals"]["catalog_gap_listings"] == 1
+    assert briefing["digest"]["totals"]["measurement_gap_listings"] == 1
+    assert briefing["digest"]["gaps"] == [
+        {
+            "modality": "Model latency",
+            "measurement": True,
+            "feature_count": 1,
+            "listing_count": 1,
+            "regions": ["github-global"],
+        },
+        {
+            "modality": "VM SKUs",
+            "measurement": False,
+            "feature_count": 1,
+            "listing_count": 1,
+            "regions": ["eastus"],
+        },
+    ]
+
+
+def test_compact_briefing_keeps_digest():
+    briefing = build_briefing(vm_snapshot("2026-09-06", "available"), vm_snapshot("2026-09-05", "unavailable"))
+    compact = compact_briefing(briefing)
+    assert compact["digest"] == briefing["digest"]
+    assert "records" not in compact
+    assert "feature_contexts" not in compact
+
+
+def test_re_enrichment_preserves_existing_digest_learn_reference():
+    briefing = build_briefing(vm_snapshot("2026-09-06", "available"), vm_snapshot("2026-09-05", "unavailable"))
+    reference = {
+        "title": "Azure VM sizes",
+        "url": "https://learn.microsoft.com/en-us/azure/virtual-machines/sizes/overview",
+        "excerpt": "Sizes overview",
+    }
+    briefing["digest"]["modalities"][0]["features"][0]["learn_reference"] = reference
+
+    refreshed = enrich_briefing_features(briefing)
+
+    assert digest_feature(refreshed, "vmSkus.standard.target")["learn_reference"] == reference
+
+
+def test_digest_excludes_continuing_absences():
+    day1 = vm_snapshot("2026-09-05", "available")
+    day2 = vm_snapshot("2026-09-06", "unavailable")
+    day3 = vm_snapshot("2026-09-07", "unavailable")
+    disappearance = build_briefing(day2, day1)
+    continuing = build_briefing(day3, day2, prior_day={"briefing": disappearance})
+
+    assert continuing["counts"]["continuing_absences"] == 1
+    assert continuing["digest"]["modalities"] == []
+    assert continuing["digest"]["gaps"] == []
+    assert continuing["digest"]["totals"] == {
+        "gained_features": 0,
+        "gained_listings": 0,
+        "lost_features": 0,
+        "lost_listings": 0,
+        "catalog_gap_listings": 0,
+        "measurement_gap_listings": 0,
+    }
+
+
+def test_empty_and_no_baseline_digest_has_zero_totals_and_no_modalities():
+    current = vm_snapshot("2026-09-06", "available")
+    briefing = build_briefing(current, None)
+    expected_totals = {
+        "gained_features": 0,
+        "gained_listings": 0,
+        "lost_features": 0,
+        "lost_listings": 0,
+        "catalog_gap_listings": 0,
+        "measurement_gap_listings": 0,
+    }
+
+    assert briefing["records"] == []
+    assert briefing["digest"] == {
+        "version": 1,
+        "totals": expected_totals,
+        "modalities": [],
+        "gaps": [],
+    }
+    assert build_digest([], {}) == {
+        "version": 1,
+        "totals": expected_totals,
+        "modalities": [],
+        "gaps": [],
+    }
 
 
 def test_compact_briefing_groups_upgrade_legacy_status_cards_to_one_modality_card():

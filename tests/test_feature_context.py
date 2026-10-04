@@ -21,6 +21,14 @@ def _text(context: dict) -> str:
     return " ".join((context["summary"], *context["differentiators"], context["limitations"]))
 
 
+def _assert_good_short(context: dict) -> None:
+    assert isinstance(context["short"], str)
+    assert context["short"]
+    assert len(context["short"]) <= 100
+    assert not context["short"].endswith(".")
+    assert "unverified" not in context["short"].lower()
+
+
 @pytest.mark.parametrize("size", (2, 4, 8, 16, 32, 48, 64, 96, 128))
 @pytest.mark.parametrize(
     ("family", "suffix", "ratio", "purpose", "local"),
@@ -47,6 +55,7 @@ def test_documented_network_optimized_vm_sizes(size, family, suffix, ratio, purp
     assert context["sources"][0]["url"].endswith(f"/{family}{suffix}v6-series")
     assert "quota" in context["limitations"]
     assert "measured performance" in context["limitations"]
+    _assert_good_short(context)
 
 
 @pytest.mark.parametrize(
@@ -73,21 +82,89 @@ def test_b2s_is_burstable_not_d_series_memory_ratio_or_no_disk():
     assert "CPU credits" in _text(context)
     assert "8 GiB of local temporary storage" in _text(context)
     assert "previous-generation" in _text(context)
+    assert context["short"] == "Burstable general purpose, 2 vCPUs, premium SSD capable"
+
+
+@pytest.mark.parametrize(
+    ("feature", "specificity", "short_parts", "details_parts"),
+    (
+        (
+            "vmSkus.standard.d248ds.v7",
+            "family",
+            ("General purpose", "248 vCPUs", "local temp disk", "premium SSD", "v7"),
+            ("248 vCPUs", "d = local temp disk", "s = premium SSD capable"),
+        ),
+        (
+            "vmSkus.standard.e96as.v6",
+            "family",
+            ("Memory optimized", "96 vCPUs", "AMD-based", "premium SSD", "v6"),
+            ("96 vCPUs", "a = AMD-based", "s = premium SSD capable"),
+        ),
+        (
+            "vmSkus.standard.nc24ads.a100.v4",
+            "family",
+            ("GPU compute optimized", "24 vCPUs", "AMD-based", "A100", "v4"),
+            ("24 vCPUs", "A100"),
+        ),
+        (
+            "vmSkus.Standard_D128nlds_v6",
+            "exact",
+            ("General purpose", "128 vCPUs", "network optimized", "low memory", "v6"),
+            ("128 vCPUs", "256 GiB RAM"),
+        ),
+        (
+            "vmSkus.standard.m416ms.v2",
+            "family",
+            ("Large-memory optimized", "416 vCPUs", "memory intensive", "premium SSD", "v2"),
+            ("416 vCPUs", "m = memory intensive"),
+        ),
+        (
+            "vmSkus.standard.f72s.v2",
+            "family",
+            ("Compute optimized", "72 vCPUs", "premium SSD", "v2"),
+            ("72 vCPUs",),
+        ),
+        (
+            "vmSkus.standard.l80s.v3",
+            "family",
+            ("Storage optimized", "80 vCPUs", "premium SSD", "v3"),
+            ("80 vCPUs",),
+        ),
+        (
+            "vmSkus.standard.dc4as.cc.v5",
+            "family",
+            ("Confidential general purpose", "4 vCPUs", "AMD-based", "CC", "v5"),
+            ("4 vCPUs", "CC"),
+        ),
+        (
+            "vmSkus.Standard_E8-2s_v5",
+            "family",
+            ("Memory optimized", "8 vCPUs", "2 active vCPUs", "premium SSD", "v5"),
+            ("8 vCPUs", "constrains usable vCPUs to 2"),
+        ),
+    ),
+)
+def test_vm_name_decoder_adds_family_context_without_inventing_exact_specs(
+    feature, specificity, short_parts, details_parts
+):
+    context = describe_feature(feature)
+    assert context["specificity"] == specificity
+    for part in short_parts:
+        assert part in context["short"]
+    for part in details_parts:
+        assert part in _text(context)
+    _assert_good_short(context)
+    if specificity == "family":
+        assert "GiB RAM" not in _text(context)
+        assert "Naming-convention decoding" in context["limitations"]
 
 
 @pytest.mark.parametrize(
     "feature",
     (
-        "vmSkus.standard.d3ns.v6",
-        "vmSkus.standard.e256ns.v6",
-        "vmSkus.standard.d128s.v5",
-        "vmSkus.standard.e104is.v5",
         "vmSkus.standard.q128ns.v6",
-        "vmSkus.standard.d2ns.v99",
         "vmSkus.standard.d2mystery.v6",
         "vmSkus.standard.e8.2s.v5",
-        "vmSkus.Standard_E8-2s_v5",
-        "vmSkus.standard.nc4as.t4.v3",
         "vmSkus.standard.d02ns.v6",
         "vmSkus.standard.d0ns.v6",
         "vmSkus.standard.d2ns.v6.trailing",
@@ -102,6 +179,7 @@ def test_unsupported_and_malformed_skus_never_infer_specs(feature):
     assert context["verified_on"] == ""
     assert "GiB" not in _text(context)
     assert " vCPUs" not in _text(context)
+    _assert_good_short(context)
     searches = [s for s in context["sources"] if "/search/?" in s["url"]]
     assert parse_qs(urlsplit(searches[0]["url"]).query)["terms"] == [feature]
 
@@ -110,6 +188,29 @@ def test_raw_arm_sku_alias_has_same_verified_metadata():
     assert describe_feature("vmSkus.Standard_D128nlds_v6") == describe_feature(
         "vmSkus.standard.d128nlds.v6"
     )
+
+
+def test_cluster_metadata_groups_vm_families_ai_versions_and_singletons():
+    ev7 = describe_feature("vmSkus.standard.e48s.v7")
+    dv7 = describe_feature("vmSkus.standard.d248ds.v7")
+    mv3 = describe_feature("vmSkus.standard.m416ms.v3")
+    nc = describe_feature("vmSkus.standard.nc24ads.a100.v4")
+    gpt = describe_feature("aiModels.openai.gpt-4.1.2025-04-14")
+    gpt_slug = describe_feature("aiModels.openai.gpt-4-1.future-version")
+    extension = describe_feature("extensionTypes.microsoft.vmware")
+
+    assert ev7["family_key"] == "vm:E:v7"
+    assert ev7["family_label"] == "Ev7-series · memory optimized"
+    assert dv7["family_key"] == "vm:D:v7"
+    assert dv7["family_label"] == "Dv7-series · general purpose"
+    assert mv3["family_key"] == "vm:M:v3"
+    assert mv3["family_label"] == "Mv3-series · memory optimized"
+    assert nc["family_key"] == "vm:NC:v4"
+    assert nc["family_label"] == "NCv4-series · gpu compute optimized"
+    assert gpt["family_key"] == gpt_slug["family_key"] == "model:openai:gpt-4-1"
+    assert gpt["family_label"] == gpt_slug["family_label"] == "GPT-4.1"
+    assert extension["family_key"] == "extensionTypes.microsoft.vmware"
+    assert extension["family_label"] == "microsoft.vmware AKS extension"
 
 
 @pytest.mark.parametrize(
@@ -268,6 +369,7 @@ def test_exact_documented_model_versions(feature, phrase):
     assert phrase in _text(context)
     assert "2026-09-06" == context["verified_on"]
     assert "not a launch-date claim" in context["limitations"]
+    _assert_good_short(context)
 
 
 @pytest.mark.parametrize(
@@ -337,6 +439,8 @@ def test_latency_modalities_preserve_path_and_scope_not_catalog_claims():
     assert github["specificity"] == azure["specificity"] == "family"
     assert "GPT-4.1" in github["title"]
     assert "GitHub" not in azure["summary"]
+    assert github["short"] == "Inference latency measurement for GPT-4.1"
+    assert azure["short"] == "Azure inference latency measurement for GPT-4.1"
 
 
 def test_unknown_latency_model_describes_inference_observation_not_catalog_presence():
@@ -384,8 +488,8 @@ def test_all_profiles_and_defaults_satisfy_contract_offline(monkeypatch):
         *[item.feature for item in DEFAULT_LATENCY_MODELS],
     ]
     fields = {
-        "title", "summary", "differentiators", "use_cases", "sources", "specificity",
-        "verified_on", "limitations",
+        "title", "summary", "short", "differentiators", "use_cases", "sources", "specificity",
+        "verified_on", "limitations", "family_key", "family_label",
     }
     hosts = {"learn.microsoft.com", "platform.claude.com", "docs.github.com"}
     for feature in features:
@@ -396,6 +500,8 @@ def test_all_profiles_and_defaults_satisfy_contract_offline(monkeypatch):
         assert 2 <= len(context["differentiators"]) <= 4
         assert all(isinstance(fact, str) and fact for fact in context["differentiators"])
         assert all(context[key] for key in ("title", "summary", "use_cases", "limitations"))
+        assert all(context[key] for key in ("family_key", "family_label"))
+        _assert_good_short(context)
         assert context == json.loads(json.dumps(context))
         for source in context["sources"]:
             assert set(source) == {"label", "url"}

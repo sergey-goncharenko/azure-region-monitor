@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import re
+from collections import Counter
 from dataclasses import dataclass
 from functools import lru_cache
 from importlib import resources
@@ -20,35 +22,83 @@ Write one evidence-grounded daily editorial package using only the structured fa
 Format:
 - Return only a JSON object with exactly these string fields:
   {"narrative": "...", "excerpt": "...", "linkedin": "...", "short_post": "..."}
-- narrative: first line is a punchy headline, no markdown or '#', followed by 4 to 6
-  short paragraphs separated by blank lines.
+- narrative: first line is a plain headline, no markdown or '#', no more than 10 words,
+  followed by at most 3 to 5 one-line bullets or short sentences.
 - excerpt: one purpose-written, 1-2 sentence summary under 220 characters. Do not truncate
   the narrative or repeat its headline verbatim.
-- linkedin and short_post: review-only social variants that name the supplied date and state
-  the supplied new availability, regression, and parked unknown counts. Do not include URLs.
+- linkedin and short_post: review-only social variants that name the supplied date, state nonzero
+  new/regression counts in compact wording, and may omit zero counts. Do not include URLs.
 
 Treat the supplied changes as the dated scan's delta from the immediately preceding snapshot.
 Lead with what changed in that comparison. Use historical classifications only to explain today's
 signals; do not replace the daily story with an aggregate over the full retained history.
 
-Interpret the change classifications: net-new availability means a feature has never been
-seen available in that region before; restored availability means it was available before,
-then disappeared, and is now back; deprecation candidate means a stable availability signal
-has disappeared for the first time; recurring disappearance means it has gone missing before.
-Start with one plain-language sentence that explains the broader movement in the monitored Azure
-listings for a visitor who does not know the monitored products. Then explain the practical impact
-for SREs in simple language, such as placement choice, capacity, cost, scale, latency, upgrade
-paths, or feature enablement. Do not leave a raw SKU, model ID, version, or feature code
-unexplained; translate it into a practical capability only when the facts support that
-interpretation. End with a short final paragraph beginning "What this means for Azure users:" that
-states the practical decision or planning impact. Keep every claim grounded in the facts.
+Write compact memo lines such as "<feature> now listed in N more regions (X -> Y); first listing
+in <geography>" or "<feature> no longer listed in <regions> (X -> Y)." Group many similar VM sizes
+into one line. Explain each identifier once in plain words, mention each feature only once, and
+lead with regressions when they exist. If useful, end with one short sentence beginning
+"What this means for Azure users:".
 
-Rules: do not invent regions, models, features, dates, numbers, causes, quotas, or SLAs.
-Do not add disclaimers, caveats, sign-offs, or a call to action. Keep it under ~350 words.
+Rules: do not invent regions, models, features, dates, numbers, causes, quotas, capacity, customer
+impact, outages, or SLAs. Unavailable means absent from the read-only catalog/list, not proof of
+quota, capacity, deployment failure, or SLA impact. Do not repeat references, disclaimers, sign-offs,
+or a call to action. Keep it around 150 to 200 words.
 """
 _SOCIAL_EVIDENCE_NOTE = (
     "Evidence note: these are read-only Azure catalog/list signals; unavailable does not mean "
     "quota, capacity, deployment failure, or SLA impact."
+)
+_UNSUPPORTED_CLAIMS = (
+    "quota",
+    "sla",
+    "deployment succeeded",
+    "successful deployment",
+    "deployment success",
+    "eligible",
+    "eligibility",
+    "root cause",
+    "caused by",
+    "because of",
+    "capacity is available",
+    "available capacity",
+    "has capacity",
+)
+_SOCIAL_COUNT_LABELS: dict[str, tuple[str, ...]] = {
+    "new": (
+        r"new\s+availabilit(?:y|ies)",
+        r"new\s+availability\s+signals?",
+        r"new\s+listings?",
+        r"availability\s+gains?",
+    ),
+    "regression": (
+        r"regressions?",
+        r"delistings?",
+        r"availability\s+loss(?:es)?",
+        r"loss(?:es)?",
+        r"dropped",
+        r"removed",
+        r"withdrawn",
+        r"no\s+longer\s+listed",
+    ),
+    "parked": (
+        r"parked\s+unknown",
+        r"parked\s+unknown\s+transitions?",
+        r"unknown\s+transitions?",
+    ),
+}
+_SOCIAL_COUNT_LABEL_PATTERN = "|".join(
+    f"(?:{label})" for labels in _SOCIAL_COUNT_LABELS.values() for label in labels
+)
+_SOCIAL_PREFIX_COUNT_RE = re.compile(
+    rf"(?P<count>\d[\d,]*)\s+(?P<label>{_SOCIAL_COUNT_LABEL_PATTERN})\b",
+    re.IGNORECASE,
+)
+_SOCIAL_LABEL_COLON_COUNT_RE = re.compile(
+    rf"(?P<label>{_SOCIAL_COUNT_LABEL_PATTERN})\s*:\s*(?P<count>\d[\d,]*)\b",
+    re.IGNORECASE,
+)
+_STANDALONE_SOCIAL_NUMBER_RE = re.compile(
+    r"(?<![A-Za-z0-9_.-])\d[\d,]*(?![A-Za-z0-9_.-])"
 )
 
 
@@ -296,10 +346,13 @@ def build_change_narrative(
             generation_error=_generation_error(error),
         )
 
-    package = _parse_editorial_package(text, changes, date)
+    package, rejection_reason = _parse_editorial_package(text, changes, date)
     if package is None:
         return _rule_result(
-            fallback_package, "unsupported_generation", deployment, _client_generation_metadata(client)
+            fallback_package,
+            f"unsupported_generation:{rejection_reason or 'unknown'}",
+            deployment,
+            _client_generation_metadata(client),
         )
     result: dict[str, Any] = {
         **package,
@@ -358,50 +411,41 @@ def _generation_error(error: Exception) -> str:
 
 
 def _is_supported_narrative(text: str) -> bool:
+    return _narrative_rejection_reason(text) is None
+
+
+def _narrative_rejection_reason(text: str) -> str | None:
     lowered = text.lower()
-    unsupported_claims = (
-        "quota",
-        "sla",
-        "deployment succeeded",
-        "successful deployment",
-        "deployment success",
-        "eligible",
-        "eligibility",
-        "root cause",
-        "caused by",
-        "because of",
-        "capacity is available",
-        "available capacity",
-        "has capacity",
-    )
-    has_impact_section = any(
-        line.strip().lower().startswith("what this means for azure users:")
-        for line in text.splitlines()
-    )
-    return (
-        len(text.split()) <= 350
-        and has_impact_section
-        and not any(claim in lowered for claim in unsupported_claims)
-    )
+    if len(text.split()) > 350:
+        return "narrative_too_long"
+    if any(claim in lowered for claim in _UNSUPPORTED_CLAIMS):
+        return "narrative_unsupported_claim"
+    return None
 
 
 def _parse_editorial_package(
     text: str, changes: list[Change], date: str | None
-) -> dict[str, Any] | None:
+) -> tuple[dict[str, Any] | None, str | None]:
     try:
         payload = json.loads(text)
     except json.JSONDecodeError:
-        return None
+        return None, "invalid_json"
     if not isinstance(payload, dict) or set(payload) != {"narrative", "excerpt", "linkedin", "short_post"}:
-        return None
+        return None, "invalid_schema"
     if not all(isinstance(value, str) and value.strip() for value in payload.values()):
-        return None
+        return None, "empty_field"
     narrative = payload["narrative"].strip()
     excerpt = payload["excerpt"].strip()
-    if not _is_supported_narrative(narrative) or len(excerpt) > 220 or _has_unsupported_claim(excerpt):
-        return None
-    if date is not None and not _is_supported_social_package(payload, changes, date):
-        return None
+    rejection_reason = _narrative_rejection_reason(narrative)
+    if rejection_reason is not None:
+        return None, rejection_reason
+    if len(excerpt) > 220:
+        return None, "excerpt_too_long"
+    if _has_unsupported_claim(excerpt):
+        return None, "excerpt_unsupported_claim"
+    social_rejection = _social_package_rejection_reason(payload, changes, date)
+    if social_rejection is not None:
+        return None, social_rejection
     return {
         "narrative": narrative,
         "editorial_excerpt": excerpt,
@@ -409,42 +453,129 @@ def _parse_editorial_package(
             "linkedin": payload["linkedin"].strip(),
             "short_post": payload["short_post"].strip(),
         },
-    }
+    }, None
 
 
 def _has_unsupported_claim(text: str) -> bool:
-    lowered = text.lower()
-    return any(
-        claim in lowered
-        for claim in (
-            "quota",
-            "sla",
-            "deployment succeeded",
-            "successful deployment",
-            "deployment success",
-            "eligible",
-            "eligibility",
-            "root cause",
-            "caused by",
-            "because of",
-            "capacity is available",
-            "available capacity",
-            "has capacity",
-        )
-    )
+    return any(claim in text.lower() for claim in _UNSUPPORTED_CLAIMS)
 
 
 def _is_supported_social_package(payload: Mapping[str, Any], changes: list[Change], date: str) -> bool:
-    counts = (
-        f"{sum(change.change_type == 'new_availability' for change in changes):,} new availability",
-        f"{sum(change.change_type == 'regression' for change in changes):,} regressions",
-        f"{_parked_unknown_count(changes):,} parked unknown",
+    return _social_package_rejection_reason(payload, changes, date) is None
+
+
+def _social_package_rejection_reason(
+    payload: Mapping[str, Any], changes: list[Change], date: str | None
+) -> str | None:
+    for field in ("linkedin", "short_post"):
+        text = payload[field]
+        if not isinstance(text, str):
+            return f"social_{field}_invalid"
+        lowered = text.lower()
+        if date is not None and date.lower() not in lowered:
+            return f"social_{field}_missing_date"
+        if "http://" in lowered or "https://" in lowered:
+            return f"social_{field}_url"
+        if _has_unsupported_claim(text):
+            return f"social_{field}_unsupported_claim"
+        count_rejection = _unsupported_social_count_reason(text, changes, date, field)
+        if count_rejection is not None:
+            return count_rejection
+    return None
+
+
+def _unsupported_social_count_reason(
+    text: str, changes: list[Change], date: str | None, field: str
+) -> str | None:
+    expected = {
+        "new": sum(change.change_type == "new_availability" for change in changes),
+        "regression": sum(change.change_type == "regression" for change in changes),
+        "parked": _parked_unknown_count(changes),
+    }
+    observed: set[str] = set()
+    for match in _social_count_matches(text):
+        key = _social_count_key(match["label"])
+        count = _social_count(match["count"])
+        observed.add(key)
+        if count != expected[key]:
+            return f"social_{field}_unsupported_{key}_count"
+    for key in ("new", "regression"):
+        if expected[key] > 0 and key not in observed:
+            return f"social_{field}_missing_{key}_count"
+    allowed_numbers = _supported_social_numbers(changes, expected, date)
+    for match in _STANDALONE_SOCIAL_NUMBER_RE.finditer(text):
+        if _social_count(match.group()) not in allowed_numbers:
+            return f"social_{field}_unsupported_number"
+    return None
+
+
+def _social_count_matches(text: str) -> list[dict[str, str]]:
+    matches = [
+        {"label": match.group("label"), "count": match.group("count"), "start": str(match.start())}
+        for match in _SOCIAL_PREFIX_COUNT_RE.finditer(text)
+    ]
+    matches.extend(
+        {"label": match.group("label"), "count": match.group("count"), "start": str(match.start())}
+        for match in _SOCIAL_LABEL_COLON_COUNT_RE.finditer(text)
     )
-    return all(
-        all(fact in text.lower() for fact in (date.lower(), *counts))
-        and not _has_unsupported_claim(text)
-        for text in (payload["linkedin"].lower(), payload["short_post"].lower())
+    return sorted(matches, key=lambda item: int(item["start"]))
+
+
+def _social_count_key(label: str) -> str:
+    normalized = " ".join(label.lower().split())
+    for key, patterns in _SOCIAL_COUNT_LABELS.items():
+        for pattern in patterns:
+            if re.fullmatch(pattern, normalized, re.IGNORECASE):
+                return key
+    raise ValueError(f"unsupported social count label: {label}")
+
+
+def _social_count(text: str) -> int:
+    return int(text.replace(",", ""))
+
+
+def _supported_social_numbers(
+    changes: list[Change], expected: Mapping[str, int], date: str | None
+) -> set[int]:
+    allowed = set(expected.values())
+    allowed.update(_date_numbers(date))
+    allowed.update(
+        {
+            len(changes),
+            len(_clear_signal_changes(changes)),
+            len({change.region for change in changes}),
+            len({change.feature for change in changes}),
+            len({(change.service, change.feature) for change in changes}),
+            len({change.service for change in changes}),
+        }
     )
+    grouped_counters: list[Counter[object]] = [
+        Counter(change.change_type for change in changes),
+        Counter(_modality(change.feature) for change in changes),
+        Counter((change.change_type, _modality(change.feature)) for change in changes),
+        Counter(change.region for change in changes),
+        Counter(change.feature for change in changes),
+        Counter(_vm_social_family_key(change.feature) for change in changes if _modality(change.feature) == "VM SKUs"),
+    ]
+    for counter in grouped_counters:
+        allowed.update(counter.values())
+    return allowed
+
+
+def _date_numbers(date: str | None) -> set[int]:
+    if not date:
+        return set()
+    numbers = {int(part) for part in re.findall(r"\d+", date)}
+    compact = "".join(re.findall(r"\d+", date))
+    if compact:
+        numbers.add(int(compact))
+    return numbers
+
+
+def _vm_social_family_key(feature: str) -> str:
+    context = describe_feature(feature)
+    family_key = context.get("family_key")
+    return family_key if isinstance(family_key, str) and family_key else feature
 
 
 def _rule_editorial_package(
@@ -458,10 +589,11 @@ def _rule_editorial_package(
         f"{parked_unknown:,} parked unknown transitions"
     )
     label = date or "Latest scan"
-    excerpt = narrative.split(".", 1)[0].strip() + "."
-    social = (
-        f"{label} recorded {daily_counts}. {narrative}\n\n{_SOCIAL_EVIDENCE_NOTE}"
-    )
+    lines = [line.strip() for line in narrative.splitlines() if line.strip()]
+    excerpt = (lines[1] if len(lines) > 1 else lines[0]).strip()
+    if len(excerpt) > 219:
+        excerpt = excerpt[:216].rstrip() + "..."
+    social = f"{label}: {daily_counts}. {excerpt} {_SOCIAL_EVIDENCE_NOTE}"
     return {
         "narrative": narrative,
         "editorial_excerpt": excerpt,
@@ -492,39 +624,22 @@ def _rule_summary(
 
     new_avail = [c for c in signals if c.change_type == "new_availability"]
     regressions = [c for c in signals if c.change_type == "regression"]
-    regions = {c.region for c in signals}
 
-    parts = [
-        f"{len(new_avail)} new listings and {len(regressions)} "
-        f"{_plural(len(regressions), 'regression')}",
-        f"Compared with the previous daily snapshot, the monitor found "
-        f"{len(new_avail)} new availability {_plural(len(new_avail), 'signal')} "
-        "in its catalog/list evidence "
-        f"and {len(regressions)} previously listed {_plural(len(regressions), 'signal')} "
-        f"no longer listed across {len(regions)} {_plural(len(regions), 'region')}.",
-    ]
-    parts.append(_plain_language_overview(new_avail, regressions))
+    headline = f"{len(new_avail)} new {_plural(len(new_avail), 'listing')}, {len(regressions)} no longer listed"
+    bullets: list[str] = []
     if regressions:
-        parts.append(
-            "Regressions to review: "
-            + " ".join(_opinionated_sentences(regressions, "regression", context_map))
-        )
+        bullets.extend(_compact_change_lines(regressions, "regression", context_map))
     if new_avail:
-        parts.append(
-            "New options to validate: "
-            + " ".join(_opinionated_sentences(new_avail, "new_availability", context_map))
-        )
-    priority = (
-        f"Prioritize the {len(regressions)} {_plural(len(regressions), 'regression')} when "
-        "reviewing existing regional targets and fallback choices. "
+        bullets.extend(_compact_change_lines(new_avail, "new_availability", context_map))
+
+    conclusion = (
+        "What this means for Azure users: recheck existing targets first, then treat new listings "
+        "as placement options to validate; catalog evidence is not quota or capacity proof."
         if regressions
-        else "No previously listed signals disappeared in this scan. "
+        else "What this means for Azure users: treat new listings as placement options to validate; "
+        "catalog evidence is not quota or capacity proof."
     )
-    parts.append(
-        f"What this means for Azure users: {priority}Treat new listings as options to validate; "
-        "catalog/list evidence does not by itself prove deployment success, quota, or capacity."
-    )
-    return "\n\n".join(parts)
+    return "\n".join([headline, *bullets[:5], conclusion])
 
 
 def _plain_language_overview(new_avail: list[Change], regressions: list[Change]) -> str:
@@ -578,6 +693,133 @@ def _opinionated_sentences(
             f"Example: {_examples(group)}.{context_text} Why it matters: {impact}."
         )
     return sentences
+
+
+def _compact_change_lines(
+    changes: list[Change],
+    change_type: str,
+    context_map: Mapping[ChangeKey, ChangeContext],
+) -> list[str]:
+    vm_changes = [change for change in changes if _modality(change.feature) == "VM SKUs"]
+    vm_features = {change.feature for change in vm_changes}
+    group_vm_sizes = len(vm_features) > 3
+    other_changes = [
+        change
+        for change in changes
+        if _modality(change.feature) != "VM SKUs" or not group_vm_sizes
+    ]
+
+    lines: list[str] = []
+    if vm_changes and group_vm_sizes:
+        lines.append(_compact_vm_line(vm_changes, change_type))
+
+    by_feature: dict[tuple[str, str], list[Change]] = {}
+    for change in other_changes:
+        by_feature.setdefault((_modality(change.feature), change.feature), []).append(change)
+
+    for (_modality_name, _feature), group in sorted(by_feature.items()):
+        lines.append(_compact_feature_line(group, change_type, context_map))
+    return lines
+
+
+def _compact_vm_line(changes: list[Change], change_type: str) -> str:
+    features = sorted({change.feature for change in changes})
+    regions = tuple(sorted({change.region for change in changes}))
+    families = _vm_family_summary(features)
+    direction = "gained" if change_type == "new_availability" else "are no longer listed in"
+    return (
+        f"{len(features)} VM {_plural(len(features), 'size')}, mostly {families}, "
+        f"{direction} {_region_phrase(regions)}."
+    )
+
+
+def _compact_feature_line(
+    changes: list[Change],
+    change_type: str,
+    context_map: Mapping[ChangeKey, ChangeContext],
+) -> str:
+    feature = changes[0].feature
+    regions = tuple(sorted({change.region for change in changes}))
+    contexts = [_context_for(change, context_map) for change in changes]
+    coverage = _coverage_shift(contexts)
+    expansion = _expansion_summary(contexts)
+    description = _feature_description(feature)
+
+    if change_type == "new_availability":
+        sentence = (
+            f"{description} now listed in {len(regions)} more "
+            f"{_plural(len(regions), 'region')} ({_region_phrase(regions)})"
+        )
+    else:
+        sentence = (
+            f"{description} no longer listed in {len(regions)} "
+            f"{_plural(len(regions), 'region')} ({_region_phrase(regions)})"
+        )
+    if coverage:
+        sentence += f" ({coverage})"
+    if expansion:
+        sentence += f"; {expansion}"
+    return sentence + "."
+
+
+def _coverage_shift(contexts: list[ChangeContext]) -> str:
+    pairs = {
+        (context.feature_previous_available_regions, context.feature_current_available_regions)
+        for context in contexts
+        if context.feature_total_regions > 0
+    }
+    if len(pairs) != 1:
+        return ""
+    previous, current = next(iter(pairs))
+    return f"{previous} -> {current} monitored regions"
+
+
+def _expansion_summary(contexts: list[ChangeContext]) -> str:
+    labels = sorted(
+        {
+            expansion_label(context.expansion_kind, context.region_group)
+            for context in contexts
+            if expansion_label(context.expansion_kind, context.region_group)
+        }
+    )
+    return "; ".join(labels[:2])
+
+
+def _region_phrase(regions: tuple[str, ...], limit: int = 4) -> str:
+    shown = regions[:limit]
+    phrase = ", ".join(shown)
+    remaining = len(regions) - len(shown)
+    if remaining > 0:
+        phrase += f", and {remaining} more"
+    return phrase
+
+
+def _vm_family_summary(features: list[str]) -> str:
+    family_counts: Counter[str] = Counter()
+    family_labels: dict[str, str] = {}
+    for feature in features:
+        family_key, family_label = _vm_family(feature)
+        family_counts[family_key] += 1
+        family_labels.setdefault(family_key, family_label)
+    parts = [
+        f"{family_labels[key]} ({family_counts[key]} {_plural(family_counts[key], 'size')})"
+        for key in family_counts
+    ]
+    if len(parts) <= 1:
+        return parts[0] if parts else "VM sizes"
+    if len(parts) == 2:
+        return f"{parts[0]} and {parts[1]}"
+    return ", ".join(parts[:2]) + f", and {len(parts) - 2} more families"
+
+
+def _vm_family(feature: str) -> tuple[str, str]:
+    context = describe_feature(feature)
+    family_key = context.get("family_key")
+    family_label = context.get("family_label")
+    if isinstance(family_key, str) and family_key and isinstance(family_label, str) and family_label:
+        return family_key, family_label.split(" · ", 1)[0]
+    fallback = _feature_label(feature).split(".", 1)[0].upper()
+    return feature, fallback
 
 
 def _context_datapoints(

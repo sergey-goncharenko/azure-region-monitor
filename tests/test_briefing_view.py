@@ -3,9 +3,10 @@ import re
 
 from azure_region_monitor.briefing import build_briefing
 from azure_region_monitor.blog import render_blog_index, render_blog_post, select_blog_posts
-from azure_region_monitor.briefing_view import briefing_headline, render_briefing
+from azure_region_monitor.briefing_view import briefing_excerpt, briefing_headline, render_briefing
 from azure_region_monitor.display import plain_feature_name, region_name
 from azure_region_monitor.models import Snapshot
+from azure_region_monitor.summary import ChangeContext
 
 
 def _day():
@@ -52,6 +53,298 @@ def _day():
             ],
         },
     }
+
+
+def _digest_day(digest):
+    return {
+        "date": "2026-10-04",
+        "change_path": "changes/2026-10-04.json",
+        "narrative": "",
+        "briefing": {
+            "version": 1,
+            "current_timestamp": "2026-10-04T08:11:00+00:00",
+            "previous_timestamp": "2026-10-03T07:56:00+00:00",
+            "baseline_available": True,
+            "comparison_days": 1,
+            "counts": {
+                "new_listings": 0,
+                "delistings": 0,
+                "restorations": 0,
+                "observation_gaps": 13,
+                "continuing_absences": 0,
+                "scope_changes": 0,
+            },
+            "regions": ["brazilsouth", "eastasia", "eastus", "northcentralus", "westeurope"],
+            "modalities": ["VM SKUs", "GitHub Models"],
+            "groups": [],
+            "digest": digest,
+        },
+    }
+
+
+def _digest(gained_features=2, lost_features=0):
+    return {
+        "version": 1,
+        "totals": {
+            "gained_features": gained_features,
+            "gained_listings": 5 if gained_features else 0,
+            "lost_features": lost_features,
+            "lost_listings": 2 if lost_features else 0,
+            "catalog_gap_listings": 0,
+            "measurement_gap_listings": 13,
+        },
+        "modalities": [
+            {
+                "modality": "VM SKUs",
+                "gained_features": gained_features,
+                "gained_listings": 5 if gained_features else 0,
+                "gained_regions": ["brazilsouth", "eastasia", "eastus", "northcentralus"],
+                "lost_features": lost_features,
+                "lost_listings": 2 if lost_features else 0,
+                "lost_regions": ["westeurope"] if lost_features else [],
+                "features": [
+                    {
+                        "feature": "vmSkus.standard.d248ds.v7",
+                        "label": "Standard D248ds V7 VM size",
+                        "modality": "VM SKUs",
+                        "short": "General purpose, 248 vCPUs, local temp disk",
+                        "specificity": "exact",
+                        "details_url": "https://learn.microsoft.com/azure/virtual-machines/sizes",
+                        "gained_regions": ["brazilsouth", "eastasia", "eastus", "northcentralus"],
+                        "restored_regions": ["eastasia"],
+                        "lost_regions": [],
+                        "coverage_before": 9,
+                        "coverage_after": 11,
+                        "first_seen": True,
+                        "new_geographies": ["Asia Pacific"],
+                        "learn_reference": {
+                            "title": "Dv7 series",
+                            "url": "https://learn.microsoft.com/azure/virtual-machines/dv7-series",
+                            "excerpt": "Dv7 sizes",
+                        },
+                    },
+                    {
+                        "feature": "vmSkus.standard.x",
+                        "label": "<script>unsafe</script>",
+                        "modality": "VM SKUs",
+                        "short": "Escaped short text",
+                        "specificity": "unverified",
+                        "details_url": "http://learn.microsoft.com/not-safe",
+                        "gained_regions": ["eastasia"],
+                        "restored_regions": ["eastasia"],
+                        "lost_regions": [],
+                        "coverage_before": 1,
+                        "coverage_after": 2,
+                        "first_seen": False,
+                        "new_geographies": [],
+                        "learn_reference": None,
+                    },
+                ],
+            },
+        ],
+        "gaps": [
+            {
+                "modality": "GitHub Models",
+                "measurement": True,
+                "feature_count": 13,
+                "listing_count": 13,
+                "regions": ["github-global"],
+            }
+        ],
+    }
+
+
+def _clustered_digest(*, varying=False):
+    second_regions = ["westus3"] if varying else ["eastus"]
+    second_after = 4 if varying else 3
+    return {
+        "version": 1,
+        "totals": {
+            "gained_features": 2,
+            "gained_listings": 2,
+            "lost_features": 0,
+            "lost_listings": 0,
+            "catalog_gap_listings": 0,
+            "measurement_gap_listings": 0,
+        },
+        "modalities": [
+            {
+                "modality": "VM SKUs",
+                "gained_features": 2,
+                "gained_listings": 2,
+                "gained_regions": sorted({"eastus", *second_regions}),
+                "lost_features": 0,
+                "lost_listings": 0,
+                "lost_regions": [],
+                "features": [
+                    {
+                        "feature": "vmSkus.standard.d2s.v7",
+                        "label": "Standard D2s V7 VM size",
+                        "modality": "VM SKUs",
+                        "short": "General purpose, 2 vCPUs, premium SSD capable (v7)",
+                        "cluster": {"key": "vm:D:v7", "label": "Dv7-series · general purpose"},
+                        "specificity": "family",
+                        "details_url": None,
+                        "gained_regions": ["eastus"],
+                        "restored_regions": [],
+                        "lost_regions": [],
+                        "coverage_before": 2,
+                        "coverage_after": 3,
+                        "first_seen": False,
+                        "new_geographies": [],
+                        "learn_reference": None,
+                    },
+                    {
+                        "feature": "vmSkus.standard.d4s.v7",
+                        "label": "Standard D4s V7 VM size",
+                        "modality": "VM SKUs",
+                        "short": "General purpose, 4 vCPUs, premium SSD capable (v7)",
+                        "cluster": {"key": "vm:D:v7", "label": "Dv7-series · general purpose"},
+                        "specificity": "family",
+                        "details_url": None,
+                        "gained_regions": second_regions,
+                        "restored_regions": second_regions,
+                        "lost_regions": [],
+                        "coverage_before": 2,
+                        "coverage_after": second_after,
+                        "first_seen": False,
+                        "new_geographies": [],
+                        "learn_reference": None,
+                    },
+                ],
+            },
+        ],
+        "gaps": [],
+    }
+
+
+def test_digest_headline_prefers_gains_and_measurement_gaps_do_not_hijack():
+    day = _digest_day(_digest())
+    page = render_briefing(day)
+    assert briefing_headline(day["briefing"]) == "2 VM sizes gained regions · nothing dropped"
+    assert 'class="briefing-headline--gain"' in page
+    assert "Evidence gaps need attention" not in page
+    assert "13 GitHub Models latency checks returned no result" in page
+    assert "measurement gap, not catalog evidence" in page
+    assert briefing_excerpt(day["briefing"]) == (
+        "2 VM sizes gained regions (Brazil South, East Asia, East US, North Central US); "
+        "nothing dropped; 13 measurement gaps were not catalog evidence. "
+        "Catalog evidence, not deployment results."
+    )
+
+
+def test_digest_headline_leads_with_losses_and_uses_red_tone():
+    day = _digest_day(_digest(lost_features=1))
+    page = render_briefing(day)
+    assert briefing_headline(day["briefing"]).startswith("1 VM size dropped regions")
+    assert 'class="briefing-headline--loss"' in page
+    assert "▼ 1 VM size −2 listings" in page
+    assert "▲ 2 VM sizes +5 listings" in page
+
+
+def test_digest_feature_with_gain_and_loss_renders_both_region_deltas():
+    digest = _digest(gained_features=1, lost_features=1)
+    feature = digest["modalities"][0]["features"][0]
+    feature["gained_regions"] = ["westus3"]
+    feature["restored_regions"] = []
+    feature["lost_regions"] = ["eastus"]
+    digest["modalities"][0]["gained_regions"] = ["westus3"]
+    digest["modalities"][0]["lost_regions"] = ["eastus"]
+
+    page = render_briefing(_digest_day(digest))
+
+    assert "<strong>Dropped:</strong>" in page
+    assert "<strong>Gained:</strong>" in page
+    assert "− East US" in page
+    assert "+ West US 3" in page
+
+
+def test_digest_regions_tooltip_restored_badges_and_safe_learn_links():
+    page = render_briefing(_digest_day(_digest()))
+    assert 'title="Brazil South, East Asia (returned), East US, North Central US"' in page
+    assert 'aria-label="+4 regions: Brazil South, East Asia (returned), East US, North Central US"' in page
+    assert "East Asia (returned)" in page
+    assert "briefing-region-chip-gain" in page
+    assert "9 &rarr; 11 regions" in page
+    assert "first listing" in page
+    assert "first in Asia Pacific" in page
+    assert 'href="https://learn.microsoft.com/azure/virtual-machines/dv7-series"' in page
+    assert 'href="http://learn.microsoft.com/not-safe"' not in page
+
+
+def test_digest_clusters_shared_and_varying_region_deltas():
+    shared = render_briefing(_digest_day(_clustered_digest()))
+    assert "Dv7-series · general purpose" in shared
+    assert "2 VM sizes: D2s, D4s" in shared
+    assert "2 &rarr; 3 regions" in shared
+    assert "varies by size" not in shared
+    assert "briefing-badge-returned" in shared
+    assert "briefing-digest-cluster-details" in shared
+
+    varying = render_briefing(_digest_day(_clustered_digest(varying=True)))
+    assert "+ East US" in varying
+    assert "+ West US 3 (returned)" in varying
+    assert "2 &rarr; 3–4 regions" in varying
+    assert "varies by size" in varying
+
+
+def test_digest_restored_only_cluster_does_not_show_first_listing_badges():
+    features = ["vmSkus.standard.d2s.v7", "vmSkus.standard.d4s.v7"]
+    previous = Snapshot.model_validate({
+        "timestamp": "2026-09-05T08:00:00Z",
+        "regions": {"eastus": {"compute": {
+            feature: {"status": "unavailable"} for feature in features
+        }}},
+    })
+    current = Snapshot.model_validate({
+        "timestamp": "2026-09-06T08:00:00Z",
+        "regions": {"eastus": {"compute": {
+            feature: {"status": "available"} for feature in features
+        }}},
+    })
+    contexts = {
+        ("eastus", "compute", feature): ChangeContext(
+            classification="restored_availability",
+            available_days=1,
+            last_available_date="2026-09-01",
+        )
+        for feature in features
+    }
+
+    page = render_briefing({
+        "date": "2026-09-06",
+        "change_path": "changes/2026-09-06.json",
+        "briefing": build_briefing(current, previous, contexts=contexts),
+    })
+
+    assert "Dv7-series · general purpose" in page
+    assert "first listing" not in page
+    assert "first in North America" not in page
+    assert "(2 returned)" in page
+
+
+def test_digest_escapes_untrusted_text_and_keeps_legacy_view_collapsed():
+    page = render_briefing(_digest_day(_digest()))
+    assert "<script>unsafe</script>" not in page
+    assert "&lt;script&gt;unsafe&lt;/script&gt;" in page
+    assert "<details class=\"briefing-content briefing-full-evidence\">" in page
+    assert "Full evidence, filters and history" in page
+    assert "Planning compute here?" not in page
+
+
+def test_digest_no_change_is_neutral_and_missing_digest_falls_back():
+    digest = _digest(gained_features=0)
+    digest["modalities"][0]["features"] = []
+    digest["modalities"][0]["gained_regions"] = []
+    digest["gaps"] = []
+    day = _digest_day(digest)
+    page = render_briefing(day)
+    assert briefing_headline(day["briefing"]) == "No regional listing changes since 2026-10-03"
+    assert 'class="briefing-headline--neutral"' in page
+    assert "No regional listing changes since 2026-10-03." in page
+    fallback = render_briefing(_day())
+    assert "Since the previous scan" in fallback
+    assert "Full evidence, filters and history" not in fallback
 
 
 def test_briefing_answers_reader_questions_without_conflating_features_and_listings():

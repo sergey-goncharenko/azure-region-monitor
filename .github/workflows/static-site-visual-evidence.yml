@@ -124,6 +124,8 @@ jobs:
       - name: Build comparable static sites
         id: builds
         continue-on-error: true
+        env:
+          LEARN_LOOKUP_ENABLED: "0"
         run: |
           set -euo pipefail
           mkdir -p "$EVIDENCE_DIR"

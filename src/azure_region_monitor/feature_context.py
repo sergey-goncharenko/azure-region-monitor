@@ -68,10 +68,13 @@ def _description(
     sources: tuple[dict[str, str], ...],
     limitations: str,
     specificity: str = "exact",
+    short: str | None = None,
 ) -> dict[str, Any]:
+    short_text = _clean_short(short or summary)
     return {
         "title": title,
         "summary": summary,
+        "short": short_text,
         "differentiators": list(differentiators),
         "use_cases": use_cases,
         "sources": [dict(source) for source in sources],
@@ -79,6 +82,31 @@ def _description(
         "verified_on": "" if specificity == "unverified" else _VERIFIED_ON,
         "limitations": limitations,
     }
+
+
+def _clean_short(text: str) -> str:
+    cleaned = " ".join(text.split())
+    cleaned = re.sub(r"\bunverified\b\s*", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(
+        r"\s*without a verified exact product mapping", "",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(
+        r";?\s*exact capabilities are not verified",
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(
+        r";?\s*exact specifications are not verified for this identifier",
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    if len(cleaned) > 100:
+        cleaned = cleaned[:101].rsplit(" ", 1)[0]
+    return cleaned.rstrip(".")
 
 
 @dataclass(frozen=True)
@@ -91,6 +119,185 @@ class _VmSeries:
     purpose: str
     page: str
     ram_overrides: tuple[tuple[int, int], ...] = ()
+
+
+@dataclass(frozen=True)
+class _VmFamily:
+    purpose: str
+    page: str
+
+
+@dataclass(frozen=True)
+class _VmName:
+    family: str
+    cpu: int
+    suffix: str
+    generation: str
+    constrained_cpu: int | None
+    extras: tuple[str, ...]
+    sku: str
+
+
+_VM_FAMILIES = {
+    "a": _VmFamily("Entry-level general purpose", "sizes/general-purpose/a-family"),
+    "b": _VmFamily("Burstable general purpose", "sizes/general-purpose/b-family"),
+    "d": _VmFamily("General purpose", "sizes/general-purpose/d-family"),
+    "dc": _VmFamily("Confidential general purpose", "sizes/general-purpose/dc-family"),
+    "e": _VmFamily("Memory optimized", "sizes/memory-optimized/e-family"),
+    "eb": _VmFamily(
+        "Memory optimized with high remote storage performance",
+        "sizes/memory-optimized/eb-family",
+    ),
+    "ec": _VmFamily("Confidential memory optimized", "sizes/memory-optimized/ec-family"),
+    "f": _VmFamily("Compute optimized", "sizes/compute-optimized/f-family"),
+    "g": _VmFamily("Memory and storage optimized", "sizes/memory-optimized/g-family"),
+    "h": _VmFamily("High performance compute", "sizes/high-performance-compute/h-family"),
+    "hb": _VmFamily("High performance compute", "sizes/high-performance-compute/hb-family"),
+    "hc": _VmFamily("High performance compute", "sizes/high-performance-compute/hc-family"),
+    "l": _VmFamily("Storage optimized", "sizes/storage-optimized/l-family"),
+    "m": _VmFamily("Large-memory optimized", "sizes/memory-optimized/m-family"),
+    "nc": _VmFamily("GPU compute optimized", "sizes/gpu-accelerated/nc-family"),
+    "ncc": _VmFamily("Confidential GPU compute optimized", "sizes/gpu-accelerated/nc-family"),
+    "nd": _VmFamily("GPU AI training optimized", "sizes/gpu-accelerated/nd-family"),
+    "ng": _VmFamily("GPU cloud gaming and remote desktop optimized", "sizes/gpu-accelerated/ng-family"),
+    "np": _VmFamily("FPGA accelerated", "sizes/fpga-accelerated/np-family"),
+    "nv": _VmFamily("GPU visualization optimized", "sizes/gpu-accelerated/nv-family"),
+}
+_VM_FEATURES = {
+    "a": "AMD-based",
+    "b": "remote storage bandwidth optimized",
+    "d": "local temp disk",
+    "e": "confidential TDX",
+    "f": "1:1 CPU/memory",
+    "i": "isolated",
+    "l": "low memory",
+    "m": "memory intensive",
+    "n": "network optimized",
+    "o": "more local SSD per vCPU",
+    "p": "ARM-based",
+    "r": "RDMA",
+    "s": "premium SSD capable",
+    "t": "tiny memory",
+}
+
+
+def _parse_vm_name(slug: str) -> _VmName | None:
+    if not slug.startswith("standard."):
+        return None
+    parts = slug.removeprefix("standard.").split(".")
+    if not parts or any(not part for part in parts):
+        return None
+
+    generation = ""
+    if re.fullmatch(r"v[1-9][0-9]*", parts[-1]):
+        generation = parts[-1][1:]
+        parts = parts[:-1]
+    if len(parts) > 3:
+        return None
+
+    match = re.fullmatch(r"([a-z]+)([1-9][0-9]{0,3})(?:-([1-9][0-9]{0,3}))?([a-z]*)", parts[0])
+    if not match:
+        return None
+    family, cpu_text, constrained_text, suffix = match.groups()
+    if family not in _VM_FAMILIES:
+        return None
+    if any(letter not in _VM_FEATURES for letter in suffix):
+        return None
+
+    extras = tuple(parts[1:])
+    if any(
+        not (
+            re.fullmatch(r"[a-z][a-z0-9]*", extra)
+            or (family == "m" and re.fullmatch(r"[1-9][0-9]*", extra))
+        )
+        or re.fullmatch(r"v[1-9][0-9]*", extra)
+        for extra in extras
+    ):
+        return None
+
+    cpu = int(cpu_text)
+    constrained_cpu = int(constrained_text) if constrained_text else None
+    if constrained_cpu is not None and constrained_cpu >= cpu:
+        return None
+    sku_family = family.upper()
+    sku = f"Standard_{sku_family}{cpu_text}"
+    if constrained_text:
+        sku += f"-{constrained_text}"
+    sku += suffix
+    if extras:
+        sku += "_" + "_".join(extra.upper() for extra in extras)
+    if generation:
+        sku += f"_v{generation}"
+    return _VmName(family, cpu, suffix, generation, constrained_cpu, extras, sku)
+
+
+def _vm_name_short(decoded: _VmName, family: _VmFamily) -> str:
+    parts = [family.purpose, f"{decoded.cpu} vCPUs"]
+    if decoded.constrained_cpu is not None:
+        parts.append(f"{decoded.constrained_cpu} active vCPUs")
+    for letter in decoded.suffix:
+        parts.append(_VM_FEATURES[letter])
+    parts.extend(extra.upper() for extra in decoded.extras)
+    if decoded.generation:
+        parts.append(f"v{decoded.generation}")
+    short = ", ".join(parts)
+    replacements = (
+        ("remote storage bandwidth optimized", "remote storage bandwidth"),
+        ("premium SSD capable", "Premium SSD"),
+        ("more local SSD per vCPU", "more local SSD"),
+        ("GPU cloud gaming and remote desktop optimized", "GPU cloud gaming/remote desktop"),
+        ("Memory optimized with high remote storage performance", "Memory optimized, high storage perf"),
+    )
+    for old, new in replacements:
+        if len(short) <= 100:
+            break
+        short = short.replace(old, new)
+    return short
+
+
+def _vm_cluster(decoded: _VmName, family: _VmFamily) -> tuple[str, str]:
+    version = f"v{decoded.generation}" if decoded.generation else "unknown"
+    family_code = decoded.family.upper()
+    purpose = family.purpose.replace("Large-memory optimized", "Memory optimized").lower()
+    return f"vm:{family_code}:{version}", f"{family_code}{version}-series · {purpose}"
+
+
+def _vm_decoded_context(feature: str, decoded: _VmName) -> dict[str, Any]:
+    family = _VM_FAMILIES[decoded.family]
+    feature_facts = tuple(
+        f"{letter} = {_VM_FEATURES[letter]} in the documented naming convention."
+        for letter in decoded.suffix
+    )
+    facts = (
+        f"The name encodes {decoded.cpu} vCPUs.",
+        *((
+            f"The name constrains usable vCPUs to {decoded.constrained_cpu}."
+        ,) if decoded.constrained_cpu is not None else ()),
+        *feature_facts,
+        *((
+            "The name includes accelerator or memory marker "
+            + ", ".join(extra.upper() for extra in decoded.extras) + "."
+        ,) if decoded.extras else ()),
+        *((
+            f"The name identifies VM family-series version v{decoded.generation}."
+        ,) if decoded.generation else ()),
+    )
+    context = _description(
+        f"{decoded.sku} - {family.purpose} VM size",
+        f"{decoded.sku} is a {family.purpose.lower()} VM size decoded from Azure's naming convention.",
+        facts,
+        "Use for initial triage, then open the exact size page before sizing or deploying a workload.",
+        (
+            _source("Azure VM sizes naming conventions", _VM_BASE + "vm-naming-conventions"),
+            _source(f"{family.purpose} family overview", _VM_BASE + family.page),
+        ),
+        "Naming-convention decoding does not verify memory, CPU model, GPU model, disk throughput, "
+        "network bandwidth, quota, capacity, price, successful deployment, or measured performance.",
+        "family",
+        _vm_name_short(decoded, family),
+    )
+    context["family_key"], context["family_label"] = _vm_cluster(decoded, family)
+    return context
 
 
 # All six v6 Basics tables list precisely these sizes, including 2 and 128.
@@ -151,8 +358,13 @@ def _vm_context(feature: str) -> dict[str, Any]:
             "evaluate sustained CPU demand before choosing a credit-based size.",
             (_source("Bv1 series specifications", _VM_BASE + "sizes/general-purpose/bv1-series"),),
             _VM_LIMIT,
+            short="Burstable general purpose, 2 vCPUs, premium SSD capable",
         )
-    match = re.fullmatch(r"standard\.([de])([1-9][0-9]{0,2})([a-z]+)\.v([1-9][0-9]*)", slug)
+    decoded = _parse_vm_name(slug)
+    match = (
+        re.fullmatch(r"standard\.([de])([1-9][0-9]{0,2})([a-z]+)\.v([1-9][0-9]*)", slug)
+        if decoded is not None and not decoded.extras and decoded.constrained_cpu is None else None
+    )
     series = None
     if match:
         family, cpu_text, suffix, generation = match.groups()
@@ -183,7 +395,7 @@ def _vm_context(feature: str) -> dict[str, Any]:
                 "network-facing services with modest memory needs" if "l" in suffix else
                 "application servers and network-facing services"
             )
-            return _description(
+            context = _description(
                 f"{sku} - {network}{series.purpose} VM",
                 f"{series.name} is a {network}{series.purpose} VM series using "
                 f"{series.processor} processors.",
@@ -196,7 +408,15 @@ def _vm_context(feature: str) -> dict[str, Any]:
                     _source("VM size suffix meanings", _VM_BASE + "vm-naming-conventions"),
                 ),
                 _VM_LIMIT,
+                short=_vm_name_short(decoded, _VM_FAMILIES[decoded.family]) if decoded else None,
             )
+            if decoded is not None:
+                context["family_key"], context["family_label"] = _vm_cluster(
+                    decoded, _VM_FAMILIES[decoded.family]
+                )
+            return context
+    if decoded is not None:
+        return _vm_decoded_context(feature, decoded)
     sources = [_search(feature), _source("Azure VM sizes", _VM_BASE + "sizes/overview")]
     facts = (
         "This signal represents a name in the regional VM size catalog, not a running VM.",
@@ -263,6 +483,8 @@ _EXTENSION_ALIASES = {
 def _extension_context(feature: str) -> dict[str, Any]:
     identity = _EXTENSION_ALIASES.get(feature, feature.removeprefix("extensionTypes.").lower())
     profile = _EXTENSION_PROFILES.get(identity)
+    family_key = f"extensionTypes.{identity}"
+    family_label = plain_feature_name(family_key)
     if profile:
         title, summary, facts, use_cases, page = profile
         sources = [_source(title, _LEARN + page)]
@@ -271,7 +493,10 @@ def _extension_context(feature: str) -> dict[str, Any]:
                 "Microsoft's exact VMware extension-type mapping",
                 _LEARN + "azure/azure-arc/resource-graph-samples",
             ))
-        return _description(title, summary, facts, use_cases, tuple(sources), _EXTENSION_LIMIT)
+        context = _description(title, summary, facts, use_cases, tuple(sources), _EXTENSION_LIMIT)
+        context["family_key"] = family_key
+        context["family_label"] = family_label
+        return context
     facts = (
         "The probe observes a regional extension-type catalog, not installed cluster software.",
         "The exact extension's purpose and cluster requirements have not been verified.",
@@ -284,12 +509,15 @@ def _extension_context(feature: str) -> dict[str, Any]:
             "microsoft.azurepolicy identifier has not been verified as an alias.",
         )
         sources.append(_source("Documented Azure Policy extension identity", _POLICY))
-    return _description(
+    context = _description(
         f"{identity} - unverified extension identity",
         "A regional extension catalog identifier without a verified exact product mapping.",
         facts, "Check the exact extension's documentation and cluster prerequisites before use.",
         tuple(sources), "Exact extension identity is unverified. " + _EXTENSION_LIMIT, "unverified",
     )
+    context["family_key"] = family_key
+    context["family_label"] = family_label
+    return context
 
 
 _RUNTIME_PROFILES = {
@@ -351,6 +579,7 @@ def _runtime_context(feature: str) -> dict[str, Any]:
             "Verify the language, version, and hosting-plan compatibility before selecting it.",
             (_search(feature), _source("Functions language support", _FUNCTIONS_BASE + "supported-languages")),
             "This exact runtime has not been verified. " + _FUNCTION_LIMIT, "unverified",
+            f"{plain_feature_name(feature)} Functions runtime catalog entry",
         )
     title, page, summary, distinction, use_cases = profile
     supported = version in _FLEX_RUNTIME_VERSIONS.get(language, ())
@@ -371,6 +600,7 @@ def _runtime_context(feature: str) -> dict[str, Any]:
             if language == "dotnet" else ""
         ),
         "exact" if supported else "family",
+        f"{title} {version} on Flex Consumption",
     )
 
 
@@ -552,6 +782,12 @@ def _model_context(feature: str) -> dict[str, Any]:
     if profile:
         title = profile.title + (f" (catalog version {version})" if version else "")
         exact = version in profile.versions
+        provider_label = {"openai": "OpenAI", "anthropic": "Anthropic"}.get(publisher, publisher)
+        model_kind = (
+            "embedding model" if "embedding" in model_key else
+            "reasoning model" if model_key.startswith(("o", "gpt-5", "gpt-6", "claude")) else
+            "chat model"
+        )
         context = _description(
             title, profile.summary, profile.facts,
             f"Consider for {profile.use_cases}; validate the exact deployment and version.",
@@ -563,7 +799,11 @@ def _model_context(feature: str) -> dict[str, Any]:
                 "endpoint mapping has not been verified."
             ),
             "exact" if exact else "family",
+            f"{provider_label} {profile.title} {model_kind}"
+            + (f", version {version}" if version else ""),
         )
+        context["family_key"] = f"model:{publisher}:{model_key}"
+        context["family_label"] = profile.title
     else:
         provider_label = {"openai": "OpenAI", "anthropic": "Anthropic"}.get(publisher, publisher)
         provider_url = _CLAUDE if publisher == "anthropic" else (
@@ -585,7 +825,10 @@ def _model_context(feature: str) -> dict[str, Any]:
             "No exact model capability or version is verified. The source provides category "
             "context only. " + _MODEL_LIMIT,
             "category",
+            f"{provider_label or 'Foundry'} {display_model_name(model_and_version)} model identifier",
         )
+        context["family_key"] = f"model:{publisher}:{model.lower()}"
+        context["family_label"] = display_model_name(model)
     if modality == "modelLatency":
         context["summary"] = (
             "A GitHub Models endpoint inference-latency observation, not an Azure regional "
@@ -597,6 +840,7 @@ def _model_context(feature: str) -> dict[str, Any]:
             "July 30, 2026; retained observations do not prove the service is currently available. "
             + context["limitations"]
         )
+        context["short"] = f"Inference latency measurement for {display_model_name(model_and_version)}"
         sources.append(_source("GitHub Models service status", _GITHUB_MODELS))
     elif modality == "aiLatency":
         context["summary"] = (
@@ -608,24 +852,31 @@ def _model_context(feature: str) -> dict[str, Any]:
             "It does not prove deployment-local data processing or performance for other prompts. "
             + context["limitations"]
         )
+        context["short"] = f"Azure inference latency measurement for {display_model_name(model_and_version)}"
     context["sources"].extend(sources)
+    return context
+
+
+def _with_family_fields(feature: str, context: dict[str, Any]) -> dict[str, Any]:
+    context.setdefault("family_key", feature or context["title"])
+    context.setdefault("family_label", plain_feature_name(feature) if feature else context["title"])
     return context
 
 
 def describe_feature(feature: str) -> dict[str, Any]:
     """Return independent JSON-serializable context without I/O or status changes."""
     if feature.startswith("vmSkus."):
-        return _vm_context(feature)
-    if feature.startswith(("extensionTypes.", "extensions.")):
-        return _extension_context(feature)
-    if feature.startswith("runtimes."):
-        return _runtime_context(feature)
-    if feature.startswith("containerApps."):
-        return _container_context(feature)
-    if feature.startswith(("aiModels.", "modelLatency.", "aiLatency.")):
-        return _model_context(feature)
-    if feature == "hostingPlans.flexConsumption":
-        return _description(
+        context = _vm_context(feature)
+    elif feature.startswith(("extensionTypes.", "extensions.")):
+        context = _extension_context(feature)
+    elif feature.startswith("runtimes."):
+        context = _runtime_context(feature)
+    elif feature.startswith("containerApps."):
+        context = _container_context(feature)
+    elif feature.startswith(("aiModels.", "modelLatency.", "aiLatency.")):
+        context = _model_context(feature)
+    elif feature == "hostingPlans.flexConsumption":
+        context = _description(
             "Azure Functions Flex Consumption",
             "A Linux-based serverless hosting plan for event-driven functions.",
             ("Supports virtual network integration and selectable instance memory sizes.",
@@ -636,9 +887,10 @@ def describe_feature(feature: str) -> dict[str, Any]:
             (_source("Flex Consumption hosting plan", _FLEX),),
             "The probe checks the Flex Consumption location list, not deployment or quota. "
             "Absence means the region is not listed, not that quota is exhausted.",
+            short="Linux serverless Azure Functions hosting on Flex Consumption",
         )
-    if feature.startswith("hostingPlans."):
-        return _description(
+    elif feature.startswith("hostingPlans."):
+        context = _description(
             f"{feature.removeprefix('hostingPlans.')} - unverified Functions hosting plan",
             "A hosting-plan identifier without a verified exact product mapping.",
             ("Hosting-plan evidence describes where a function app can be hosted, not its language.",
@@ -648,10 +900,11 @@ def describe_feature(feature: str) -> dict[str, Any]:
             "This exact hosting-plan capability is unverified; Flex Consumption facts must not "
             "be assumed to apply to another plan.",
             "unverified",
+            f"{feature.removeprefix('hostingPlans.')} Functions hosting plan identifier",
         )
-    if feature.startswith("kubernetesVersions."):
+    elif feature.startswith("kubernetesVersions."):
         version = feature.removeprefix("kubernetesVersions.")
-        return _description(
+        context = _description(
             f"AKS Kubernetes {version}",
             "A Kubernetes version track in the regional AKS version listing.",
             ("Minor versions can introduce features and API changes; patches contain fixes.",
@@ -663,28 +916,32 @@ def describe_feature(feature: str) -> dict[str, Any]:
             "Version-specific capabilities, GA status, support dates, and cluster upgrade paths "
             "are not inferred from this identifier. A newly observed listing is not a launch.",
             "category",
+            f"AKS Kubernetes {version} cluster version",
         )
-    catalogs = {
-        "vmSkuCatalog": ("VM size catalog", _VM_BASE + "sizes/overview"),
-        "extensionCatalog": ("Kubernetes extension catalog", _EXTENSIONS),
-        "aiModelCatalog": ("Azure AI model catalog", _MODELS),
-    }
-    if feature in catalogs:
-        title, url = catalogs[feature]
-        return _description(
-            title, "A catalog-level probe result rather than an individual product capability.",
-            ("Catalog retrieval can fail independently of individual feature availability.",
-             "An unknown catalog result provides no reliable evidence of product absence."),
-            "Inspect the recorded probe evidence before treating a missing entry as a capability change.",
-            (_source(title, url),), "No individual feature specifications are verified by this marker.",
-            "category",
-        )
-    return _description(
-        feature or "Unrecognized feature",
-        "An identifier without a verified offline capability description.",
-        ("No exact product capability has been verified for this identifier.",
-         "The recorded probe evidence, not the identifier alone, determines what was observed."),
-        "Research the exact identifier and its evidence before making a placement or adoption decision.",
-        (_search(feature),), "Unverified identifier; no specification, launch, or availability claim.",
-        "unverified",
-    )
+    else:
+        catalogs = {
+            "vmSkuCatalog": ("VM size catalog", _VM_BASE + "sizes/overview"),
+            "extensionCatalog": ("Kubernetes extension catalog", _EXTENSIONS),
+            "aiModelCatalog": ("Azure AI model catalog", _MODELS),
+        }
+        if feature in catalogs:
+            title, url = catalogs[feature]
+            context = _description(
+                title, "A catalog-level probe result rather than an individual product capability.",
+                ("Catalog retrieval can fail independently of individual feature availability.",
+                 "An unknown catalog result provides no reliable evidence of product absence."),
+                "Inspect the recorded probe evidence before treating a missing entry as a capability change.",
+                (_source(title, url),), "No individual feature specifications are verified by this marker.",
+                "category",
+            )
+        else:
+            context = _description(
+                feature or "Unrecognized feature",
+                "An identifier without a verified offline capability description.",
+                ("No exact product capability has been verified for this identifier.",
+                 "The recorded probe evidence, not the identifier alone, determines what was observed."),
+                "Research the exact identifier and its evidence before making a placement or adoption decision.",
+                (_search(feature),), "Unverified identifier; no specification, launch, or availability claim.",
+                "unverified",
+            )
+    return _with_family_fields(feature, context)
