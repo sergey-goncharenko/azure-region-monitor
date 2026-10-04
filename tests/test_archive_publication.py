@@ -190,6 +190,11 @@ def test_all_publication_workflows_share_guard_and_recovery_order():
         assert "steps.sources.outputs.history_url" in workflow
         assert "always() && steps." in workflow
         assert "du -sh public" not in workflow
+        for budget in ("MAX_BYTES", "WARN_BYTES", "MAX_FILES", "WARN_FILES"):
+            assert (
+                f"AZWATCH_PUBLICATION_{budget}: "
+                f"${{{{ vars.AZWATCH_PUBLICATION_{budget} }}}}"
+            ) in workflow
     action = (ROOT / ".github" / "actions" / "publish-dashboard" / "action.yml").read_text()
     positions = [
         action.index(text) for text in (
@@ -203,6 +208,7 @@ def test_all_publication_workflows_share_guard_and_recovery_order():
     assert "retention-days: 90" in action
     assert action.count("include-hidden-files: true") == 2
     assert "api_location:" in action
+    assert "${{ vars." not in action
 
 
 def test_real_export_publisher_and_next_run_use_identical_generation(tmp_path, monkeypatch):

@@ -74,11 +74,6 @@ runs:
 
     - name: Enforce publication size and file budgets
       shell: bash
-      env:
-        AZWATCH_PUBLICATION_MAX_BYTES: ${{ vars.AZWATCH_PUBLICATION_MAX_BYTES }}
-        AZWATCH_PUBLICATION_WARN_BYTES: ${{ vars.AZWATCH_PUBLICATION_WARN_BYTES }}
-        AZWATCH_PUBLICATION_MAX_FILES: ${{ vars.AZWATCH_PUBLICATION_MAX_FILES }}
-        AZWATCH_PUBLICATION_WARN_FILES: ${{ vars.AZWATCH_PUBLICATION_WARN_FILES }}
       run: |
         set -euo pipefail
         python scripts/publication_budget.py public \
