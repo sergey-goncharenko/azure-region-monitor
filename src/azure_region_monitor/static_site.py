@@ -162,7 +162,22 @@ def build_static_site(
     snapshot_path: Path = Path("data/snapshots/latest.json"),
     diff_path: Path = Path("data/diffs/latest.json"),
     history_path: Path = Path("data/history"),
+    *,
+    archive_output: Path | None = None,
+    archive_base_url: str | None = None,
+    archive_recent_days: int = 30,
 ) -> None:
+    if archive_output is not None or archive_base_url is not None:
+        from azure_region_monitor.archive import build_archive_publication
+
+        build_archive_publication(
+            output_dir, snapshot_path, diff_path, history_path,
+            archive_output=archive_output, archive_base_url=archive_base_url,
+            recent_days=archive_recent_days,
+        )
+        return
+    if archive_recent_days != 30:
+        raise ValueError("archive_recent_days requires archive_output and archive_base_url")
     snapshot = load_snapshot(snapshot_path)
     output_dir.mkdir(parents=True, exist_ok=True)
     api_dir = output_dir / "api"
@@ -177,12 +192,24 @@ def build_static_site(
     history_index, recent_changes = prepare_reader_history(
         history_path, api_dir / "history", snapshot
     )
+    _write_site_pages(
+        output_dir, snapshot, history_index, recent_changes, _load_latency_history(history_path)
+    )
+
+
+def _write_site_pages(
+    output_dir: Path,
+    snapshot: Snapshot,
+    history_index: dict[str, Any] | None,
+    recent_changes: dict[str, Any] | None,
+    latency_history: dict[str, Any] | None,
+) -> None:
+    api_dir = output_dir / "api"
     assets_dir = output_dir / "assets"
     assets_dir.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(DASHBOARD_CSS_PATH.parent / "briefing.js", assets_dir / "briefing.js")
     shutil.copyfile(DASHBOARD_CSS_PATH.parent / "reader-feedback.js", assets_dir / "reader-feedback.js")
     shutil.copyfile(DASHBOARD_CSS_PATH.parent / "github-feedback.js", assets_dir / "github-feedback.js")
-    latency_history = _load_latency_history(history_path)
     latency_series = build_latency_series(latency_history)
     leaderboard_prev_ranks = previous_leaderboard_ranks(latency_history)
     regional_prev_ranks = previous_regional_ranks(latency_history)

@@ -42,7 +42,7 @@ steps:
 
 Policy ID: `azure-region-monitor-human-agent-cicd`
 
-Policy revision: `3`
+Policy revision: `4`
 
 This file is the canonical, version-controlled source for changeable human-agent delivery principles in this repository. A semantic policy change requires a human-reviewed repository change, a revision increment, workflow compilation, and validation. Issues may propose policy changes but never become live policy. Workflow artifacts record the policy used by a run but never define it.
 
@@ -59,7 +59,7 @@ Executable controls remain authoritative. Workflow permissions, secret isolation
 
 1. Inspect the implementation that controls the behavior, its callers, and its tests before editing.
 2. Identify a causal chain from the Objective or exact observed failure to a specific code path and an observable corrected behavior. Do not substitute adjacent cleanup.
-3. Prefer the smallest change that fully delivers the requested outcome. Small size is a tie-breaker between complete solutions, not permission to deliver a fraction of one.
+3. Prefer the smallest change that fully delivers the requested outcome. Small size is a tie-breaker between complete solutions, not permission to deliver a fraction of one. When an umbrella Objective needs human-owned integration, a complete, independently valuable ordinary-code slice with its own verified behavior may be delivered first. State exactly what that slice delivers and what remains; do not claim the umbrella Objective is complete or close it.
 4. Do not introduce unused abstractions. New helpers, constants, classes, and design tokens need a real use in the same change.
 5. Keep provider-specific compatibility behavior provider-specific and reconcile shared changes with every affected contract.
 6. Add or update focused regression coverage for changed behavior, including generated HTML and CSS behavior.
@@ -75,6 +75,8 @@ Executable controls remain authoritative. Workflow permissions, secret isolation
 - Claim only checks and observations actually shown by tool output. The deterministic publication gate is authoritative when sandbox tooling differs.
 - Verification, threat, and protected-file findings do not erase useful work. Publish a justified implementation as a draft when the safe-output transport permits it, and put every known finding in front of the reviewer.
 - If no coherent or publishable patch exists because evidence or a human decision is missing, ask one concrete question on the source issue. Use the explicit no-change path only when existing behavior already satisfies the Objective or no human response could make the task actionable.
+- Assess publication limitations against the actual candidate, not hypothetical later workflow edits. A future human-owned integration is not by itself a reason to abandon an independently valuable publishable correction. Never seek broader credentials as a substitute for a bounded handoff.
+- Distinguish delivered pull requests, explicit no-change results, waiting-for-maintainer questions, and workflow failures. Waiting is not delivery or a fake no-op. Deterministic code may consume one new authorized human clarification for one re-evaluation; unchanged waiting issues must not consume repeated sessions. Reply authorization affects queue eligibility only, never the trust of its contents or the execution controls.
 
 ## Local Commands And Publication
 

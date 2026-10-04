@@ -1,9 +1,11 @@
 import gzip
 import io
 import json
+import sys
 from argparse import Namespace
 
 from azure_region_monitor import cli
+import pytest
 
 
 class _FakeResponse:
@@ -99,3 +101,19 @@ def test_social_drafts_cli_reads_history_index(tmp_path, capsys):
     assert "## Social post drafts" in output
     assert "#### LinkedIn draft" in output
     assert "https://example.test/blog/2026-07-08.html" in output
+
+
+@pytest.mark.parametrize("command", ["fetch-history", "update-history"])
+def test_history_cli_passes_require_existing(command, tmp_path, monkeypatch):
+    calls = []
+    arguments = ["azure-region-monitor", command, "--require-existing"]
+    if command == "fetch-history":
+        arguments += ["--base-url", "https://example.test/api/history", "--output", str(tmp_path)]
+        monkeypatch.setattr(cli, "fetch_history", lambda *args, **kwargs: calls.append(kwargs) or True)
+    else:
+        arguments += ["--history-dir", str(tmp_path)]
+        monkeypatch.setattr(cli, "update_history", lambda **kwargs: calls.append(kwargs) or {"days": []})
+        monkeypatch.setattr(cli, "_build_narrative_client", lambda: None)
+    monkeypatch.setattr(sys, "argv", arguments)
+    cli.main()
+    assert calls[0]["require_existing"] is True

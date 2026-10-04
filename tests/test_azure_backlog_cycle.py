@@ -4,6 +4,7 @@ import importlib.util
 import json
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "run_azure_backlog_cycle.py"
@@ -21,6 +22,35 @@ def test_max_issue_items_is_bounded_to_three_coding_slots():
 
 def test_max_issue_items_uses_safe_default_for_invalid_input():
     assert backlog_cycle._max_issue_items("not-a-number") == 3
+
+
+def test_agentic_waiting_is_filtered_before_slot_limit_and_targeting(monkeypatch, tmp_path):
+    path = tmp_path / "issues.json"
+    path.write_text(json.dumps([
+        {
+            "number": number, "title": f"Improve static site {number}",
+            "body": "### Priority\nUrgent\n\n### Objective\nImprove static site accessibility.",
+            "labels": [{"name": "azure-backlog"}],
+        }
+        for number in (132, 133, 134, 135)
+    ]), encoding="utf-8")
+    states = {
+        number: {"waiting": number != 135, "state": None, "clarification": {}}
+        for number in (132, 133, 134, 135)
+    }
+    original = backlog_cycle._load_module
+    monkeypatch.setattr(
+        backlog_cycle, "_load_module",
+        lambda name, filename: SimpleNamespace(queue_state=lambda *args: states)
+        if name == "azure_agentic_queue_state" else original(name, filename),
+    )
+    cycle = backlog_cycle.build_cycle(path, 3, agentic_queue=True)
+    assert [task["issue_number"] for task in cycle["tasks"]] == [135]
+    assert cycle["status"]["waiting_for_maintainer_count"] == 3
+    assert cycle["status"]["eligible_count"] == 1
+    assert cycle["tasks"][0]["agentic_queue"] == states[135]
+    targeted = backlog_cycle.build_cycle(path, 3, target_issue=132, agentic_queue=True)
+    assert targeted["tasks"] == []
 
 
 def test_load_rework_context_validates_bounded_requirements(tmp_path):

@@ -8,6 +8,7 @@ __pycache__/
 dist/
 build/
 public/
+.publication/
 *.egg-info/
 
 # Generated at deploy time by the Azure model latency workflow

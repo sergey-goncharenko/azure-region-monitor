@@ -83,6 +83,18 @@ def main() -> None:
     static_parser.add_argument("--snapshot", type=Path, default=Path("data/snapshots/latest.json"))
     static_parser.add_argument("--diff", type=Path, default=Path("data/diffs/latest.json"))
     static_parser.add_argument("--history", type=Path, default=Path("data/history"))
+    static_parser.add_argument(
+        "--archive-output", type=Path,
+        help="Stage the complete archive in an empty directory; requires --archive-base-url",
+    )
+    static_parser.add_argument(
+        "--archive-base-url",
+        help="Exact HTTPS Azure Blob publication prefix, without credentials or query parameters",
+    )
+    static_parser.add_argument(
+        "--archive-recent-days", type=int, default=30,
+        help="Calendar days retained in the public projection (default: 30)",
+    )
     static_parser.set_defaults(handler=_build_static)
 
     social_parser = subparsers.add_parser(
@@ -98,6 +110,10 @@ def main() -> None:
     )
     fetch_history_parser.add_argument("--base-url", required=True)
     fetch_history_parser.add_argument("--output", type=Path, default=Path("data/history"))
+    fetch_history_parser.add_argument(
+        "--require-existing", action="store_true",
+        help="Fail when the remote index is missing instead of allowing first-run bootstrap",
+    )
     fetch_history_parser.set_defaults(handler=_fetch_history)
 
     update_history_parser = subparsers.add_parser(
@@ -106,6 +122,10 @@ def main() -> None:
     update_history_parser.add_argument("--snapshot", type=Path, default=Path("data/snapshots/latest.json"))
     update_history_parser.add_argument("--history-dir", type=Path, default=Path("data/history"))
     update_history_parser.add_argument("--base-url", default="")
+    update_history_parser.add_argument(
+        "--require-existing", action="store_true",
+        help="Require the remote history index with --base-url, otherwise require the local index",
+    )
     update_history_parser.set_defaults(handler=_update_history)
 
     merge_parser = subparsers.add_parser(
@@ -154,6 +174,8 @@ def _serve(args: argparse.Namespace) -> None:
 def _build_static(args: argparse.Namespace) -> None:
     build_static_site(
         args.output, snapshot_path=args.snapshot, diff_path=args.diff, history_path=args.history,
+        archive_output=args.archive_output, archive_base_url=args.archive_base_url,
+        archive_recent_days=args.archive_recent_days,
     )
     print(f"Built static site in {args.output}")
 
@@ -175,7 +197,7 @@ def _social_drafts(args: argparse.Namespace) -> None:
 
 
 def _fetch_history(args: argparse.Namespace) -> None:
-    fetched = fetch_history(args.output, args.base_url)
+    fetched = fetch_history(args.output, args.base_url, require_existing=args.require_existing)
     if fetched:
         print(f"Fetched dashboard history from {args.base_url} to {args.output}")
     else:
@@ -188,6 +210,7 @@ def _update_history(args: argparse.Namespace) -> None:
         history_dir=args.history_dir,
         base_url=args.base_url or None,
         narrative_client=_build_narrative_client(),
+        require_existing=args.require_existing,
     )
     print(
         f"Updated history in {args.history_dir} with "

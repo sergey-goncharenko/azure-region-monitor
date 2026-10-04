@@ -4,11 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       snapshot_url:
-        description: "Snapshot JSON URL to render"
+        description: "Snapshot JSON URL; default follows durable archive when enabled"
         required: false
         default: "https://azwatch.operator.lat/api/latest.json"
       history_base_url:
-        description: "Existing dashboard history API URL to preserve"
+        description: "History API URL; default follows durable archive when enabled"
         required: false
         default: "https://azwatch.operator.lat/api/history"
       update_history:
@@ -19,11 +19,18 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 jobs:
   deploy-dashboard:
     name: Deploy dashboard
     runs-on: ubuntu-latest
+    concurrency:
+      group: dashboard-publication
+      cancel-in-progress: false
+    env:
+      AZWATCH_ARCHIVE_BASE_URL: ${{ vars.AZWATCH_ARCHIVE_BASE_URL }}
+      AZWATCH_ARCHIVE_BOOTSTRAP: ${{ vars.AZWATCH_ARCHIVE_BOOTSTRAP }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -36,9 +43,27 @@ jobs:
       - name: Install dependencies
         run: python -m pip install ".[dev]"
 
-      - name: Fetch existing snapshot
+      - name: Resolve recoverable publication sources
+        id: sources
         env:
           SNAPSHOT_URL: ${{ inputs.snapshot_url }}
+          HISTORY_BASE_URL: ${{ inputs.history_base_url }}
+        run: |
+          args=()
+          if [ "$SNAPSHOT_URL" != "https://azwatch.operator.lat/api/latest.json" ]; then
+            args+=(--snapshot-override)
+          fi
+          if [ "$HISTORY_BASE_URL" != "https://azwatch.operator.lat/api/history" ]; then
+            args+=(--history-override)
+          fi
+          python scripts/archive_publication.py sources \
+            --snapshot-url "$SNAPSHOT_URL" --history-url "$HISTORY_BASE_URL" \
+            --github-output "$GITHUB_OUTPUT" "${args[@]}"
+
+      - name: Fetch existing snapshot
+        id: snapshot
+        env:
+          SNAPSHOT_URL: ${{ steps.sources.outputs.snapshot_url }}
         run: |
           mkdir -p data/snapshots data/diffs
           python - <<'PY'
@@ -70,15 +95,17 @@ jobs:
           PY
 
       - name: Fetch existing history
+        id: history-fetch
         if: ${{ !inputs.update_history }}
         env:
-          HISTORY_BASE_URL: ${{ inputs.history_base_url }}
-        run: azure-region-monitor fetch-history --base-url "$HISTORY_BASE_URL" --output data/history
+          HISTORY_BASE_URL: ${{ steps.sources.outputs.history_url }}
+        run: azure-region-monitor fetch-history --base-url "$HISTORY_BASE_URL" --output data/history --require-existing
 
       - name: Update snapshot history
+        id: history-update
         if: ${{ inputs.update_history }}
         env:
-          HISTORY_BASE_URL: ${{ inputs.history_base_url }}
+          HISTORY_BASE_URL: ${{ steps.sources.outputs.history_url }}
           AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_KEY }}
           AZURE_OPENAI_ENDPOINT: ${{ vars.AZURE_OPENAI_ENDPOINT }}
           AZURE_OPENAI_DEPLOYMENT: ${{ vars.AZURE_OPENAI_DEPLOYMENT }}
@@ -87,10 +114,19 @@ jobs:
           azure-region-monitor update-history \
             --snapshot data/snapshots/latest.json \
             --history-dir data/history \
-            --base-url "$HISTORY_BASE_URL"
+            --base-url "$HISTORY_BASE_URL" \
+            --require-existing
 
-      - name: Build static site
-        run: azure-region-monitor build-static --output public
+      - name: Publish dashboard with recovery and capacity safeguards
+        if: ${{ always() && steps.snapshot.outcome == 'success' }}
+        uses: ./.github/actions/publish-dashboard
+        with:
+          history-ready: ${{ steps.history-fetch.outcome == 'success' || steps.history-update.outcome == 'success' }}
+          archive-base-url: ${{ steps.sources.outputs.archive_base_url }}
+          swa-token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Draft social posts
         env:
@@ -111,16 +147,3 @@ jobs:
           path: ${{ runner.temp }}/social-post-drafts.md
           if-no-files-found: error
           retention-days: 30
-
-      - name: Report static site size
-        run: |
-          du -sh public
-          find public -type f -printf '%s %p\n' | sort -nr | head -20
-
-      - name: Deploy Azure Static Web App
-        uses: Azure/static-web-apps-deploy@v1
-        with:
-          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
-          action: upload
-          app_location: public
-          skip_app_build: true

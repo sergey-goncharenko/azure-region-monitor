@@ -143,7 +143,11 @@ def test_agentic_backlog_gates_prs_on_full_validation_and_safe_outputs():
     assert "Identify a causal chain from the Objective or exact observed failure" in policy
     assert "Do not substitute adjacent cleanup" in policy
     assert "draft PR, warning label, and generated `REQUEST_CHANGES` review" in source
-    assert "this is a noop run" in source
+    assert "the outcome follower classifies the terminal result" in source
+    assert "azure-agentic-waiting:issue-<issue_number>" in source
+    assert "provide an approved workflow-capable GitHub App" not in source
+    assert "--agentic-queue" in source
+    assert "--reserve-manifest /tmp/gh-aw/agent/task.json" in source
     assert "protected-files: request_review" in source
     assert "continue-on-error: true" in source
     assert "add-comment:" in source

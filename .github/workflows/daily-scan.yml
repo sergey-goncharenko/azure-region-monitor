@@ -133,6 +133,12 @@ jobs:
       - azure-latency
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    concurrency:
+      group: dashboard-publication
+      cancel-in-progress: false
+    env:
+      AZWATCH_ARCHIVE_BASE_URL: ${{ vars.AZWATCH_ARCHIVE_BASE_URL }}
+      AZWATCH_ARCHIVE_BOOTSTRAP: ${{ vars.AZWATCH_ARCHIVE_BOOTSTRAP }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -150,9 +156,18 @@ jobs:
         with:
           path: data/artifacts
 
+      - name: Resolve recoverable publication sources
+        id: sources
+        run: |
+          python scripts/archive_publication.py sources \
+            --snapshot-url "https://azwatch.operator.lat/api/latest.json" \
+            --history-url "https://azwatch.operator.lat/api/history" \
+            --github-output "$GITHUB_OUTPUT"
+
       - name: Merge all modalities onto the live snapshot
+        id: merge
         env:
-          EXISTING_SNAPSHOT_URL: "https://azwatch.operator.lat/api/latest.json"
+          EXISTING_SNAPSHOT_URL: ${{ steps.sources.outputs.snapshot_url }}
         run: |
           set -uo pipefail
           mkdir -p data/snapshots data/history
@@ -174,8 +189,9 @@ jobs:
             --output data/snapshots/latest.json
 
       - name: Update snapshot history
+        id: history
         env:
-          HISTORY_BASE_URL: "https://azwatch.operator.lat/api/history"
+          HISTORY_BASE_URL: ${{ steps.sources.outputs.history_url }}
           AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_KEY }}
           AZURE_OPENAI_ENDPOINT: ${{ vars.AZURE_OPENAI_ENDPOINT }}
           AZURE_OPENAI_DEPLOYMENT: ${{ vars.AZURE_OPENAI_DEPLOYMENT }}
@@ -184,10 +200,19 @@ jobs:
           azure-region-monitor update-history \
             --snapshot data/snapshots/latest.json \
             --history-dir data/history \
-            --base-url "$HISTORY_BASE_URL"
+            --base-url "$HISTORY_BASE_URL" \
+            --require-existing
 
-      - name: Build static site
-        run: azure-region-monitor build-static --output public
+      - name: Publish dashboard with recovery and capacity safeguards
+        if: ${{ always() && steps.merge.outcome == 'success' }}
+        uses: ./.github/actions/publish-dashboard
+        with:
+          history-ready: ${{ steps.history.outcome == 'success' }}
+          archive-base-url: ${{ steps.sources.outputs.archive_base_url }}
+          swa-token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Draft social posts
         env:
@@ -208,16 +233,3 @@ jobs:
           path: ${{ runner.temp }}/social-post-drafts.md
           if-no-files-found: error
           retention-days: 30
-
-      - name: Report static site size
-        run: |
-          du -sh public
-          find public -type f -printf '%s %p\n' | sort -nr | head -20
-
-      - name: Deploy Azure Static Web App
-        uses: Azure/static-web-apps-deploy@v1
-        with:
-          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
-          action: upload
-          app_location: public
-          skip_app_build: true

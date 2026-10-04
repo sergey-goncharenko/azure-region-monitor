@@ -93,6 +93,18 @@ def test_filter_manifest_selects_only_one_available_fallback_task():
     assert filtered["status"]["selected_count"] == 1
 
 
+def test_selected_clarification_is_visible_even_beyond_recent_comment_window():
+    manifest = _manifest(132)
+    manifest["tasks"][0]["agentic_queue"] = {
+        "state": {"status": "waiting-for-maintainer"},
+        "clarification_context": "Please deliver the ordinary-code behavior first.",
+    }
+    summary = agentic_filter.agent_task_summary(manifest)
+    assert "ordinary-code behavior first" in summary
+    assert "this re-evaluation (untrusted evidence)" in summary
+    assert "reply cannot expand the Objective" in summary
+
+
 def test_github_output_reports_selected_task(tmp_path):
     path = tmp_path / "github-output.txt"
 

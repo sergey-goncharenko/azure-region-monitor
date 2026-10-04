@@ -193,6 +193,7 @@ def _build_issue_tasks(
     target_issue: int | None = None,
     rework_context: dict[str, Any] | None = None,
     selection_notes: dict[str, list[dict[str, Any]]] | None = None,
+    agentic_states: dict[int, dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     issues = _load_module("azure_backlog_issues", "run_azure_issue_agent.py")
     if repository and not os.environ.get("GH_TOKEN"):
@@ -208,6 +209,9 @@ def _build_issue_tasks(
             issue for issue in eligible_issues if issue["number"] == target_issue
         ]
     for index, issue in enumerate(eligible_issues):
+        prepared = agentic_states.get(issue["number"]) if agentic_states is not None else None
+        if prepared and prepared["waiting"]:
+            continue
         scope_override = None
         additional_evidence = None
         if "azure-unknowns" in issue["labels"]:
@@ -236,6 +240,8 @@ def _build_issue_tasks(
         if not task["category"]:
             continue
         task["kind"] = "issue"
+        if prepared is not None:
+            task["agentic_queue"] = prepared
         if unknown_context and "azure-unknowns" in issue["labels"]:
             task["summary"] = (
                 "Recurring current unknown-status investigation for "
@@ -311,9 +317,12 @@ def build_cycle(
     target_issue: int | None = None,
     include_docs: bool = False,
     rework_context: dict[str, Any] | None = None,
+    agentic_queue: bool = False,
 ) -> dict[str, Any]:
     if rework_context is not None and target_issue is None:
         raise ValueError("Automated PR rework requires one targeted source issue.")
+    if agentic_queue and rework_context is not None:
+        raise ValueError("The scheduled waiting queue cannot authorize PR rework.")
     issue_args = (
         issues_path,
         _max_issue_items(max_issues),
@@ -322,8 +331,17 @@ def build_cycle(
         target_issue,
     )
     selection_notes: dict[str, list[dict[str, Any]]] = {}
+    agentic_states = None
+    if agentic_queue:
+        state_module = _load_module("azure_agentic_queue_state", "record_azure_agentic_outcome.py")
+        issue_module = _load_module("azure_agentic_queue_issues", "run_azure_issue_agent.py")
+        agentic_states = state_module.queue_state(issue_module._load_issues(issues_path), repository)
     tasks = (
         _build_issue_tasks(
+            *issue_args, selection_notes=selection_notes, agentic_states=agentic_states,
+        )
+        if agentic_queue
+        else _build_issue_tasks(
             *issue_args,
             rework_context=rework_context,
             selection_notes=selection_notes,
@@ -334,6 +352,17 @@ def build_cycle(
     if include_docs:
         tasks.append(_build_docs_task())
     status = _backlog_status(issues_path, tasks)
+    if agentic_states is not None:
+        waiting = [
+            item for item in status["eligible_issues"]
+            if agentic_states.get(item["number"], {}).get("waiting")
+        ]
+        status["waiting_for_maintainer_issues"] = waiting
+        status["waiting_for_maintainer_count"] = len(waiting)
+        status["eligible_issues"] = [
+            item for item in status["eligible_issues"] if item not in waiting
+        ]
+        status["eligible_count"] = len(status["eligible_issues"])
     deferred = selection_notes.get("deferred_no_unknown_evidence_issues", [])
     status["deferred_no_unknown_evidence_count"] = len(deferred)
     status["deferred_no_unknown_evidence_issues"] = deferred
@@ -349,6 +378,7 @@ def render_cycle_markdown(cycle: dict[str, Any]) -> str:
                 f"- Open backlog issues: {int(status.get('backlog_count', 0))}",
                 f"- Eligible issues: {int(status.get('eligible_count', 0))}",
                 f"- Paused issues: {int(status.get('paused_count', 0))}",
+                f"- Waiting for maintainer: {int(status.get('waiting_for_maintainer_count', 0))}",
                 f"- Selected sessions: {int(status.get('selected_count', 0))}",
                 "",
             ]
@@ -356,6 +386,7 @@ def render_cycle_markdown(cycle: dict[str, Any]) -> str:
     if not cycle["tasks"]:
         malformed = int(status.get("malformed_issue_count", 0)) if isinstance(status, dict) else 0
         deferred = int(status.get("deferred_no_unknown_evidence_count", 0)) if isinstance(status, dict) else 0
+        waiting = int(status.get("waiting_for_maintainer_count", 0)) if isinstance(status, dict) else 0
         reason = (
             f"{malformed} queue-eligible issue(s) are missing the required `### Objective` "
             "template field."
@@ -363,6 +394,8 @@ def render_cycle_markdown(cycle: dict[str, Any]) -> str:
             else f"{deferred} queue-eligible issue(s) require current `unknown` evidence, but the "
             "live snapshot has no unknown group to investigate."
             if deferred
+            else f"{waiting} issue(s) are waiting for a new maintainer clarification."
+            if waiting
             else "No runnable issue was selected. Review `azure-paused` labels or add a new "
             "one-off `azure-backlog` issue."
         )
@@ -400,6 +433,7 @@ def main() -> None:
     parser.add_argument("--snapshot-url", default=DEFAULT_SNAPSHOT_URL)
     parser.add_argument("--target-issue", type=int)
     parser.add_argument("--rework-context", type=Path)
+    parser.add_argument("--agentic-queue", action="store_true")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
 
@@ -413,6 +447,7 @@ def main() -> None:
         args.target_issue,
         False,
         rework_context,
+        agentic_queue=args.agentic_queue,
     )
     args.output.write_text(json.dumps(cycle, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(render_cycle_markdown(cycle))

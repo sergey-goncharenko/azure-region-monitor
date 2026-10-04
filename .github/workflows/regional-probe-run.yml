@@ -213,6 +213,12 @@ jobs:
     needs: run-probes
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    concurrency:
+      group: dashboard-publication
+      cancel-in-progress: false
+    env:
+      AZWATCH_ARCHIVE_BASE_URL: ${{ vars.AZWATCH_ARCHIVE_BASE_URL }}
+      AZWATCH_ARCHIVE_BOOTSTRAP: ${{ vars.AZWATCH_ARCHIVE_BOOTSTRAP }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -236,10 +242,21 @@ jobs:
           name: ${{ inputs.artifact_name }}
           path: data
 
-      - name: Merge existing dashboard snapshot
-        if: inputs.existing_snapshot_url != ''
+      - name: Resolve recoverable publication sources
+        id: sources
         env:
           EXISTING_SNAPSHOT_URL: ${{ inputs.existing_snapshot_url }}
+          HISTORY_BASE_URL: ${{ inputs.history_base_url }}
+        run: |
+          python scripts/archive_publication.py sources \
+            --snapshot-url "$EXISTING_SNAPSHOT_URL" --history-url "$HISTORY_BASE_URL" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Merge existing dashboard snapshot
+        id: merge
+        if: steps.sources.outputs.snapshot_url != ''
+        env:
+          EXISTING_SNAPSHOT_URL: ${{ steps.sources.outputs.snapshot_url }}
         run: |
           azure-region-monitor merge-snapshot \
             --base-url "$EXISTING_SNAPSHOT_URL" \
@@ -247,8 +264,9 @@ jobs:
             --output data/snapshots/latest.json
 
       - name: Update snapshot history
+        id: history
         env:
-          HISTORY_BASE_URL: ${{ inputs.history_base_url }}
+          HISTORY_BASE_URL: ${{ steps.sources.outputs.history_url }}
           AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_KEY }}
           AZURE_OPENAI_ENDPOINT: ${{ vars.AZURE_OPENAI_ENDPOINT }}
           AZURE_OPENAI_DEPLOYMENT: ${{ vars.AZURE_OPENAI_DEPLOYMENT }}
@@ -257,10 +275,19 @@ jobs:
           azure-region-monitor update-history \
             --snapshot data/snapshots/latest.json \
             --history-dir data/history \
-            --base-url "$HISTORY_BASE_URL"
+            --base-url "$HISTORY_BASE_URL" \
+            --require-existing
 
-      - name: Build static site
-        run: azure-region-monitor build-static --output public
+      - name: Publish dashboard with recovery and capacity safeguards
+        if: ${{ always() && steps.sources.outcome == 'success' && (steps.merge.outcome == 'success' || steps.merge.outcome == 'skipped') }}
+        uses: ./.github/actions/publish-dashboard
+        with:
+          history-ready: ${{ steps.history.outcome == 'success' }}
+          archive-base-url: ${{ steps.sources.outputs.archive_base_url }}
+          swa-token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Draft social posts
         env:
@@ -269,16 +296,3 @@ jobs:
           AZURE_OPENAI_DEPLOYMENT: ${{ vars.AZURE_OPENAI_DEPLOYMENT }}
           AI_SOCIAL_MAX_TOKENS: "1200"
         run: azure-region-monitor social-drafts --history data/history >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Report static site size
-        run: |
-          du -sh public
-          find public -type f -printf '%s %p\n' | sort -nr | head -20
-
-      - name: Deploy Azure Static Web App
-        uses: Azure/static-web-apps-deploy@v1
-        with:
-          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
-          action: upload
-          app_location: public
-          skip_app_build: true

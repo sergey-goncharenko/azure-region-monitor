@@ -2,8 +2,7 @@ name: Agentic backlog outcome
 
 # The scheduled agentic lane is a gh-aw workflow, whose custom jobs cannot depend on
 # its generated safe_outputs job, so it cannot observe its own result. This follower
-# records the outcome against the source issue and pauses an issue that keeps failing
-# the publication gate, which otherwise gets re-selected every day.
+# records delivery, no-change, waiting, and failure separately against the source issue.
 on:
   workflow_run:
     workflows: ["Scheduled agentic backlog"]
@@ -43,14 +42,24 @@ jobs:
           RUN_ID: ${{ github.event.workflow_run.id }}
         run: |
           set -euo pipefail
-          if ! gh run download "$RUN_ID" \
-            --repo "$GITHUB_REPOSITORY" \
-            --name agentic-backlog-selection \
-            --dir "$RUNNER_TEMP/selection"; then
-            echo "No issue was selected for that run; nothing to record."
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" \
+            > "$RUNNER_TEMP/source-run.json"
+          gh api --paginate --slurp \
+            "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/artifacts?per_page=100" \
+            > "$RUNNER_TEMP/source-artifacts.json"
+          if ! jq -e 'any(.[] | .artifacts[]; .name == "agentic-backlog-selection")' \
+            "$RUNNER_TEMP/source-artifacts.json" > /dev/null; then
+            echo "No persisted selected-issue artifact; no source outcome can be recorded."
+            if [ "$(jq -r '.conclusion' "$RUNNER_TEMP/source-run.json")" != "success" ]; then
+              echo "::warning::The source run did not succeed and has no selection metadata; inspect its prepare job."
+            fi
             echo "found=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          gh run download "$RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name agentic-backlog-selection \
+            --dir "$RUNNER_TEMP/selection"
           issue_number="$(jq -r '.issue_number // ""' "$RUNNER_TEMP/selection/selection.json")"
           if [[ ! "$issue_number" =~ ^[1-9][0-9]*$ ]]; then
             echo "Malformed agentic backlog selection metadata." >&2
@@ -58,6 +67,36 @@ jobs:
           fi
           echo "found=true" >> "$GITHUB_OUTPUT"
           echo "issue_number=$issue_number" >> "$GITHUB_OUTPUT"
+
+      - name: Download terminal safe-output evidence
+        if: ${{ steps.download.outputs.found == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          : > "$RUNNER_TEMP/receipts.jsonl"
+          : > "$RUNNER_TEMP/requests.jsonl"
+          if jq -e 'any(.[] | .artifacts[]; .name == "safe-outputs-items")' \
+            "$RUNNER_TEMP/source-artifacts.json" > /dev/null; then
+            gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" \
+              --name safe-outputs-items --dir "$RUNNER_TEMP/safe-output-receipts"
+            if [ -f "$RUNNER_TEMP/safe-output-receipts/safe-output-items.jsonl" ]; then
+              cp "$RUNNER_TEMP/safe-output-receipts/safe-output-items.jsonl" "$RUNNER_TEMP/receipts.jsonl"
+            fi
+          fi
+          for artifact in agent agent-output-fallback; do
+            if jq -e --arg name "$artifact" 'any(.[] | .artifacts[]; .name == $name)' \
+              "$RUNNER_TEMP/source-artifacts.json" > /dev/null; then
+              gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" \
+                --name "$artifact" --dir "$RUNNER_TEMP/source-agent"
+              if [ -f "$RUNNER_TEMP/source-agent/safeoutputs.jsonl" ]; then
+                cp "$RUNNER_TEMP/source-agent/safeoutputs.jsonl" "$RUNNER_TEMP/requests.jsonl"
+              fi
+              break
+            fi
+          done
+          echo "Terminal evidence downloaded; absent or unrecognized results are failures, not delivery."
 
       - name: Decide the outcome record
         id: decide
@@ -93,6 +132,11 @@ jobs:
             --issue "$RUNNER_TEMP/issue.json" \
             --outcome "$outcome" \
             --run-url "$RUN_URL" \
+            --repository "$GITHUB_REPOSITORY" \
+            --selection "$RUNNER_TEMP/selection/selection.json" \
+            --run "$RUNNER_TEMP/source-run.json" \
+            --receipts "$RUNNER_TEMP/receipts.jsonl" \
+            --requests "$RUNNER_TEMP/requests.jsonl" \
             --github-output "$GITHUB_OUTPUT" \
             >> "$GITHUB_STEP_SUMMARY"
 

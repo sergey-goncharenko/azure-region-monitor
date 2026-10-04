@@ -27,7 +27,8 @@ Alpha limits:
 - Data can be incomplete or temporarily wrong while the monitor is in public alpha.
 - Region coverage means the configured Azure public cloud region list used by the monitor; it does not claim sovereign clouds, private previews, every possible API version, or hidden capacity cells.
 - The project does not publish tenant IDs, subscription IDs, private resource names, credentials, or customer data.
-- Alerts, signed webhooks, SDKs, and durable external snapshot storage are future roadmap items.
+- Alerts, signed webhooks, and SDKs are future roadmap items.
+- Durable Blob-backed history publication is available as an opt-in operator rollout; it is not enabled merely by installing this code.
 
 See `/docs/spec` for full product specification and `/docs/roadmap` for the engineering plan.
 
@@ -62,6 +63,7 @@ The first implementation slice is a Python service with:
 - A FastAPI read-only API matching the initial API spec
 - A GitHub Actions workflow for manual or scheduled PoC runs, plus [weekly and source-triggered documentation augmentation](docs/agentic-sessions.md#documentation-augmentation) for evolving reader needs, terminology, and use cases; edits stay within `README.md`, `.github/copilot-instructions.md`, and `docs/agentic-sessions.md` and require a stated reader benefit with supporting evidence
 - A generated static dashboard and JSON endpoint for Azure Static Web Apps
+- Shared publication byte/file budgets, pre-deployment recovery artifacts, and an optional complete Blob archive with compatible historical evidence URLs; see [publication and recovery operations](docs/poc-deployment.md#publication-budgets-recovery-and-optional-blob-archive)
 - Tests for the diff engine and API behavior
 
 ## Scope Discovery

@@ -184,6 +184,146 @@ For a faster modality-specific run, select one of the focused workflows instead:
 
 Focused workflows upload modality-specific artifacts and do not deploy the public dashboard by default. When `deploy_dashboard` is enabled, focused deployments merge the fresh modality snapshot into the current live dashboard snapshot before publishing, so other modality sections remain visible.
 
+### Publication budgets, recovery, and optional Blob archive
+
+Every publication path (daily, reusable regional probes, Azure latency, and
+dashboard-only rebuilds) uses the same
+[publication action](../.github/actions/publish-dashboard/action.yml).
+Deployment jobs share a concurrency group. Before building or uploading the site,
+the action retains the merged candidate snapshot and its complete history in a
+`publication-recovery-<run>-<attempt>` artifact for 90 days. A failed history fetch
+retains explicitly incomplete recovery evidence and blocks publication; it cannot
+publish today's record as if it were the whole archive. Social drafting happens
+after publication and is not a prerequisite for retaining the observations.
+
+The [budget checker](../scripts/publication_budget.py) reports exact logical file
+bytes, regular-file count, category totals, and largest files. These are not the
+rounded disk-allocation figures produced by `du`. Defaults warn at 400 MiB or
+12,000 files and block above 450 MiB or 14,000 files, leaving room below the
+[Standard environment limits](https://learn.microsoft.com/azure/static-web-apps/quotas).
+Set repository variables `AZWATCH_PUBLICATION_WARN_BYTES`,
+`AZWATCH_PUBLICATION_MAX_BYTES`, `AZWATCH_PUBLICATION_WARN_FILES`, and
+`AZWATCH_PUBLICATION_MAX_FILES` to change this policy consistently for all callers.
+An over-budget upload is refused, not fixed by deleting evidence. The inventory
+is retained outside the measured site in a separate Actions artifact.
+
+#### Archive storage boundary
+
+Archive mode is **opt-in**. Without `AZWATCH_ARCHIVE_BASE_URL`, rendering retains
+the existing all-local behavior, with the new recovery and budget safeguards.
+Enabling archive mode requires a separately approved operator rollout:
+
+1. Provision a dedicated Azure Blob container for the already-public evidence.
+   Choose the account region/redundancy and approve its operating-cost estimate.
+   Require HTTPS, disable shared-key authentication where operationally possible,
+   and enable soft delete/versioning. Do not add a lifecycle rule that deletes
+   historical evidence.
+2. Give the existing GitHub deployment identity a container-scoped Blob data
+   write role using [OIDC](https://learn.microsoft.com/azure/developer/github/connect-from-azure-openid-connect).
+   Do not pass storage keys, SAS URLs, or archive write credentials to a coding
+   agent. Allow anonymous **blob reads**, not anonymous writes; the archive
+   contains only evidence already intended for public publication.
+3. Set `AZWATCH_ARCHIVE_BASE_URL` to an HTTPS container URL such as
+   `https://<account>.blob.core.windows.net/<container>`. The existing
+   `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, and `AZURE_SUBSCRIPTION_ID` deployment
+   secrets select the approved identity. No new secret belongs in source control.
+4. For the first migration only, set `AZWATCH_ARCHIVE_BOOTSTRAP=true`. The workflow
+   then requires and preserves the existing public history. A missing archive
+   pointer is otherwise a hard error, not permission to start a new empty archive.
+   Use **Dashboard redeploy** without updating history: no Azure probes are needed.
+5. Verify the published archive, old evidence links, current APIs, and reader
+   pages before disabling the bootstrap variable. Retain the previous deployment
+   and recovery artifacts until migration acceptance is complete.
+
+The [archive publisher](../scripts/archive_publication.py) writes a unique
+`publications/<run-id>-<attempt>/` generation containing complete snapshot/change
+evidence and dated reader pages. It validates transport checksums and independently
+reads every uploaded object back to check its SHA-256 and byte count. Only then
+does it update `publication-latest.json`, the durable recovery pointer.
+The manifest records a content-generation digest; the same digest pins the static
+archive browser and managed reader without adding another URL path component.
+That pointer advances **before** the Static Web App upload: if the upload fails,
+the next run merges against the saved candidate rather than the stale live site.
+Existing public readers remain pinned to the generation from their last
+successful deployment, so their page and evidence baselines stay consistent.
+The dashboard-only workflow's default source URLs follow this durable pointer.
+Explicit non-default snapshot/history URLs still override their respective source,
+allowing an operator to rebuild from a verified recovery baseline deliberately.
+
+The Static Web App contains only the current/recent projection, not a growing
+raw archive. Historical entries remain discoverable through the archive browser.
+The bundled, read-only [managed Functions reader](../api/reader.js) keeps
+`/api/history/...` and the current JSON API working at the same origin; dated
+HTML links use an explicit archive fallback. It reads only the pinned Azure Blob
+generation, never arbitrary URLs, and returns explicit missing/unavailable errors.
+It needs no Azure credential, database, separate Function App, or wider browser
+CORS policy. Its [managed runtime](https://learn.microsoft.com/azure/static-web-apps/languages-runtimes)
+is Node.js 22, deployed only when archive mode is enabled.
+Legacy `.json` snapshot requests resolve to a verified `.json.gz` object when no
+raw original exists, using normal HTTP gzip decoding. Export, history fetch, and
+recovery never inflate every compressed snapshot into duplicate raw files just
+to support those old links; actual original files remain retained.
+The compatibility reader limits a single buffered object to 64 MiB and times out
+at 30 seconds; exceeding either is a visible failure, not truncated evidence.
+
+#### Recovery, rollback, and costs
+
+Actions artifacts are recovery checkpoints with finite retention, **not** a
+permanent archive. Download a failed run's recovery artifact before it expires.
+Use [the recovery CLI](../scripts/publication_recovery.py) to verify manifest
+digests and replay saved observations in timestamp order against an appropriate
+earlier baseline. Conflicting observations or missing/corrupt input must be
+resolved explicitly; never invent a day or rerun probes to masquerade as a past
+observation. Keep each original bundle. A workflow rebuild can then render the
+recovered history without Azure probing.
+
+For example, after extracting complete bundles to separate directories:
+
+```sh
+python scripts/publication_recovery.py verify --bundle recovery-run-1
+python scripts/publication_recovery.py verify --bundle recovery-run-2
+python scripts/publication_recovery.py replay \
+  --bundle recovery-run-1 --bundle recovery-run-2 \
+  --history earlier-history --output recovered-publication
+```
+
+`earlier-history` must precede every replayed observation; do not use a bundle's
+already-updated history as that baseline. The new output contains `history/`,
+`snapshots/latest.json`, individually retained `observations/`, and
+`replay-report.json`. Recovery directories must be new paths. For a single
+complete checkpoint needing no replay, its verified history and snapshot are
+already a rebuild input.
+
+For rollback, preserve the failed/newer generation and recovery pointer first.
+Redeploy the previously verified static/API pair pinned to its original archive
+generation. This rolls back the reader without deleting later observations.
+Do not merely clear the archive variable: a legacy all-history deployment may
+already exceed its budget. An explicit return to local publication must pass the
+same full-history integrity and size checks.
+
+This initial implementation deliberately keeps complete immutable publication
+generations rather than deleting or deduplicating earlier observations. This
+simplifies verifiable recovery, but duplicates unchanged history between
+generations and adds upload/read-back time. The SWA payload is bounded with respect
+to **older retention**, not growth in the current snapshot itself; the byte/file
+budget still applies. Build-time archive assembly also grows with retention.
+
+Budget for the existing Standard SWA charge plus Blob bytes retained, write/read
+operations, verification downloads, and public evidence traffic. If a generation
+averages `S` GB and there are `N` retained generations, its storage estimate is
+`S * N * regional_GB_month_price`; add object operations and egress separately.
+For example, a 0.4 GB generation every day adds roughly 12 GB of retained storage
+each 30 days before growth in the underlying archive. This is a size illustration,
+not a regional price quote or Azure billing measurement. Check the selected
+[Blob pricing](https://azure.microsoft.com/pricing/details/storage/blobs/) and
+configure a cost alert before activation. Content-addressed deduplication can
+reduce future archive costs without changing public evidence semantics.
+
+Migration acceptance must include old `.json` and `.json.gz` links, complete
+multi-day parsed evidence, a missing-archive failure, a failed-upload recovery,
+and increasing historical retention with stable current/recent site bytes/files.
+Neither minification nor a larger hosting SKU completes this archive boundary.
+
 The scheduled `daily-scan.yml` orchestrator runs every modality probe as a parallel job (so the whole scan takes about as long as the slowest single modality instead of the sum of all of them) and then runs a single deploy job that waits for all probes, merges every modality onto the live snapshot, and publishes the dashboard exactly once. A modality whose probe fails leaves no artifact, so its last-good data is carried forward from the live snapshot. Because only the orchestrator is scheduled, focused workflows never race each other to deploy, and the dashboard is never published mid-scan.
 
 The reusable runner caps each Azure CLI probe command with `AZURE_CLI_TIMEOUT_SECONDS`. The reusable default is 45 seconds; the full synthetic workflow currently defaults to 120 seconds. Slow calls are recorded as `unknown` in the snapshot instead of blocking the dashboard refresh.

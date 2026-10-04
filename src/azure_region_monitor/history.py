@@ -4,11 +4,13 @@ import gzip
 import json
 import logging
 import shutil
+import tempfile
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import datetime, timezone
+import zlib
+from datetime import date as calendar_date, datetime, timezone
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 
@@ -110,17 +112,80 @@ _REGION_GROUPS: dict[str, str] = {
 }
 
 
-def fetch_history(history_dir: Path, base_url: str) -> bool:
-    history_dir.mkdir(parents=True, exist_ok=True)
+def fetch_history(
+    history_dir: Path, base_url: str, *, require_existing: bool = False
+) -> bool:
+    """Fetch a complete generation before replacing local history.
+
+    A missing index is only a valid first-run bootstrap when explicitly allowed
+    by the caller. Missing referenced objects and malformed evidence always fail.
+    """
     index = _fetch_json(_join_url(base_url, "index.json"))
     if index is None:
+        if require_existing:
+            raise ValueError(f"Required history index is unavailable at {base_url}")
+        _LOGGER.warning("No history index at %s; allowing first-run bootstrap.", base_url)
         return False
 
-    _write_json(history_dir / "index.json", index)
-    paths = _history_paths(index)
-    paths.add("recent-changes.json")
-    for path in sorted(paths):
-        _download_file(_join_url(base_url, path), _safe_history_path(history_dir, path))
+    if "archive" in index:
+        from azure_region_monitor.archive import archive_history_url
+
+        base_url = archive_history_url(index["archive"])
+        index = _fetch_json(_join_url(base_url, "index.json"))
+        if index is None:
+            raise ValueError(f"Required archive history index is unavailable at {base_url}")
+        if "archive" in index or "public_recent_days" in index:
+            raise ValueError("Archive history endpoint returned a partial public projection")
+    required = _required_history_paths(index)
+    if history_dir.is_symlink():
+        raise ValueError("History directory must not be a symlink")
+    history_dir.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix=".history-fetch-", dir=history_dir.parent) as temporary:
+        root = Path(temporary)
+        staged = root / "history"
+        if history_dir.exists():
+            if any(path.is_symlink() for path in history_dir.rglob("*")):
+                raise ValueError("History must not contain symlinks")
+            shutil.copytree(history_dir, staged)
+        else:
+            staged.mkdir()
+        _write_json(staged / "index.json", index)
+        pending = required | {"recent-changes.json"}
+        downloaded: set[str] = set()
+        while pending:
+            relative = sorted(pending)[0]
+            pending.remove(relative)
+            if relative in downloaded:
+                continue
+            path = _safe_history_path(staged, relative)
+            actual = relative
+            if not _download_file(_join_url(base_url, relative), path):
+                if not relative.startswith("snapshots/") or not relative.endswith(".json"):
+                    raise ValueError(f"Required history object is unavailable: {relative}")
+                actual = relative + ".gz"
+                path = _safe_history_path(staged, actual)
+                if actual not in downloaded and not _download_file(_join_url(base_url, actual), path):
+                    raise ValueError(f"Required history object is unavailable: {relative}")
+                _LOGGER.info("Resolved legacy history reference %s through %s", relative, actual)
+            value = _validate_history_object(path, actual)
+            if actual != relative:
+                alias = _safe_history_path(staged, relative)
+                if alias.exists() and _validate_history_object(alias, relative) != value:
+                    raise ValueError(f"Conflicting local snapshot alias: {relative}")
+            downloaded.add(relative)
+            downloaded.add(actual)
+            if not relative.startswith("snapshots/"):
+                references = _required_history_paths(value)
+                pending.update(references - downloaded)
+        backup = root / "previous"
+        if history_dir.exists():
+            history_dir.rename(backup)
+        try:
+            staged.rename(history_dir)
+        except OSError:
+            if backup.exists():
+                backup.rename(history_dir)
+            raise
     return True
 
 
@@ -129,10 +194,14 @@ def update_history(
     history_dir: Path,
     base_url: str | None = None,
     narrative_client: NarrativeClient | None = None,
+    *,
+    require_existing: bool = False,
 ) -> dict[str, Any]:
-    history_dir.mkdir(parents=True, exist_ok=True)
     if base_url:
-        fetch_history(history_dir, base_url)
+        fetch_history(history_dir, base_url, require_existing=require_existing)
+    if require_existing and not (history_dir / "index.json").is_file():
+        raise ValueError(f"Required local history index is unavailable: {history_dir / 'index.json'}")
+    history_dir.mkdir(parents=True, exist_ok=True)
 
     current = load_snapshot(snapshot_path)
     current_date = _snapshot_date(current)
@@ -185,6 +254,7 @@ def update_history(
         "latest_date": current_date,
         "latest_snapshot_path": str(snapshot_history_path).replace("\\", "/"),
         "recent_changes_path": "recent-changes.json",
+        "latency_history_path": "latency-history.json",
         "days": days,
     }
     recent_changes = {
@@ -467,7 +537,7 @@ def _historical_timelines(
 
     for date, snapshot_path in sorted(days):
         try:
-            snapshot = _load_history_snapshot(_safe_history_path(history_dir, snapshot_path))
+            snapshot = _load_history_snapshot(_resolve_history_reference(history_dir, snapshot_path))
         except (OSError, ValueError, json.JSONDecodeError):
             continue
         for key in keys:
@@ -494,7 +564,7 @@ def _historical_feature_regions(
 
     for _date, snapshot_path in sorted(days):
         try:
-            snapshot = _load_history_snapshot(_safe_history_path(history_dir, snapshot_path))
+            snapshot = _load_history_snapshot(_resolve_history_reference(history_dir, snapshot_path))
         except (OSError, ValueError, json.JSONDecodeError):
             continue
         for service, feature in features:
@@ -708,7 +778,7 @@ def _previous_snapshot_entry(index: dict[str, Any], current_date: str) -> dict[s
 def _load_previous_snapshot(history_dir: Path, entry: dict[str, Any] | None) -> Snapshot | None:
     if not entry or not entry.get("snapshot_path"):
         return None
-    path = _safe_history_path(history_dir, str(entry["snapshot_path"]))
+    path = _resolve_history_reference(history_dir, str(entry["snapshot_path"]))
     if not path.exists():
         return None
     return _load_history_snapshot(path)
@@ -778,6 +848,59 @@ def _history_paths(index: dict[str, Any]) -> set[str]:
     return paths
 
 
+def _required_history_paths(document: dict[str, Any]) -> set[str]:
+    if not isinstance(document, dict):
+        raise ValueError("History document must be a JSON object")
+    days = document.get("days", [])
+    if not isinstance(days, list):
+        raise ValueError("History days must be a list")
+    paths: set[str] = set()
+    for entry in [document, *days]:
+        if not isinstance(entry, dict):
+            raise ValueError("History day must be a JSON object")
+        for key in (
+            "snapshot_path", "previous_snapshot_path", "change_path",
+            "latest_snapshot_path", "recent_changes_path", "latency_history_path",
+        ):
+            value = entry.get(key)
+            if value is None:
+                continue
+            if not isinstance(value, str) or not _is_safe_relative_path(value):
+                raise ValueError(f"Unsafe history reference {key}: {value!r}")
+            paths.add(value)
+    return paths
+
+
+def _validate_history_object(path: Path, relative: str) -> dict[str, Any]:
+    try:
+        payload = gzip.decompress(path.read_bytes()) if relative.endswith(".gz") else path.read_bytes()
+        value = json.loads(payload)
+        if not isinstance(value, dict):
+            raise ValueError("expected a JSON object")
+        if relative.startswith("snapshots/"):
+            if "timestamp" not in value:
+                raise ValueError("snapshot timestamp is missing")
+            Snapshot.model_validate(value)
+        else:
+            _required_history_paths(value)
+            if relative.startswith("changes/"):
+                if not isinstance(value.get("date"), str):
+                    raise ValueError("change observation date is missing")
+                calendar_date.fromisoformat(value["date"])
+                briefing = value.get("briefing")
+                if briefing is not None and (
+                    not isinstance(briefing, dict)
+                    or ("records" in briefing and (
+                        not isinstance(briefing["records"], list)
+                        or any(not isinstance(record, dict) for record in briefing["records"])
+                    ))
+                ):
+                    raise ValueError("invalid briefing records")
+        return value
+    except (OSError, ValueError, EOFError, zlib.error) as error:
+        raise ValueError(f"Invalid history object {relative}: {error}") from error
+
+
 def _is_transient_http_status(code: int) -> bool:
     return code == 429 or 500 <= code < 600
 
@@ -805,8 +928,6 @@ def _download_file(url: str, path: Path) -> bool:
         if error.code == 404:
             return False
         raise
-    except urllib.error.URLError:
-        return False
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(payload)
     return True
@@ -819,8 +940,6 @@ def _fetch_json(url: str) -> dict[str, Any] | None:
         if error.code == 404:
             return None
         raise
-    except (urllib.error.URLError, json.JSONDecodeError):
-        return None
 
 
 def _safe_history_path(history_dir: Path, relative_path: str) -> Path:
@@ -832,12 +951,24 @@ def _safe_history_path(history_dir: Path, relative_path: str) -> Path:
     return path
 
 
+def _resolve_history_reference(history_dir: Path, relative_path: str) -> Path:
+    path = _safe_history_path(history_dir, relative_path)
+    if (
+        not path.exists() and relative_path.startswith("snapshots/")
+        and relative_path.endswith(".json")
+    ):
+        compressed = _safe_history_path(history_dir, relative_path + ".gz")
+        if compressed.is_file():
+            return compressed
+    return path
+
+
 def _is_safe_relative_path(path: str) -> bool:
     parsed = urllib.parse.urlparse(path)
     windows_path = PureWindowsPath(path)
     parts = PurePosixPath(path.replace("\\", "/")).parts
     return bool(
-        path and parts and "\x00" not in path and ":" not in path
+        path and parts and not any(char in path for char in "\x00:%?#\\")
         and not parsed.scheme and not parsed.netloc
         and not windows_path.drive and not windows_path.root
         and not PurePosixPath(path).is_absolute() and ".." not in parts

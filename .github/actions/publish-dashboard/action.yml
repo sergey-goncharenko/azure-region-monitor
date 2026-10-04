@@ -1,0 +1,131 @@
+name: Publish verified dashboard
+description: Retain recovery evidence, enforce a shared payload budget, then publish.
+inputs:
+  history-ready:
+    required: true
+    description: Whether the complete history operation succeeded.
+  archive-base-url:
+    required: false
+    default: ""
+    description: Immutable generation URL selected before merging observations.
+  swa-token:
+    required: true
+    description: Static Web Apps deployment token, available only to outer deployment code.
+  azure-client-id:
+    required: false
+    description: Approved deployment identity client ID.
+  azure-tenant-id:
+    required: false
+    description: Approved deployment identity tenant ID.
+  azure-subscription-id:
+    required: false
+    description: Approved archive subscription ID.
+runs:
+  using: composite
+  steps:
+    - name: Capture publication recovery bundle
+      if: ${{ always() }}
+      id: recovery
+      shell: bash
+      env:
+        HISTORY_READY: ${{ inputs.history-ready }}
+      run: |
+        set -euo pipefail
+        args=()
+        if [ "$HISTORY_READY" != "true" ]; then
+          args+=(--allow-incomplete)
+        fi
+        python scripts/publication_recovery.py create \
+          --snapshot data/snapshots/latest.json \
+          --history data/history \
+          --output .publication/recovery \
+          --provenance "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+          "${args[@]}"
+
+    - name: Retain candidate snapshot and recovery evidence
+      if: ${{ always() }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: publication-recovery-${{ github.run_id }}-${{ github.run_attempt }}
+        path: |
+          .publication/recovery
+          data/snapshots/latest.json
+          data/history
+        if-no-files-found: error
+        include-hidden-files: true
+        retention-days: 90
+
+    - name: Require complete recoverable history
+      if: ${{ always() }}
+      shell: bash
+      env:
+        HISTORY_READY: ${{ inputs.history-ready }}
+      run: |
+        if [ "$HISTORY_READY" != "true" ]; then
+          echo "::error::History collection failed. Recovery evidence was retained; no partial history will be published."
+          exit 1
+        fi
+
+    - name: Build bounded or legacy static site
+      shell: bash
+      env:
+        ARCHIVE_BASE_URL: ${{ inputs.archive-base-url }}
+      run: python scripts/archive_publication.py build --archive-base-url "$ARCHIVE_BASE_URL"
+
+    - name: Enforce publication size and file budgets
+      shell: bash
+      env:
+        AZWATCH_PUBLICATION_MAX_BYTES: ${{ vars.AZWATCH_PUBLICATION_MAX_BYTES }}
+        AZWATCH_PUBLICATION_WARN_BYTES: ${{ vars.AZWATCH_PUBLICATION_WARN_BYTES }}
+        AZWATCH_PUBLICATION_MAX_FILES: ${{ vars.AZWATCH_PUBLICATION_MAX_FILES }}
+        AZWATCH_PUBLICATION_WARN_FILES: ${{ vars.AZWATCH_PUBLICATION_WARN_FILES }}
+      run: |
+        set -euo pipefail
+        python scripts/publication_budget.py public \
+          --report .publication/publication-budget.json \
+          --max-bytes "${AZWATCH_PUBLICATION_MAX_BYTES:-471859200}" \
+          --warn-bytes "${AZWATCH_PUBLICATION_WARN_BYTES:-419430400}" \
+          --max-files "${AZWATCH_PUBLICATION_MAX_FILES:-14000}" \
+          --warn-files "${AZWATCH_PUBLICATION_WARN_FILES:-12000}" | tee -a "$GITHUB_STEP_SUMMARY"
+
+    - name: Login for approved archive uploads
+      if: ${{ inputs.archive-base-url != '' }}
+      uses: azure/login@v2
+      with:
+        client-id: ${{ inputs.azure-client-id }}
+        tenant-id: ${{ inputs.azure-tenant-id }}
+        subscription-id: ${{ inputs.azure-subscription-id }}
+
+    - name: Upload and verify immutable archive before deployment
+      if: ${{ inputs.archive-base-url != '' }}
+      shell: bash
+      env:
+        ARCHIVE_BASE_URL: ${{ inputs.archive-base-url }}
+      run: python scripts/archive_publication.py upload --archive-base-url "$ARCHIVE_BASE_URL"
+
+    - name: Deploy Azure Static Web App
+      uses: Azure/static-web-apps-deploy@v1
+      with:
+        azure_static_web_apps_api_token: ${{ inputs.swa-token }}
+        action: upload
+        app_location: public
+        api_location: ${{ inputs.archive-base-url != '' && '.publication/api' || '' }}
+        skip_app_build: true
+
+    - name: Retain publication inventory
+      if: ${{ always() }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: publication-inventory-${{ github.run_id }}-${{ github.run_attempt }}
+        path: |
+          .publication/publication-budget.json
+          .publication/archive/_publication-manifest.json
+          .publication/publication-latest.json
+        if-no-files-found: warn
+        include-hidden-files: true
+        retention-days: 90
+
+    - name: Azure logout
+      if: ${{ always() && inputs.archive-base-url != '' }}
+      shell: bash
+      run: az logout

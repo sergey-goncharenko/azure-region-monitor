@@ -54,7 +54,32 @@ Use `azure-unknowns` only when the issue should run conditionally against the la
 
 Agentic PR branches start with `agentic/issue-<number>` and receive a collision-avoidance suffix. Aider fallback branches remain `azure-issues/issue-<number>`. Before starting a model, deterministic filtering skips any issue that already has an open PR from either lane.
 
-Every non-dry-run backlog workflow updates one stable `[agent-status] Scheduled Azure backlog` issue labelled `azure-agent-status` with the latest workflow link and open, queue-eligible, malformed-template, deferred-without-unknown-evidence, open-PR-blocked, paused, and selected counts. A malformed backlog issue also receives one idempotent bot question asking a maintainer to add or expand the exact `### Objective` section; later runs do not duplicate that comment. When no runnable task remains, no model is started and the status issue receives one concise comment with the reason. Selected runs continue to use source-issue notes and draft PRs for detailed outcomes.
+Every non-dry-run backlog workflow updates one stable `[agent-status] Scheduled Azure backlog` issue labelled `azure-agent-status` with the latest workflow link and open, queue-eligible, malformed-template, deferred-without-unknown-evidence, open-PR-blocked, waiting-for-maintainer, paused, and selected counts. A malformed backlog issue also receives one idempotent bot question asking a maintainer to add or expand the exact `### Objective` section; later runs do not duplicate that comment. When no runnable task remains, no model is started and the status issue receives one concise comment with the reason. Selected runs continue to use source-issue notes and draft PRs for detailed outcomes.
+
+### Blocked work is not delivered work
+
+The deterministic outcome follower verifies gh-aw safe-output receipts and records
+**delivered**, **no-change**, **waiting-for-maintainer**, or **failure**. A green
+workflow that only asks for clarification is not counted as a delivered patch.
+An issue waiting for a maintainer is excluded before queue limits are applied,
+even when explicitly targeted, rather than consuming another paid session daily.
+User-written markers and bot replies cannot manufacture a verified delivery or
+release the hold.
+
+A new reply from a collaborator with write access permits one re-evaluation.
+The selector records its comment ID and content digest before starting work, so
+unchanged clarification cannot be reused for repeated attempts. If re-evaluation
+fails, the hold remains until new authorized clarification arrives. The existing
+three-consecutive-failure policy for non-recurring issues still applies separately;
+successful verified PR delivery resets that streak and clears the waiting state,
+but never removes a manually applied `azure-paused` label. Clarification is still
+bounded task evidence, not permission to bypass scope, protected paths, or secrets.
+
+Policy revision 4 also allows an independently useful ordinary-code portion of a
+larger issue to be published even if completing the umbrella outcome later needs
+a protected workflow change or separately approved Azure resources. Such a PR
+must name the remaining dependency and must not claim the umbrella issue is solved.
+This favors verifiable progress over repeated whole-task clarification.
 
 ## Comments, Parent Issues, And Sub-Issues
 

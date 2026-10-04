@@ -46,6 +46,19 @@ def test_render_status_explains_no_task_run():
     assert "https://example.test/run/1" in rendered
 
 
+def test_render_status_explains_waiting_without_claiming_a_session():
+    manifest = _manifest()
+    manifest["status"].update(
+        waiting_for_maintainer_count=1,
+        waiting_for_maintainer_issues=[{"number": 132, "title": "Bounded publication"}],
+    )
+    rendered = backlog_status.render_status(manifest, "https://example.test/run/1")
+    assert "1 issue(s) waiting for a new maintainer clarification" in rendered
+    assert "Waiting for maintainer: 1" in rendered
+    assert "Selected sessions: 0" in rendered
+    assert "#132: Bounded publication" in rendered
+
+
 def test_render_status_explains_unknown_evidence_defer():
     manifest = _manifest()
     manifest["status"].update(

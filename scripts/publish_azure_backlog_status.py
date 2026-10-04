@@ -43,9 +43,12 @@ def _no_task_outcome(status: dict[str, Any]) -> str:
     malformed = int(status.get("malformed_issue_count", 0) or 0)
     deferred = int(status.get("deferred_no_unknown_evidence_count", 0) or 0)
     blocked = int(status.get("blocked_open_pr_count", 0) or 0)
-    if eligible == 0:
+    waiting = int(status.get("waiting_for_maintainer_count", 0) or 0)
+    if eligible == 0 and not waiting:
         return "No agent session started because no queue-eligible backlog issue was available."
     reasons = []
+    if waiting:
+        reasons.append(f"{waiting} issue(s) waiting for a new maintainer clarification")
     if malformed:
         noun = "issue is" if malformed == 1 else "issues are"
         reasons.append(f"{malformed} {noun} missing the required `### Objective` field")
@@ -81,6 +84,7 @@ def render_status(manifest: dict[str, Any], run_url: str) -> str:
         "- Deferred without current unknown evidence: "
         f"{int(status.get('deferred_no_unknown_evidence_count', 0) or 0)}",
         f"- Blocked by open coding PRs: {int(status.get('blocked_open_pr_count', 0) or 0)}",
+        f"- Waiting for maintainer: {int(status.get('waiting_for_maintainer_count', 0) or 0)}",
         f"- Paused issues: {int(status.get('paused_count', 0) or 0)}",
         f"- Selected sessions: {selected}",
         "",
@@ -101,6 +105,10 @@ def render_status(manifest: dict[str, Any], run_url: str) -> str:
         "## Blocked by open coding PRs",
         "",
         *_issue_lines(status.get("blocked_open_pr_issues")),
+        "",
+        "## Waiting for maintainer",
+        "",
+        *_issue_lines(status.get("waiting_for_maintainer_issues")),
         "",
         "## Paused issues",
         "",
@@ -213,6 +221,7 @@ def publish_status(manifest: dict[str, Any], repository: str, run_url: str) -> i
                 f"{int(status.get('deferred_no_unknown_evidence_count', 0) or 0)} "
                 "deferred without current unknown evidence, "
                 f"{int(status.get('blocked_open_pr_count', 0) or 0)} blocked by an open PR. "
+                f"{int(status.get('waiting_for_maintainer_count', 0) or 0)} waiting for maintainer. "
                 f"Run: {run_url or 'not available'}",
             )
         print(f"Published scheduled backlog status: issue #{issue_number or 'unknown'}.")
