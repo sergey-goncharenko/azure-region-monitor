@@ -311,6 +311,11 @@ already-updated history as that baseline. The new output contains `history/`,
 `replay-report.json`. Recovery directories must be new paths. For a single
 complete checkpoint needing no replay, its verified history and snapshot are
 already a rebuild input.
+Capture validates the copied history that will actually be retained. Each
+physical snapshot is parsed once per validation pass; only its timestamp and
+content digest are reused within that pass. A later verification rechecks the
+files, so this avoids repeated full-history decoding without trusting a stale
+cache or skipping copy-integrity checks.
 
 For rollback, preserve the failed/newer generation and recovery pointer first.
 Redeploy the previously verified static/API pair pinned to its original archive

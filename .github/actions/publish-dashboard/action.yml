@@ -84,6 +84,7 @@ runs:
           --warn-files "${AZWATCH_PUBLICATION_WARN_FILES:-12000}" | tee -a "$GITHUB_STEP_SUMMARY"
 
     - name: Login for approved archive uploads
+      id: archive-login
       if: ${{ inputs.archive-base-url != '' }}
       uses: azure/login@v2
       with:
@@ -121,6 +122,6 @@ runs:
         retention-days: 90
 
     - name: Azure logout
-      if: ${{ always() && inputs.archive-base-url != '' }}
+      if: ${{ always() && steps.archive-login.outcome == 'success' }}
       shell: bash
       run: az logout

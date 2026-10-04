@@ -50,6 +50,28 @@ def tree_bytes(root):
     }
 
 
+def test_history_validation_parses_each_snapshot_once_and_rechecks_next_call(tmp_path, monkeypatch):
+    history = history_fixture(tmp_path / "history")
+    put_json(history / "repeated-references.json", {
+        "records": [{"snapshot_path": "snapshots/2026-09-01.json"} for _ in range(100)]
+    })
+    calls = []
+    original = recovery._snapshot
+
+    def counted(path):
+        calls.append(path)
+        return original(path)
+
+    monkeypatch.setattr(recovery, "_snapshot", counted)
+    recovery.validate_history(history)
+    expected = history / "snapshots" / "2026-09-01.json.gz"
+    assert calls == [expected]
+    expected.write_bytes(b"corrupt")
+    with pytest.raises(ValueError, match="Invalid JSON"):
+        recovery.validate_history(history)
+    assert calls == [expected, expected]
+
+
 def test_complete_bundle_preserves_exact_inputs_and_manifest(tmp_path):
     history = history_fixture(tmp_path / "history")
     source = snapshot(tmp_path, "2026-09-02T09:00:00Z")
@@ -67,6 +89,42 @@ def test_complete_bundle_preserves_exact_inputs_and_manifest(tmp_path):
     assert set(manifest["files"]) == set(tree_bytes(output)) - {"manifest.json"}
     assert "sha256" in manifest["files"]["snapshot.json"]
     assert recovery.main(["verify", "--bundle", str(output)]) == 0
+
+
+def test_capture_validates_the_complete_copied_history_once(tmp_path, monkeypatch):
+    history = history_fixture(tmp_path / "history")
+    source = snapshot(tmp_path, "2026-09-02T09:00:00Z")
+    calls = []
+    original = recovery.validate_history
+
+    def counted(path):
+        calls.append(path)
+        return original(path)
+
+    monkeypatch.setattr(recovery, "validate_history", counted)
+    output = tmp_path / "bundle"
+    result = recovery.create_bundle(source, history, output)
+    assert result["status"] == "complete"
+    assert calls == [output / "history"]
+    assert tree_bytes(output / "history") == tree_bytes(history)
+
+
+def test_capture_rejects_corruption_introduced_while_copying(tmp_path, monkeypatch):
+    history = history_fixture(tmp_path / "history")
+    source = snapshot(tmp_path, "2026-09-02T09:00:00Z")
+    output = tmp_path / "bundle"
+    original = recovery.shutil.copytree
+
+    def corrupt_copy(src, dst, *args, **kwargs):
+        result = original(src, dst, *args, **kwargs)
+        if Path(dst) == output / "history":
+            (Path(dst) / "snapshots" / "2026-09-01.json.gz").write_bytes(b"corrupt")
+        return result
+
+    monkeypatch.setattr(recovery.shutil, "copytree", corrupt_copy)
+    result = recovery.create_bundle(source, history, output)
+    assert result["status"] == "incomplete"
+    assert "Invalid JSON data" in result["reason"]
 
 
 def test_incomplete_history_failure_retains_raw_snapshot_nonzero(tmp_path, capsys):

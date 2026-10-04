@@ -209,6 +209,8 @@ def test_all_publication_workflows_share_guard_and_recovery_order():
     assert action.count("include-hidden-files: true") == 2
     assert "api_location:" in action
     assert "${{ vars." not in action
+    assert "id: archive-login" in action
+    assert "always() && steps.archive-login.outcome == 'success'" in action
 
 
 def test_real_export_publisher_and_next_run_use_identical_generation(tmp_path, monkeypatch):

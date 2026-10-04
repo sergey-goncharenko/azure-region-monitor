@@ -113,7 +113,18 @@ def _references(payload: Any) -> list[str]:
     return references
 
 
-def _history_reference(history: Path, value: Any) -> Path:
+def _snapshot_metadata(
+    path: Path, cache: dict[Path, tuple[datetime, str]]
+) -> tuple[datetime, str]:
+    if path not in cache:
+        _, timestamp, digest = _snapshot(path)
+        cache[path] = (timestamp, digest)
+    return cache[path]
+
+
+def _history_reference(
+    history: Path, value: Any, cache: dict[Path, tuple[datetime, str]] | None = None
+) -> Path:
     target = _relative(history, value)
     if (
         not target.exists()
@@ -123,7 +134,7 @@ def _history_reference(history: Path, value: Any) -> Path:
         expected_date = date.fromisoformat(target.stem)
         compressed = checked_path(target.with_suffix(".json.gz"))
         if compressed.is_file():
-            _, timestamp, _ = _snapshot(compressed)
+            timestamp, _ = _snapshot_metadata(compressed, cache if cache is not None else {})
             if timestamp.date() != expected_date:
                 raise ValueError(f"History date does not match compressed snapshot: {compressed}")
             return compressed
@@ -141,10 +152,13 @@ def validate_history(history: Path) -> dict[str, Any]:
     days = index.get("days")
     if not isinstance(days, list):
         raise ValueError("History index must contain a days array")
+    snapshot_metadata: dict[Path, tuple[datetime, str]] = {}
     for path in files:
-        if path.name.endswith((".json", ".json.gz")):
+        if path.relative_to(history).parts[0] == "snapshots":
+            _snapshot_metadata(path, snapshot_metadata)
+        elif path.name.endswith((".json", ".json.gz")):
             for reference in _references(_json(path)):
-                target = _history_reference(history, reference)
+                target = _history_reference(history, reference, snapshot_metadata)
                 if not target.is_file():
                     raise ValueError(f"Missing history reference {reference!r} from {path}")
     observations: list[dict[str, Any]] = []
@@ -156,8 +170,8 @@ def validate_history(history: Path) -> dict[str, Any]:
         if date.fromisoformat(day).isoformat() != day or day in seen_dates:
             raise ValueError(f"Invalid or duplicate history date: {day}")
         seen_dates.add(day)
-        path = _history_reference(history, entry.get("snapshot_path"))
-        _, timestamp, digest = _snapshot(path)
+        path = _history_reference(history, entry.get("snapshot_path"), snapshot_metadata)
+        timestamp, digest = _snapshot_metadata(path, snapshot_metadata)
         if timestamp.date().isoformat() != day:
             raise ValueError(f"History date does not match snapshot timestamp: {path}")
         if "snapshot_timestamp" in entry and _timestamp(entry["snapshot_timestamp"]) != timestamp:
@@ -178,7 +192,7 @@ def validate_history(history: Path) -> dict[str, Any]:
     # Validate orphan snapshots too: they must not hide a newer baseline or corrupt evidence.
     for path in files:
         if path.relative_to(history).parts[0] == "snapshots":
-            _, timestamp, digest = _snapshot(path)
+            timestamp, digest = _snapshot_metadata(path, snapshot_metadata)
             if not observations or timestamp > observations[-1]["timestamp"]:
                 raise ValueError(f"Unindexed snapshot newer than the history baseline: {path}")
             matches = [entry for entry in observations if entry["timestamp"] == timestamp]
@@ -269,14 +283,11 @@ def create_bundle(
                 raise ValueError("Complete bundles require a history directory")
             if _snapshot(output / "snapshot.json")[2] != snapshot_digest:
                 raise ValueError("Snapshot changed while the bundle was being created")
-            baseline = validate_history(history)
-            _validate_baseline_observation(baseline, observed_at, snapshot_digest)
+            regular_files(history)
             shutil.copytree(history, output / "history", symlinks=True)
-            # Revalidate the copied tree; a failed collection/copy must never become complete.
+            # Validate the captured bytes, not a second copy of every historical snapshot.
             copied = validate_history(output / "history")
             _validate_baseline_observation(copied, observed_at, snapshot_digest)
-            if copied["latest_timestamp"] != baseline["latest_timestamp"]:
-                raise ValueError("History baseline changed while the bundle was being created")
             manifest["history_baseline"] = {
                 "index_path": "history/index.json",
                 "latest_timestamp": copied["latest_timestamp"],
