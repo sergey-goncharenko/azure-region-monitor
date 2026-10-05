@@ -146,6 +146,7 @@ def fetch_history(
     required = _required_history_paths(index)
     if history_dir.is_symlink():
         raise ValueError("History directory must not be a symlink")
+    started = time.monotonic()
     history_dir.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix=".history-fetch-", dir=history_dir.parent) as temporary:
         root = Path(temporary)
@@ -193,6 +194,10 @@ def fetch_history(
             if backup.exists():
                 backup.rename(history_dir)
             raise
+    print(
+        f"Fetched {len(downloaded)} history objects from {base_url} "
+        f"in {time.monotonic() - started:.1f}s"
+    )
     return True
 
 

@@ -132,7 +132,9 @@ jobs:
       - model-latency
       - azure-latency
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Full-archive history fetch, update-history, safeguarded publication and
+    # archive upload together exceed 20 minutes; keep headroom without unbounded runs.
+    timeout-minutes: 45
     concurrency:
       group: dashboard-publication
       cancel-in-progress: false

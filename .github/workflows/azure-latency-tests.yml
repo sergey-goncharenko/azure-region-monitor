@@ -265,7 +265,8 @@ jobs:
     if: inputs.deploy_dashboard
     needs: azure-latency
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Full-archive history fetch plus safeguarded publication exceeds 20 minutes.
+    timeout-minutes: 45
     concurrency:
       group: dashboard-publication
       cancel-in-progress: false
