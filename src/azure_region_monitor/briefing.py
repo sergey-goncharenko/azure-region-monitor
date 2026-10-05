@@ -245,7 +245,7 @@ def build_digest(
             after = _available_coverage(record.get("coverage_after"))
             entry = {
                 "feature": feature,
-                "label": str(record.get("label") or plain_feature_name(feature)),
+                "label": plain_feature_name(feature),
                 "modality": modality,
                 "short": str(context.get("short") or ""),
                 "cluster": {

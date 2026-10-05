@@ -267,9 +267,33 @@ def test_digest_regions_tooltip_restored_badges_and_safe_learn_links():
     assert "briefing-region-chip-gain" in page
     assert "9 &rarr; 11 regions" in page
     assert "first listing" in page
-    assert "first in Asia Pacific" in page
+    assert "first in Asia Pacific" not in page
     assert 'href="https://learn.microsoft.com/azure/virtual-machines/dv7-series"' in page
     assert 'href="http://learn.microsoft.com/not-safe"' not in page
+
+
+def test_first_listing_collapses_geography_badges_and_expansions_keep_them():
+    digest = _digest()
+    feature = digest["modalities"][0]["features"][0]
+    feature["new_geographies"] = ["Africa", "Asia", "Europe"]
+    page = render_briefing(_digest_day(digest))
+    assert "first listing · 3 geographies" in page
+    assert "first in Africa" not in page
+
+    feature["first_seen"] = False
+    page = render_briefing(_digest_day(digest))
+    assert "first in Africa" in page
+    assert "first in Europe" in page
+    assert "first listing" not in page
+
+
+def test_learn_search_fallback_is_not_rendered_as_a_reference():
+    digest = _digest()
+    feature = digest["modalities"][0]["features"][0]
+    feature["learn_reference"] = None
+    feature["details_url"] = "https://learn.microsoft.com/en-us/search/?terms=vmSkus.standard.d248ds.v7"
+    page = render_briefing(_digest_day(digest))
+    assert "search/?terms=vmSkus.standard.d248ds.v7" not in page.split("briefing-full-evidence")[0]
 
 
 def test_digest_clusters_shared_and_varying_region_deltas():
@@ -505,3 +529,12 @@ def test_specific_vm_context_is_visible_in_the_shared_briefing():
     assert "Low-memory" in page
     assert "dnldsv6-series" in page
     assert "Documented feature" in page
+
+
+def test_display_model_name_joins_claude_minor_versions_only():
+    from azure_region_monitor.display import display_model_name
+
+    assert display_model_name("claude-sonnet-4-5") == "Claude Sonnet 4.5"
+    assert display_model_name("claude-opus-4") == "Claude Opus 4"
+    assert display_model_name("gpt-4o-2024-08-06").startswith("GPT-4o")
+    assert display_model_name("phi-3-5-mini") == "phi 3 5 mini"

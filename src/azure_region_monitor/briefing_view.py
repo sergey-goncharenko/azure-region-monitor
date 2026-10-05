@@ -245,6 +245,9 @@ def _feature_learn_link(feature: dict[str, Any]) -> str:
     if not url:
         url = _safe_learn_url(feature.get("details_url"))
         title = "Learn"
+        if urlsplit(url).path.rstrip("/").endswith("/search"):
+            # A search for the raw identifier is not a reference; show no link instead.
+            url = ""
     if not url:
         return ""
     return (
@@ -297,12 +300,19 @@ def _coverage_html(feature: dict[str, Any]) -> str:
 
 
 def _feature_badges_html(feature: dict[str, Any]) -> str:
+    geographies = [
+        geography.strip()
+        for geography in feature.get("new_geographies") or []
+        if isinstance(geography, str) and geography.strip()
+    ]
     badges = []
     if feature.get("first_seen"):
-        badges.append("first listing")
-    for geography in feature.get("new_geographies") or []:
-        if isinstance(geography, str) and geography.strip():
-            badges.append(f"first in {geography.strip()}")
+        # A first listing is new in every geography it appears in; one badge says that.
+        badges.append(
+            f"first listing · {len(geographies)} geographies" if len(geographies) > 1 else "first listing"
+        )
+    else:
+        badges.extend(f"first in {geography}" for geography in geographies)
     return "".join(f'<span class="briefing-badge">{_escape(badge)}</span>' for badge in badges)
 
 
@@ -314,6 +324,10 @@ def _feature_member_name(feature: dict[str, Any]) -> str:
         member = re.sub(r"^Standard\s+", "", member, flags=re.IGNORECASE)
         member = re.sub(r"\s+V[0-9]+$", "", member, flags=re.IGNORECASE)
         return member or label
+    if feature.get("modality") == "Azure AI models":
+        version = re.search(r"\(version ([^)]+)\)$", label)
+        if version:
+            return f"version {version.group(1)}"
     return label
 
 

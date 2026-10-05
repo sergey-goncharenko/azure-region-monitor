@@ -526,3 +526,14 @@ def test_module_is_leaf_without_history_or_summary_imports():
         if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("azure_region_monitor")
     ]
     assert package_imports == ["azure_region_monitor.display"]
+
+
+def test_unverified_extension_and_claude_model_short_lines_are_readable():
+    partner = describe_feature("extensionTypes.infernosim.infernosimazurepro")
+    assert partner["short"] == "Third-party AKS extension type from publisher infernosim"
+    microsoft = describe_feature("extensionTypes.microsoft.never-documented")
+    assert microsoft["short"] == "Microsoft AKS extension type not yet mapped to documentation"
+    claude = describe_feature("aiModels.anthropic.claude-sonnet-5-5.2")
+    assert claude["short"] == "Anthropic Claude Sonnet 5.5 model, version 2"
+    assert claude["family_label"] == "Claude Sonnet 5.5"
+    assert describe_feature("aiModels.anthropic.claude-sonnet-5-5.1")["family_key"] == claude["family_key"]

@@ -509,11 +509,18 @@ def _extension_context(feature: str) -> dict[str, Any]:
             "microsoft.azurepolicy identifier has not been verified as an alias.",
         )
         sources.append(_source("Documented Azure Policy extension identity", _POLICY))
+    publisher = identity.split(".", 1)[0]
+    unverified_short = (
+        "Microsoft AKS extension type not yet mapped to documentation"
+        if publisher == "microsoft"
+        else f"Third-party AKS extension type from publisher {publisher}"
+    )
     context = _description(
         f"{identity} - unverified extension identity",
         "A regional extension catalog identifier without a verified exact product mapping.",
         facts, "Check the exact extension's documentation and cluster prerequisites before use.",
         tuple(sources), "Exact extension identity is unverified. " + _EXTENSION_LIMIT, "unverified",
+        short=unverified_short,
     )
     context["family_key"] = family_key
     context["family_label"] = family_label
@@ -815,7 +822,9 @@ def _model_context(feature: str) -> dict[str, Any]:
             "aiLatency": "This records an inference request to a configured Azure OpenAI deployment.",
         }[modality]
         context = _description(
-            f"{display_model_name(model_and_version)} - {provider_label or 'unknown publisher'}",
+            f"{display_model_name(model)}"
+            + (f" (catalog version {version})" if version else "")
+            + f" - {provider_label or 'unknown publisher'}",
             "A model identifier observed by this modality; exact capabilities are not verified.",
             (evidence,
              "Context limits, input/output modalities, licensing, and tool support need exact-model review."),
@@ -825,7 +834,8 @@ def _model_context(feature: str) -> dict[str, Any]:
             "No exact model capability or version is verified. The source provides category "
             "context only. " + _MODEL_LIMIT,
             "category",
-            f"{provider_label or 'Foundry'} {display_model_name(model_and_version)} model identifier",
+            f"{provider_label or 'Foundry'} {display_model_name(model)} model"
+            + (f", version {version}" if version else ""),
         )
         context["family_key"] = f"model:{publisher}:{model.lower()}"
         context["family_label"] = display_model_name(model)

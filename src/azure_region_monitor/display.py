@@ -53,8 +53,18 @@ def plain_feature_name(feature: str) -> str:
 
 
 def display_model_name(model: str) -> str:
+    parts = model.split("-")
+    if parts and parts[0].lower() == "claude":
+        # Anthropic catalog IDs encode minor versions as separate parts: claude-sonnet-4-5 = Claude Sonnet 4.5.
+        merged: list[str] = []
+        for part in parts:
+            if merged and part.isdigit() and merged[-1].replace(".", "").isdigit():
+                merged[-1] = f"{merged[-1]}.{part}"
+            else:
+                merged.append(part)
+        parts = merged
     display_parts = []
-    for part in model.split("-"):
+    for part in parts:
         lowered = part.lower()
         if lowered == "gpt":
             display_parts.append("GPT")
