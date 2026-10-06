@@ -538,3 +538,10 @@ def test_unverified_extension_and_claude_model_short_lines_are_readable():
     assert claude["short"] == "Anthropic Claude Sonnet 5.5 model, version 2"
     assert claude["family_label"] == "Claude Sonnet 5.5"
     assert describe_feature("aiModels.anthropic.claude-sonnet-5-5.1")["family_key"] == claude["family_key"]
+
+
+def test_unversioned_vm_sizes_use_the_original_series_label():
+    context = describe_feature("vmSkus.standard.h16")
+    assert context["family_label"].startswith("H-series")
+    assert "unknown" not in context["family_label"].lower()
+    assert describe_feature("vmSkus.standard.h16m")["family_key"] == context["family_key"]

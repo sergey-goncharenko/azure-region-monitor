@@ -151,6 +151,21 @@ def test_relevance_gate_rejects_azure_policy_backup_false_positive():
     ) is None
 
 
+def test_relevance_gate_rejects_single_word_of_multi_part_extension_type():
+    entry = _feature("extensionTypes.microsoft.automatic.test", "automatic.test AKS extension")
+
+    assert select_learn_reference(
+        entry,
+        [
+            _result(
+                "Automatic Pod Disruption Budget management in AKS (preview)",
+                "https://learn.microsoft.com/azure/aks/automatic-pod-disruption-budget",
+                "Learn how AKS manages pod disruption budgets automatically.",
+            )
+        ],
+    ) is None
+
+
 def test_relevance_gate_accepts_aks_azure_policy_result():
     entry = _feature("extensionTypes.microsoft.azurepolicy", "Azure Policy AKS extension")
 

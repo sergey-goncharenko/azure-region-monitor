@@ -19,7 +19,7 @@ DEFAULT_MAX_LOOKUPS = 40
 DEFAULT_TOTAL_BUDGET_SECONDS = 90.0
 DEFAULT_TIMEOUT_SECONDS = 10.0
 _CACHE_VERSION = 1
-_GATE_VERSION = 3
+_GATE_VERSION = 4
 _GENERIC_DISTINCTIVE_TOKENS = {
     "aks",
     "azure",
@@ -566,7 +566,7 @@ def _vm_reference_score(feature: str, title: str, path: str) -> int | None:
 
 
 def _extension_reference_score(feature: str, title: str, path: str) -> int | None:
-    tokens = _extension_distinctive_tokens(feature)
+    tokens = _extension_match_tokens(feature)
     if not tokens or not _contains_distinctive_token(f"{title}\n{path}", tokens):
         return None
     if not _is_extension_product_path(feature, path):
@@ -700,6 +700,19 @@ def _extension_distinctive_tokens(feature: str) -> tuple[str, ...]:
     if name == "azuremonitor.containers":
         tokens.append("container insights")
     return _distinctive_tokens(*tokens)
+
+
+def _extension_match_tokens(feature: str) -> tuple[str, ...]:
+    # One word of a multi-part type (microsoft.automatic.test -> "automatic") is not the product name.
+    tokens = _extension_distinctive_tokens(feature)
+    name = feature.removeprefix("extensionTypes.").removeprefix("microsoft.").lower()
+    segments = {
+        segment for segment in re.split(r"[.\-_]", name)
+        if segment and segment not in _GENERIC_DISTINCTIVE_TOKENS
+    }
+    if len(segments) <= 1:
+        return tokens
+    return tuple(token for token in tokens if token not in segments)
 
 
 def _is_extension_product_path(feature: str, path: str) -> bool:

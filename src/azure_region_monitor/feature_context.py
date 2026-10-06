@@ -256,10 +256,11 @@ def _vm_name_short(decoded: _VmName, family: _VmFamily) -> str:
 
 
 def _vm_cluster(decoded: _VmName, family: _VmFamily) -> tuple[str, str]:
-    version = f"v{decoded.generation}" if decoded.generation else "unknown"
+    # Unversioned names (H16, A10) belong to the original series, documented as e.g. "H-series".
+    version = f"v{decoded.generation}" if decoded.generation else ""
     family_code = decoded.family.upper()
     purpose = family.purpose.replace("Large-memory optimized", "Memory optimized").lower()
-    return f"vm:{family_code}:{version}", f"{family_code}{version}-series · {purpose}"
+    return f"vm:{family_code}:{version or 'v1'}", f"{family_code}{version}-series · {purpose}"
 
 
 def _vm_decoded_context(feature: str, decoded: _VmName) -> dict[str, Any]:
