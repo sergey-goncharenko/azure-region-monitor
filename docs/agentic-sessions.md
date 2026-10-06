@@ -260,7 +260,7 @@ properties and capacity were verified unchanged. Direct Entra-authenticated
 Responses, streaming function-call, and tool-result round-trip smoke tests passed.
 These small probes do not replace a successful coding/publication canary.
 
-The production model remains `gpt-5.6-terra`. In **Actions / Model canary**, choose
+Terra was the production model during the Astra canary. In **Actions / Model canary**, choose
 `model=gpt-6-astra` and an eligible `target_issue` to test Astra without changing
 scheduled or rework model selection. This is a real bounded coding run that may
 publish one draft PR. It uses the existing 80-turn repository setting and
@@ -280,7 +280,7 @@ increase, or production model switch followed. The deployed model passed API
 smokes, but this did not establish a successful end-to-end coding canary.
 
 **Automatic Astra-to-Terra failover is not implemented.** The pinned runtime's
-model-resolution fallback is not transient-error failover. Keep Terra as the
+model-resolution fallback is not transient-error failover. Do not make Astra the
 production default until a separately reviewed trusted router can provide one
 bounded fallback on positively identified upstream availability/rate-limit
 failures, before streaming starts. It must not replay tool calls or bypass
@@ -330,6 +330,13 @@ PR-producing runs. Conservative accounting recorded 90.3 agent credits. One
 canary is evidence of compatibility and cost, not proof of better coding; the
 sandbox lacked pytest and Ruff for both models, so the agent relied on the
 publication gate.
+
+**Production switched to Sol on 2026-10-06.** `AZWATCH_AGENTIC_MODEL` is now
+`gpt-6-sol` for scheduled coding, agentic PR rework, threat detection, and the
+canary's repository default. The Terra deployment is retained; roll back with
+`gh variable set AZWATCH_AGENTIC_MODEL --body gpt-5.6-terra`. Watch the first
+week of runs for turns, recorded tokens, outcomes, and credits against the
+measured Terra baseline above.
 
 ## Documentation Augmentation
 
