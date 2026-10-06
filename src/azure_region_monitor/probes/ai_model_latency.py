@@ -6,6 +6,7 @@ from typing import Callable, Protocol
 from azure_region_monitor.config import AiLatencyTarget
 from azure_region_monitor.models import FeatureResult
 from azure_region_monitor.probes.base import ProbeResult
+from azure_region_monitor.probes.inference_http import _is_reasoning_model
 from azure_region_monitor.probes.model_latency import (
     DEFAULT_MAX_BACKOFF_SECONDS,
     DEFAULT_MAX_TOKENS,
@@ -57,7 +58,9 @@ class AzureOpenAiLatencyProbe:
         sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         self._targets_by_region: dict[str, list[AiLatencyTarget]] = {}
-        for target in targets or []:
+        for target in sorted(
+            targets or [], key=lambda target: _is_reasoning_model(target.deployment)
+        ):
             self._targets_by_region.setdefault(target.region, []).append(target)
         self._client = client
         self._samples = max(1, samples)
