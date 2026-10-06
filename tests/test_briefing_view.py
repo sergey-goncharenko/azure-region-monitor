@@ -154,8 +154,9 @@ def _digest(gained_features=2, lost_features=0):
     }
 
 
-def _clustered_digest(*, varying=False):
+def _clustered_digest(*, varying=False, returned=False):
     second_regions = ["westus3"] if varying else ["eastus"]
+    second_restored = second_regions if returned else []
     second_after = 4 if varying else 3
     return {
         "version": 1,
@@ -203,7 +204,7 @@ def _clustered_digest(*, varying=False):
                         "specificity": "family",
                         "details_url": None,
                         "gained_regions": second_regions,
-                        "restored_regions": second_regions,
+                        "restored_regions": second_restored,
                         "lost_regions": [],
                         "coverage_before": 2,
                         "coverage_after": second_after,
@@ -221,13 +222,16 @@ def _clustered_digest(*, varying=False):
 def test_digest_headline_prefers_gains_and_measurement_gaps_do_not_hijack():
     day = _digest_day(_digest())
     page = render_briefing(day)
-    assert briefing_headline(day["briefing"]) == "2 VM sizes gained regions · nothing dropped"
+    assert briefing_headline(day["briefing"]) == (
+        "1 VM size gained new regions · 1 VM size returned · nothing dropped"
+    )
     assert 'class="briefing-headline--gain"' in page
     assert "Evidence gaps need attention" not in page
     assert "13 GitHub Models latency checks returned no result" in page
     assert "measurement gap, not catalog evidence" in page
     assert briefing_excerpt(day["briefing"]) == (
-        "2 VM sizes gained regions (Brazil South, East Asia, East US, North Central US); "
+        "1 VM size gained new regions (Brazil South, East US, North Central US); "
+        "1 VM size returned (East Asia); "
         "nothing dropped; 13 measurement gaps were not catalog evidence. "
         "Catalog evidence, not deployment results."
     )
@@ -239,7 +243,8 @@ def test_digest_headline_leads_with_losses_and_uses_red_tone():
     assert briefing_headline(day["briefing"]).startswith("1 VM size dropped regions")
     assert 'class="briefing-headline--loss"' in page
     assert "▼ 1 VM size −2 listings" in page
-    assert "▲ 2 VM sizes +5 listings" in page
+    assert "▲ 1 VM size +3 new listings" in page
+    assert "↩ 1 VM size returned · 2 listings" in page
 
 
 def test_digest_feature_with_gain_and_loss_renders_both_region_deltas():
@@ -302,14 +307,47 @@ def test_digest_clusters_shared_and_varying_region_deltas():
     assert "2 VM sizes: D2s, D4s" in shared
     assert "2 &rarr; 3 regions" in shared
     assert "varies by size" not in shared
-    assert "briefing-badge-returned" in shared
     assert "briefing-digest-cluster-details" in shared
 
     varying = render_briefing(_digest_day(_clustered_digest(varying=True)))
     assert "+ East US" in varying
-    assert "+ West US 3 (returned)" in varying
+    assert "+ West US 3" in varying
     assert "2 &rarr; 3–4 regions" in varying
     assert "varies by size" in varying
+
+
+def test_returned_listings_are_separated_from_new_regions():
+    digest = _clustered_digest(returned=True)
+    day = _digest_day(digest)
+    page = render_briefing(day)
+    glance = page.split("briefing-full-evidence")[0]
+
+    assert briefing_headline(day["briefing"]) == (
+        "1 VM size gained new regions · 1 VM size returned · nothing dropped"
+    )
+    assert 'class="briefing-headline--gain"' in glance
+    assert "▲ 1 VM size +1 new listing" in glance
+    assert "↩ 1 VM size returned · 1 listing" in glance
+    assert "<strong>New regions:</strong>" in glance
+    assert "<strong>Returned in:</strong>" in glance
+    assert "briefing-region-chip-returned" in glance
+    assert "↩ East US" in glance
+    new_part, returned_part = glance.split('class="briefing-returned-features"')
+    assert "Standard D2s V7 VM size" in new_part
+    assert "Standard D4s V7 VM size" in returned_part
+    assert "↩ 1 VM size returned after a gap in 1 group" in returned_part
+
+
+def test_only_returned_listings_use_returned_tone_and_headline():
+    digest = _clustered_digest(returned=True)
+    features = digest["modalities"][0]["features"]
+    features[0]["restored_regions"] = list(features[0]["gained_regions"])
+    day = _digest_day(digest)
+    page = render_briefing(day)
+
+    assert briefing_headline(day["briefing"]) == "2 VM sizes returned · nothing dropped"
+    assert 'class="briefing-headline--returned"' in page
+    assert "briefing-pill-gain" not in page.split("briefing-full-evidence")[0]
 
 
 def test_digest_restored_only_cluster_does_not_show_first_listing_badges():
@@ -342,9 +380,11 @@ def test_digest_restored_only_cluster_does_not_show_first_listing_badges():
     })
 
     assert "Dv7-series · general purpose" in page
+    assert "↩ 2 VM sizes returned after a gap" in page
+    assert "<strong>Returned:</strong>" in page
     assert "first listing" not in page
     assert "first in North America" not in page
-    assert "(2 returned)" in page
+    assert "(2 returned)" not in page
 
 
 def test_digest_escapes_untrusted_text_and_keeps_legacy_view_collapsed():

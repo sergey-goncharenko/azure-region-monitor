@@ -24,9 +24,10 @@ word count, or the number of green workflow runs. Preserve all records through
 filters, paging, and progressive detail.
 
 The primary reading surface is the deterministic **At a glance** briefing, not
-generated prose. A reader should be able to distinguish green ▲ gained listings,
-red ▼ lost listings, and grey/amber observation gaps before opening the full
-evidence. Measurement-only latency gaps should communicate a measurement limit,
+generated prose. A reader should be able to distinguish green ▲ listings in new
+regions, teal ↩ listings that returned after a gap, red ▼ lost listings, and
+grey/amber observation gaps before opening the full evidence. Returns must not
+read as rollouts. Measurement-only latency gaps should communicate a measurement limit,
 not become the daily headline when catalog evidence did not regress. Long region
 sets can be summarized inline, but the full region list must remain reachable by
 keyboard and pointer and the full evidence explorer must remain available.

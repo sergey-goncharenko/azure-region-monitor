@@ -170,28 +170,72 @@ def _join_phrases(parts: list[str]) -> str:
     return ", ".join(parts[:-1]) + f", and {parts[-1]}"
 
 
-def _digest_change_phrase(digest: dict[str, Any], *, direction: str) -> str:
-    feature_key = f"{direction}_features"
-    total_features = _digest_count(digest, feature_key)
-    if total_features == 0:
-        return "nothing dropped" if direction == "lost" else "no gains"
+def _strings(values: object) -> list[str]:
+    return [value for value in values if isinstance(value, str)] if isinstance(values, list) else []
+
+
+def _new_regions(feature: dict[str, Any]) -> list[str]:
+    restored = set(_strings(feature.get("restored_regions")))
+    return [region for region in _strings(feature.get("gained_regions")) if region not in restored]
+
+
+def _returned_regions(feature: dict[str, Any]) -> list[str]:
+    gained = set(_strings(feature.get("gained_regions")))
+    return [region for region in _strings(feature.get("restored_regions")) if region in gained]
+
+
+def _is_returned_only(feature: dict[str, Any]) -> bool:
+    # Listings that came back after a gap are not new regional rollouts; keep them apart.
+    return (
+        bool(_returned_regions(feature))
+        and not _new_regions(feature)
+        and not _strings(feature.get("lost_regions"))
+    )
+
+
+def _modality_features(modality: dict[str, Any]) -> list[dict[str, Any]]:
+    return [feature for feature in modality.get("features", []) if isinstance(feature, dict)]
+
+
+def _modality_change_counts(modality: dict[str, Any]) -> dict[str, int]:
+    def count(key: str) -> int:
+        value = modality.get(key)
+        return value if isinstance(value, int) else 0
+
+    features = _modality_features(modality)
+    if not features:
+        return {"new": count("gained_features"), "returned": 0, "lost": count("lost_features")}
+    return {
+        "new": sum(1 for feature in features if _new_regions(feature)),
+        "returned": sum(1 for feature in features if _is_returned_only(feature)),
+        "lost": count("lost_features"),
+    }
+
+
+def _digest_subject(digest: dict[str, Any], kind: str) -> str:
     subjects = []
     for modality in _digest_modalities(digest):
-        features = modality.get(feature_key)
-        if not isinstance(features, int) or features <= 0:
-            continue
-        name = str(modality.get("modality") or "")
-        subjects.append(f"{features:,} {_digest_unit(name, features)}")
-    subject = _join_phrases(subjects) if subjects else f"{total_features:,} features"
-    verb = "dropped regions" if direction == "lost" else "gained regions"
-    return f"{subject} {verb}"
+        count = _modality_change_counts(modality)[kind]
+        if count:
+            subjects.append(f"{count:,} {_digest_unit(str(modality.get('modality') or ''), count)}")
+    return _join_phrases(subjects)
+
+
+def _digest_regions(digest: dict[str, Any], select) -> list[str]:
+    return sorted({
+        region
+        for modality in _digest_modalities(digest)
+        for feature in _modality_features(modality)
+        for region in select(feature)
+    }, key=region_name)
 
 
 def _digest_headline(briefing: dict[str, Any]) -> str:
     digest = briefing["digest"]
-    gains = _digest_count(digest, "gained_features")
-    losses = _digest_count(digest, "lost_features")
-    if not gains and not losses:
+    lost = _digest_subject(digest, "lost")
+    new = _digest_subject(digest, "new")
+    returned = _digest_subject(digest, "returned")
+    if not (lost or new or returned):
         retirements = _digest_retirements(digest)
         if retirements:
             label = str(retirements[0].get("label") or "A retired modality")
@@ -200,30 +244,39 @@ def _digest_headline(briefing: dict[str, Any]) -> str:
                 suffix += f" and {len(retirements) - 1:,} more retired"
             return f"No regional listing changes · {suffix}"
         return f"No regional listing changes since {_previous_date(briefing)}"
-    if losses:
-        return (
-            f"{_digest_change_phrase(digest, direction='lost')} · "
-            f"{_digest_change_phrase(digest, direction='gained') if gains else 'nothing gained'}"
-        )
-    return f"{_digest_change_phrase(digest, direction='gained')} · nothing dropped"
+    parts = []
+    if lost:
+        parts.append(f"{lost} dropped regions")
+    if new:
+        parts.append(f"{new} gained new regions")
+    if returned:
+        parts.append(f"{returned} returned")
+    if not lost:
+        parts.append("nothing dropped")
+    elif not (new or returned):
+        parts.append("nothing gained")
+    return " · ".join(parts)
 
 
 def _digest_excerpt(digest: dict[str, Any]) -> str:
-    gained = _digest_count(digest, "gained_features")
-    lost = _digest_count(digest, "lost_features")
+    lost = _digest_subject(digest, "lost")
+    new = _digest_subject(digest, "new")
+    returned = _digest_subject(digest, "returned")
     catalog_gaps = _digest_count(digest, "catalog_gap_listings")
     measurement_gaps = _digest_count(digest, "measurement_gap_listings")
-    gain_phrase = _digest_change_phrase(digest, direction="gained")
-    regions = sorted({
-        region
-        for modality in _digest_modalities(digest)
-        for region in modality.get("gained_regions", [])
-        if isinstance(region, str)
-    }, key=region_name)
-    if gained and regions:
-        gain_phrase += f" ({', '.join(region_name(region) for region in regions)})"
-    loss_phrase = _digest_change_phrase(digest, direction="lost") if lost else "nothing dropped"
-    parts = [f"{gain_phrase}; {loss_phrase}"]
+
+    def with_regions(phrase: str, regions: list[str]) -> str:
+        return f"{phrase} ({', '.join(region_name(region) for region in regions)})" if regions else phrase
+
+    changes = []
+    if new:
+        changes.append(with_regions(f"{new} gained new regions", _digest_regions(digest, _new_regions)))
+    if returned:
+        changes.append(with_regions(f"{returned} returned", _digest_regions(digest, _returned_regions)))
+    if not changes:
+        changes.append("no gains")
+    changes.append(f"{lost} dropped regions" if lost else "nothing dropped")
+    parts = ["; ".join(changes)]
     if catalog_gaps:
         parts.append(f"{catalog_gaps:,} catalog gaps need follow-up")
     if measurement_gaps:
@@ -291,16 +344,21 @@ def _region_display_list(regions: list[str], restored_regions: set[str] | None =
 
 def _region_delta_html(regions: list[str], *, label: str, restored_regions: set[str] | None = None) -> str:
     restored_regions = restored_regions or set()
-    names = _region_display_list(regions, restored_regions)
+    if label == "returned":
+        # Every region here came back after a gap, so the chip style says it once.
+        names = [region_name(region) for region in regions]
+        tone, sign = "returned", "↩"
+    else:
+        names = _region_display_list(regions, restored_regions)
+        tone = "loss" if label == "lost" else "gain"
+        sign = "−" if label == "lost" else "+"
     if not names:
         return ""
-    tone = "loss" if label == "lost" else "gain"
-    sign = "−" if label == "lost" else "+"
     full = ", ".join(names)
     if len(names) <= 3:
         chips = []
         for region, name in zip(regions, names, strict=True):
-            returned = region in restored_regions
+            returned = label != "returned" and region in restored_regions
             returned_class = " is-returned" if returned else ""
             chips.append(
                 f'<span class="briefing-region-chip briefing-region-chip-{tone}{returned_class}">'
@@ -452,20 +510,24 @@ def _digest_cluster_line(features: list[dict[str, Any]]) -> str:
     label = _cluster_label(features[0])
     modality = str(features[0].get("modality") or "")
     is_loss = any(feature.get("lost_regions") for feature in features)
-    icon = "▼" if is_loss else "▲"
-    tone = "loss" if is_loss else "gain"
+    returned_only = all(_is_returned_only(feature) for feature in features)
+    icon = "▼" if is_loss else "↩" if returned_only else "▲"
+    tone = "loss" if is_loss else "returned" if returned_only else "gain"
     count = len(features)
     members = _compact_member_names(features)
     region_bits = []
     lost_html = _cluster_region_delta_html(features, "lost_regions", "lost")
     if lost_html:
         region_bits.append(f'<span><strong>Dropped:</strong> {lost_html}</span>')
-    gained_html = _cluster_region_delta_html(features, "gained_regions", "gained")
+    gained_html = _cluster_region_delta_html(
+        features, "gained_regions", "returned" if returned_only else "gained"
+    )
     if gained_html:
-        region_bits.append(f'<span><strong>Gained:</strong> {gained_html}</span>')
+        gained_label = "Returned" if returned_only else "Gained"
+        region_bits.append(f'<span><strong>{gained_label}:</strong> {gained_html}</span>')
     summary_meta = "".join((
         _cluster_coverage_html(features),
-        _cluster_restored_badge(features),
+        "" if returned_only else _cluster_restored_badge(features),
         _cluster_badges_html(features),
     ))
     details = "".join(_digest_feature_line(feature) for feature in features)
@@ -485,12 +547,13 @@ def _digest_cluster_line(features: list[dict[str, Any]]) -> str:
 
 
 def _digest_clusters(features: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
-    groups: dict[str, list[dict[str, Any]]] = {}
+    groups: dict[tuple[str, bool], list[dict[str, Any]]] = {}
     for feature in features:
-        groups.setdefault(_cluster_key(feature), []).append(feature)
+        groups.setdefault((_cluster_key(feature), _is_returned_only(feature)), []).append(feature)
     clusters = list(groups.values())
     clusters.sort(key=lambda items: (
-        not any(feature.get("lost_regions") for feature in items),
+        0 if any(feature.get("lost_regions") for feature in items)
+        else 2 if all(_is_returned_only(feature) for feature in items) else 1,
         -len(items),
         -_cluster_changed_region_count(items),
         _cluster_label(items[0]).casefold(),
@@ -511,10 +574,13 @@ def _digest_feature_line(feature: dict[str, Any]) -> str:
         if isinstance(region, str)
     }
     is_loss = bool(lost)
-    icon = "▼" if is_loss else "▲"
-    tone = "loss" if is_loss else "gain"
+    returned_only = _is_returned_only(feature)
+    icon = "▼" if is_loss else "↩" if returned_only else "▲"
+    tone = "loss" if is_loss else "returned" if returned_only else "gain"
     lost_html = _region_delta_html(lost, label="lost")
-    gained_html = _region_delta_html(gained, label="gained", restored_regions=restored)
+    gained_html = _region_delta_html(
+        gained, label="returned" if returned_only else "gained", restored_regions=restored
+    )
     if lost_html and gained_html:
         regions = (
             f'<span><strong>Dropped:</strong> {lost_html}</span>'
@@ -533,8 +599,7 @@ def _digest_feature_line(feature: dict[str, Any]) -> str:
     </li>"""
 
 
-def _digest_feature_list(features: list[dict[str, Any]]) -> str:
-    clusters = _digest_clusters(features)
+def _cluster_list_html(clusters: list[list[dict[str, Any]]], *, show_all_label: str) -> str:
     visible = clusters[:6]
     hidden = clusters[6:]
     visible_html = "".join(_digest_cluster_line(cluster) for cluster in visible)
@@ -552,24 +617,63 @@ def _digest_feature_list(features: list[dict[str, Any]]) -> str:
         )
     return (
         f'<ul class="briefing-digest-features">{visible_html}</ul>'
-        f'<details class="briefing-more-features"><summary>Show all {len(clusters):,} groups</summary>{overflow}</details>'
+        f'<details class="briefing-more-features"><summary>{_escape(show_all_label)}</summary>{overflow}</details>'
     )
+
+
+def _digest_feature_list(features: list[dict[str, Any]]) -> str:
+    clusters = _digest_clusters(features)
+    active = [cluster for cluster in clusters if not all(_is_returned_only(feature) for feature in cluster)]
+    returned = [cluster for cluster in clusters if all(_is_returned_only(feature) for feature in cluster)]
+    html = (
+        _cluster_list_html(active, show_all_label=f"Show all {len(active):,} groups")
+        if active else ""
+    )
+    if returned:
+        modality = str(returned[0][0].get("modality") or "")
+        count = sum(len(cluster) for cluster in returned)
+        html += (
+            '<details class="briefing-returned-features"><summary>'
+            f"↩ {count:,} {_escape(_digest_unit(modality, count))} returned after a gap "
+            f"in {len(returned):,} {'group' if len(returned) == 1 else 'groups'}"
+            " — listings that were missing in the previous scan</summary>"
+            f'{_cluster_list_html(returned, show_all_label=f"Show all {len(returned):,} returned groups")}'
+            "</details>"
+        )
+    return html
 
 
 def _digest_modality_row(modality: dict[str, Any]) -> str:
     name = str(modality.get("modality") or "Service")
-    gained_features = modality.get("gained_features") if isinstance(modality.get("gained_features"), int) else 0
     gained_listings = modality.get("gained_listings") if isinstance(modality.get("gained_listings"), int) else 0
     lost_features = modality.get("lost_features") if isinstance(modality.get("lost_features"), int) else 0
     lost_listings = modality.get("lost_listings") if isinstance(modality.get("lost_listings"), int) else 0
     gained_regions = [region for region in modality.get("gained_regions", []) if isinstance(region, str)]
     lost_regions = [region for region in modality.get("lost_regions", []) if isinstance(region, str)]
-    features = [feature for feature in modality.get("features", []) if isinstance(feature, dict)]
+    features = _modality_features(modality)
+    counts = _modality_change_counts(modality)
     pills = []
-    if gained_features or gained_listings:
+    if features:
+        new_listings = sum(len(_new_regions(feature)) for feature in features)
+        returned_listings = sum(len(_returned_regions(feature)) for feature in features)
+        new_regions = sorted({region for feature in features for region in _new_regions(feature)}, key=region_name)
+        returned_regions = sorted(
+            {region for feature in features for region in _returned_regions(feature)}, key=region_name
+        )
+    else:
+        new_listings, returned_listings = gained_listings, 0
+        new_regions, returned_regions = gained_regions, []
+    if counts["new"]:
         pills.append(
-            f'<span class="briefing-pill briefing-pill-gain">▲ {gained_features:,} '
-            f'{_escape(_digest_unit(name, gained_features))} +{gained_listings:,} listings</span>'
+            f'<span class="briefing-pill briefing-pill-gain">▲ {counts["new"]:,} '
+            f'{_escape(_digest_unit(name, counts["new"]))} +{new_listings:,} new '
+            f'{"listing" if new_listings == 1 else "listings"}</span>'
+        )
+    if counts["returned"]:
+        pills.append(
+            f'<span class="briefing-pill briefing-pill-returned">↩ {counts["returned"]:,} '
+            f'{_escape(_digest_unit(name, counts["returned"]))} returned · {returned_listings:,} '
+            f'{"listing" if returned_listings == 1 else "listings"}</span>'
         )
     if lost_features or lost_listings:
         pills.append(
@@ -577,9 +681,12 @@ def _digest_modality_row(modality: dict[str, Any]) -> str:
             f'{_escape(_digest_unit(name, lost_features))} −{lost_listings:,} listings</span>'
         )
     region_bits = []
-    gained_html = _region_delta_html(gained_regions, label="gained")
-    if gained_html:
-        region_bits.append(f'<span><strong>Gained:</strong> {gained_html}</span>')
+    new_html = _region_delta_html(new_regions, label="gained")
+    if new_html:
+        region_bits.append(f'<span><strong>New regions:</strong> {new_html}</span>')
+    returned_html = _region_delta_html(returned_regions, label="returned")
+    if returned_html:
+        region_bits.append(f'<span><strong>Returned in:</strong> {returned_html}</span>')
     lost_html = _region_delta_html(lost_regions, label="lost")
     if lost_html:
         region_bits.append(f'<span><strong>Dropped:</strong> {lost_html}</span>')
@@ -641,7 +748,8 @@ def _render_digest_glance(briefing: dict[str, Any]) -> str:
     digest = briefing["digest"]
     gains = _digest_count(digest, "gained_features")
     losses = _digest_count(digest, "lost_features")
-    tone = "loss" if losses else "gain" if gains else "neutral"
+    has_new = bool(_digest_subject(digest, "new"))
+    tone = "loss" if losses else "gain" if has_new else "returned" if gains else "neutral"
     changed = [
         modality for modality in _digest_modalities(digest)
         if modality.get("gained_features") or modality.get("lost_features")

@@ -137,6 +137,7 @@
     .briefing-headline--gain { color: #145c2e !important; }
     .briefing-headline--loss { color: #8f1f1d !important; }
     .briefing-headline--neutral { color: #17334d !important; }
+    .briefing-headline--returned { color: #0b4f59 !important; }
     .briefing-digest-list { display: grid; gap: calc(var(--space-unit) * 6); margin-top: calc(var(--space-unit) * 8); }
     .briefing-digest-modality { border: var(--border-width) solid #cfded1; border-radius: var(--radius-md); background: #fff; padding: calc(var(--space-unit) * 7); }
     .briefing-digest-modality-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: calc(var(--space-unit) * 4); }
@@ -145,6 +146,7 @@
     .briefing-pill, .briefing-badge { display: inline-flex; align-items: center; border-radius: var(--radius-round); padding: calc(var(--space-unit) * 1.5) calc(var(--space-unit) * 4); font-size: 12px; font-weight: 750; line-height: 1.2; }
     .briefing-pill-gain { background: #dff4e7; color: #145c2e; border: var(--border-width) solid #8ac8a1; }
     .briefing-pill-loss { background: #fde5e1; color: #8f1f1d; border: var(--border-width) solid #e5a09a; }
+    .briefing-pill-returned { background: #e3f2f4; color: #0b4f59; border: var(--border-width) solid #9ccbd2; }
     .briefing-region-deltas { margin: calc(var(--space-unit) * 5) 0; color: #415972; font-size: 13px; line-height: 1.5; }
     .briefing-digest-features { display: flex; flex-direction: column; gap: calc(var(--space-unit) * 3); margin: 0; padding: 0; list-style: none; }
     .briefing-digest-feature, .briefing-digest-cluster summary { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: calc(var(--space-unit) * 3); align-items: start; padding: calc(var(--space-unit) * 4); border: var(--border-width) solid var(--line); border-radius: var(--radius-sm); background: #fbfdff; }
@@ -155,9 +157,14 @@
     .briefing-digest-cluster-details { margin-top: calc(var(--space-unit) * 3); padding-left: calc(var(--space-unit) * 5); }
     .briefing-digest-feature.is-gain, .briefing-digest-cluster.is-gain summary { border-left: calc(var(--border-width) * 4) solid #137333; }
     .briefing-digest-feature.is-loss, .briefing-digest-cluster.is-loss summary { border-left: calc(var(--border-width) * 4) solid #a50e0e; }
+    .briefing-digest-feature.is-returned, .briefing-digest-cluster.is-returned summary { border-left: calc(var(--border-width) * 4) solid #2b7a86; }
+    .briefing-returned-features { margin-top: calc(var(--space-unit) * 5); color: #0b4f59; font-size: 13px; }
+    .briefing-returned-features > summary { cursor: pointer; font-weight: 700; }
+    .briefing-returned-features > .briefing-digest-features { margin-top: calc(var(--space-unit) * 4); }
     .briefing-change-icon { font-weight: 800; }
     .is-gain > .briefing-change-icon, .is-gain summary .briefing-change-icon { color: #137333; }
     .is-loss > .briefing-change-icon, .is-loss summary .briefing-change-icon { color: #a50e0e; }
+    .is-returned > .briefing-change-icon, .is-returned summary .briefing-change-icon { color: #2b7a86; }
     .briefing-cluster-members { display: block; margin-top: var(--space-unit); color: #415972; font-size: 13px; line-height: 1.45; }
     .briefing-feature-meaning { display: block; margin-top: var(--space-unit); color: var(--muted); font-size: 13px; line-height: 1.45; }
     .briefing-feature-meta { margin-top: calc(var(--space-unit) * 2); color: #415972; font-size: 12px; line-height: 1.5; }
@@ -168,6 +175,7 @@
     .briefing-region-chip { display: inline-flex; align-items: center; min-height: 22px; border-radius: var(--radius-round); padding: var(--space-unit) calc(var(--space-unit) * 3.5); border: var(--border-width) solid transparent; font-weight: 750; line-height: 1.2; }
     .briefing-region-chip-gain { background: #e6f4ea; color: #137333; border-color: #b7dfc1; }
     .briefing-region-chip-loss { background: #fce8e6; color: #a50e0e; border-color: #f2b8b5; }
+    .briefing-region-chip-returned { background: #e3f2f4; color: #0b4f59; border-color: #9ccbd2; }
     .briefing-region-chip.is-returned::after { content: " ↩"; font-weight: 900; }
     .briefing-learn-link { font-weight: 650; }
     .briefing-region-tooltip { position: relative; display: inline-flex; cursor: help; outline-offset: 2px; }
