@@ -320,6 +320,17 @@ recorded tokens, turns, validation, and outcome with Terra before changing
 `AZWATCH_AGENTIC_MODEL`. `gpt-6.1-sol` is listed in the resource catalog with
 quota, but has no published retail price yet, so it cannot be priced or used.
 
+The first [Sol coding canary](https://github.com/sergey-goncharenko/azure-region-monitor/actions/runs/37491023115)
+on issue #127 completed and published draft PR #145 (+83/−2 across blog
+rendering, CSS, and tests); `scripts/check.py` passed on its branch. It made 24
+requests with 1.25M input tokens (95% cached reads, at most 63.6K per request,
+so short-context rates applied) and 7.3K output: about $0.44 at Azure rates,
+versus about $0.45 for the same tokens on Terra and a $0.67 median for Terra's
+PR-producing runs. Conservative accounting recorded 90.3 agent credits. One
+canary is evidence of compatibility and cost, not proof of better coding; the
+sandbox lacked pytest and Ruff for both models, so the agent relied on the
+publication gate.
+
 ## Documentation Augmentation
 
 The goal is ongoing reader improvement, not merely synchronizing prose with code.
