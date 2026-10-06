@@ -17,7 +17,7 @@ def test_default_api_version_supports_current_reasoning_models():
 
 
 def test_azure_payload_reasoning_model():
-    for deployment in ["gpt-5.1", "gpt-5", "o3", "o4-mini"]:
+    for deployment in ["gpt-5.1", "gpt-5", "gpt-6-astra", "o3", "o4-mini"]:
         payload = _build_azure_payload(deployment, "hi", 256)
         assert "max_tokens" not in payload, deployment
         assert "temperature" not in payload, deployment
