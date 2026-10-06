@@ -9,6 +9,12 @@ models:
             output: "0.000075"
             cache_read: "0.000002"
             cache_write: "0.000025"
+        gpt-6-sol:
+          cost:
+            input: "0.000005"
+            output: "0.000015"
+            cache_read: "0.0000004"
+            cache_write: "0.000005"
 ---
 <!--
 Model-specific Azure BYOK accounting, not model selection or automatic failover.
@@ -36,4 +42,13 @@ both divided by 1,000,000. The excess is 5*(I-R-W)/1,000,000, never negative
 when R/W are disjoint subsets of I. Short-context tariffs are lower still.
 These are conservative rates, not a hard pre-request reservation or invoice
 reconciliation. Missing usage and in-flight spend still require canary review.
+
+gpt-6-sol (2026-09-22) uses the same rule. Verified 2026-10-06 against the same
+API: armRegionName=eastus2, meterName contains '6-sol' and 'Std Gl', USD.
+USD per million tokens (input/output/cache-read/cache-write):
+short context = 2/10/0.2/2.5; long context = 4/15/0.4/5.
+Catalog rates are the long-context ones with input raised to the $5/M
+cache-write ceiling: 5/15/0.4/5. Short context applies up to 272,000 prompt
+tokens, so this bound typically overstates Sol spend about twofold; compare
+canaries on recorded tokens, not only on AI credits.
 -->

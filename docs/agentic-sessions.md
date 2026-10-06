@@ -239,7 +239,7 @@ Configure these repository settings:
 - Variable `AZURE_OPENAI_DEPLOYMENT`: shared deployment name for blog, social, and narrative generation.
 - Secret `AZURE_CODING_OPENAI_KEY`: key for the dedicated coding resource. In the agentic lane it is isolated in the AWF API proxy; the Aider fallback passes it only to the provider process.
 - Secret `AZWATCH_AGENTIC_AZURE_BASE_URL`: BYOK base URL for the agentic coding lanes.
-- Variable `AZWATCH_AGENTIC_MODEL`: model/deployment ID for scheduled coding, agentic PR rework, and the default canary. The canary's explicit `model=gpt-6-astra` input overrides it for that coding run only; its independent detector retains the repository model.
+- Variable `AZWATCH_AGENTIC_MODEL`: model/deployment ID for scheduled coding, agentic PR rework, and the default canary. The canary's explicit `model=gpt-6-astra` or `model=gpt-6-sol` input overrides it for that coding run only; its independent detector retains the repository model.
 - Variable `AZWATCH_AGENTIC_COPILOT_VERSION`: pinned CLI version for those same workflows.
 - Variable `AZWATCH_AGENTIC_MAX_TURNS`: bounded tool-turn limit for those same workflows.
 - Variables `AZURE_CODING_RESOURCE_NAME` and `AZURE_CODING_MODEL`: dedicated resource and deployment/model settings used by the Aider fallback, not the agentic model selectors.
@@ -286,6 +286,39 @@ bounded fallback on positively identified upstream availability/rate-limit
 failures, before streaming starts. It must not replay tool calls or bypass
 authentication, content safety, validation, or cost controls, and must account
 for both attempts. Missing pricing or a budget rejection must fail closed.
+
+### Sol Canary Candidate
+
+Measured Terra usage from 2026-08-22 to 2026-10-06: 47 sessions (40 scheduled,
+7 rework), about 31 per 30 days. Agent median per run was 695K input tokens
+(89% cached reads) and 5.2K output; p90 was 2.48M input and 18.5K output.
+Combined agent plus detector accounting averaged about 2,285 AI credits (about
+$23) per 30 days. Repricing the same agent tokens at East US 2 Global Standard
+short-context rates (USD per million: fresh input / cached read / output):
+
+| Model | Rates | Same tokens vs Terra |
+|---|---|---|
+| `gpt-5.6-terra` | 2 / 0.2 / 12 | baseline, about $17 per 30 days |
+| `gpt-6-sol` | 2 / 0.2 / 10 | about 3% lower |
+| `gpt-5.6-sol` | 4 / 0.4 / 20 | about 1.9 times |
+| `gpt-6-astra` | 10 / 1 / 50 | about 4.8 times |
+
+Output is only about 17–20% of spend, so Sol stays within a 20% increase
+unless it uses more than roughly 15% more input with 1.5 times the output.
+The single Astra canary used about 1.1M input tokens, close to a typical Terra
+run; its cost came from per-token pricing, and its stop at 700 credits from the
+conservative long-context accounting (about $3.24 at short-context rates).
+
+On 2026-10-06, `gpt-6-sol` version `2026-09-22` was deployed beside Terra and
+Astra in the same resource (Global Standard, capacity 500,
+`Microsoft.DefaultV2`, `NoAutoUpgrade`); a direct Responses function-call and
+tool-result smoke test passed. Its AWF catalog entry follows the Astra rule
+(5/15/0.4/5 per million), which typically overstates Sol spend about twofold;
+the largest observed Terra session would still account below the 700-credit
+ceiling. Run **Actions / Model canary** with `model=gpt-6-sol` and compare
+recorded tokens, turns, validation, and outcome with Terra before changing
+`AZWATCH_AGENTIC_MODEL`. `gpt-6.1-sol` is listed in the resource catalog with
+quota, but has no published retail price yet, so it cannot be priced or used.
 
 ## Documentation Augmentation
 

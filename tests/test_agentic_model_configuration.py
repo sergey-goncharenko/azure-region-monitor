@@ -12,17 +12,25 @@ WORKFLOWS = Path(__file__).resolve().parents[1] / ".github/workflows"
 LANES = ("scheduled-agentic-backlog", "agentic-pr-rework", "codex-canary")
 REPOSITORY_MODEL = "${{ vars.AZWATCH_AGENTIC_MODEL }}"
 CANARY_MODEL = (
-    "${{ inputs.model == 'gpt-6-astra' && 'gpt-6-astra' || vars.AZWATCH_AGENTIC_MODEL }}"
+    "${{ inputs.model == 'gpt-6-astra' && 'gpt-6-astra' || "
+    "inputs.model == 'gpt-6-sol' && 'gpt-6-sol' || vars.AZWATCH_AGENTIC_MODEL }}"
 )
-# Verified Azure Retail Prices API, East US 2 / Global Standard, 2026-09-26.
-# Use long-context rates, plus the cache-write ceiling for ordinary input because
-# pinned AWF misses Responses input_tokens_details.cache_write_tokens.
+# Verified Azure Retail Prices API, East US 2 / Global Standard (Astra 2026-09-26,
+# Sol 2026-10-06). Use long-context rates, plus the cache-write ceiling for ordinary
+# input because pinned AWF misses Responses input_tokens_details.cache_write_tokens.
 ASTRA_USD_PER_MILLION = {
     "input": Decimal("25"),
     "output": Decimal("75"),
     "cache_read": Decimal("2"),
     "cache_write": Decimal("25"),
 }
+SOL_USD_PER_MILLION = {
+    "input": Decimal("5"),
+    "output": Decimal("15"),
+    "cache_read": Decimal("0.4"),
+    "cache_write": Decimal("5"),
+}
+PRICED_CANARY_MODELS = {"gpt-6-astra": ASTRA_USD_PER_MILLION, "gpt-6-sol": SOL_USD_PER_MILLION}
 
 
 def read_workflow(lane, suffix):
@@ -49,7 +57,7 @@ def env_values(text, name):
     return re.findall(rf"^[ \t]+{re.escape(name)}: (.+)$", text, re.MULTILINE)
 
 
-def test_astra_is_an_explicit_manual_canary_choice_not_a_new_production_default():
+def test_gpt6_models_are_explicit_manual_canary_choices_not_a_new_production_default():
     source = read_workflow("codex-canary", "md")
     inputs = source.split("    inputs:\n", 1)[1].split("\npermissions:", 1)[0]
     choice = inputs.split("      model:\n", 1)[1]
@@ -59,10 +67,11 @@ def test_astra_is_an_explicit_manual_canary_choice_not_a_new_production_default(
     assert re.findall(r"^\s+- (.+)$", choice, re.MULTILINE) == [
         "repository-default",
         "gpt-6-astra",
+        "gpt-6-sol",
     ]
     assert "  schedule:" not in source
     assert "  repository_dispatch:" not in source
-    # Only explicit Astra selects it; empty/default/other input retains the repo var.
+    # Only an explicit GPT-6 choice selects it; empty/default/other input retains the repo var.
     assert env_values(source, "model") == [CANARY_MODEL, REPOSITORY_MODEL]
     assert f"\nmodel: {REPOSITORY_MODEL}\n" in source
     agent = job(read_workflow("codex-canary", "lock.yml"), "agent")
@@ -87,7 +96,7 @@ def test_production_lanes_keep_their_existing_runtime_model_configuration(lane):
 
 
 @pytest.mark.parametrize("lane", LANES)
-def test_only_astra_gets_a_provider_price_overlay_with_all_four_token_classes(lane):
+def test_only_explicit_gpt6_canary_models_get_provider_price_overlays(lane):
     source = read_workflow(lane, "md")
     lock = read_workflow(lane, "lock.yml")
     assert "imports:\n  - shared/agentic-policy.md\n  - shared/agentic-models.md" in source
@@ -99,13 +108,14 @@ def test_only_astra_gets_a_provider_price_overlay_with_all_four_token_classes(la
         assert "AWF_DEFAULT_AI_CREDITS_PRICING" not in lock
         assert set(proxy["providers"]) == {"github-copilot"}
         models = proxy["providers"]["github-copilot"]["models"]
-        assert set(models) == {"gpt-6-astra"}  # No catch-all or Terra repricing.
-        cost = models["gpt-6-astra"]["cost"]
-        assert set(cost) == set(ASTRA_USD_PER_MILLION)
-        actual = {key: Decimal(str(value)) * 1_000_000 for key, value in cost.items()}
-        assert actual == ASTRA_USD_PER_MILLION
-        # Do not confuse cached reads ($2/M) with cache creation ($25/M).
-        assert actual["cache_write"] == actual["input"] > actual["cache_read"]
+        assert set(models) == set(PRICED_CANARY_MODELS)  # No catch-all or Terra repricing.
+        for model, expected in PRICED_CANARY_MODELS.items():
+            cost = models[model]["cost"]
+            assert set(cost) == set(expected)
+            actual = {key: Decimal(str(value)) * 1_000_000 for key, value in cost.items()}
+            assert actual == expected
+            # Do not confuse cached reads with cache creation.
+            assert actual["cache_write"] == actual["input"] > actual["cache_read"]
     recorded = json.loads(env_values(lock, "GH_AW_INFO_MODEL_COSTS")[0].strip("'"))
     assert recorded["providers"] == awf_configs(lock)[0]["apiProxy"]["providers"]
 
@@ -130,11 +140,17 @@ def test_model_catalog_is_separate_from_canonical_policy_and_records_accounting_
     [(0, 0, 0), (2000, 0, 0), (2000, 0, 2000), (2000, 500, 700), (2000, 2000, 0)],
 )
 @pytest.mark.parametrize(
-    "input_rate,output_rate,read_rate,write_rate",
-    [("10", "50", "1", "12.5"), ("20", "75", "2", "25")],
+    "model,input_rate,output_rate,read_rate,write_rate,long_input_rate",
+    [
+        ("gpt-6-astra", "10", "50", "1", "12.5", "20"),
+        ("gpt-6-astra", "20", "75", "2", "25", "20"),
+        ("gpt-6-sol", "2", "10", "0.2", "2.5", "4"),
+        ("gpt-6-sol", "4", "15", "0.4", "5", "4"),
+    ],
 )
-def test_astra_rate_bound_covers_responses_cache_writes_even_when_parser_misses_them(
-    total_input, cache_read, cache_write, input_rate, output_rate, read_rate, write_rate
+def test_gpt6_rate_bound_covers_responses_cache_writes_even_when_parser_misses_them(
+    total_input, cache_read, cache_write, model, input_rate, output_rate, read_rate,
+    write_rate, long_input_rate,
 ):
     # Pin the arithmetic contract, not a replacement usage parser. AWF v0.28.10
     # passes total input and cached_tokens through response.completed, but drops
@@ -142,7 +158,7 @@ def test_astra_rate_bound_covers_responses_cache_writes_even_when_parser_misses_
     event = {
         "type": "response.completed",
         "response": {
-            "model": "gpt-6-astra",
+            "model": model,
             "usage": {
                 "input_tokens": total_input,
                 "input_tokens_details": {
@@ -167,7 +183,7 @@ def test_astra_rate_bound_covers_responses_cache_writes_even_when_parser_misses_
         + output * Decimal(output_rate)
     ) / 1_000_000
     proxy = awf_configs(read_workflow("codex-canary", "lock.yml"))[0]["apiProxy"]
-    cost = proxy["providers"]["github-copilot"]["models"]["gpt-6-astra"]["cost"]
+    cost = proxy["providers"]["github-copilot"]["models"][model]["cost"]
     cost = {key: Decimal(str(value)) for key, value in cost.items()}
     # What pinned AWF charges after ignoring the new write detail.
     flattened_bound = (
@@ -184,8 +200,10 @@ def test_astra_rate_bound_covers_responses_cache_writes_even_when_parser_misses_
     )
     assert flattened_bound == separated_bound
     assert flattened_bound >= tariff
-    if input_rate == "20":
-        assert flattened_bound - tariff == fresh * Decimal("0.000005")
+    if input_rate == long_input_rate:
+        # Long-context excess is only the ordinary input raised to the cache-write ceiling.
+        excess_rate = cost["input"] - Decimal(long_input_rate) / 1_000_000
+        assert flattened_bound - tariff == fresh * excess_rate
 
 
 def test_canary_disables_catalog_substitution_and_session_reruns_not_guardrails():
