@@ -664,6 +664,12 @@ def test_build_static_site_writes_blog_from_history_index(tmp_path):
     assert "Baseline missing" in post
     assert "Germany North floods with DCv5" not in post
     assert "Change counts are not available without a baseline" in post
+    assert 'data-share-url="https://azwatch.operator.lat/blog/"' in blog_index
+    assert 'data-share-url="https://azwatch.operator.lat/blog/2026-07-04.html"' in post
+    assert "blog-share" in blog_index
+    assert "blog-share" in post
+    assert ".blog-share {" in blog_index
+    assert ".blog-share {" in post
     assert (output_dir / "assets" / "briefing.js").exists()
     assert (
         index_html.index('aria-label="Snapshot overview"')
