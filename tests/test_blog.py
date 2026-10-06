@@ -1,3 +1,7 @@
+import html as html_module
+import re
+from urllib.parse import parse_qs, urlparse
+
 from azure_region_monitor.blog import (
     blog_sitemap_entries,
     daily_executive_summary,
@@ -290,12 +294,46 @@ def test_blog_index_lists_every_post_with_links():
     assert "Daily Blog" in html
     assert 'href="/blog/2026-07-03.html"' in html
     assert 'href="/blog/2026-07-01.html"' in html
+    assert f'data-share-url="{SITE}/blog/2026-07-03.html"' in html
+    assert f'data-share-url="{SITE}/blog/2026-07-01.html"' in html
     assert 'type="application/rss+xml"' in html
 
 
 def test_blog_index_empty_state_when_no_posts():
     html = render_blog_index([], SITE, STYLE)
     assert "No change summaries have been published yet" in html
+    assert f'data-share-url="{SITE}/blog/"' in html
+
+
+def test_blog_share_controls_use_each_canonical_url_and_encoded_title():
+    posts = select_blog_posts(_history([_day("2026-07-03", 'Azure & "regions"\n\nBody.')]))
+    index = render_blog_index(posts, SITE, STYLE)
+    post = render_blog_post(posts[0], None, None, SITE, STYLE)
+    post_url = f"{SITE}/blog/2026-07-03.html"
+
+    assert f'data-share-url="{SITE}/blog/"' in index
+    assert f'data-share-url="{post_url}"' in index
+    assert f'data-share-url="{post_url}"' in post
+    assert f'data-share-url="{SITE}/blog/"' not in post
+    assert 'aria-label="Share Azure &amp; &quot;regions&quot;"' in post
+    for page in (index, post):
+        links = [
+            html_module.unescape(link)
+            for link in re.findall(
+                r'<a href="([^"]+)" target="_blank" rel="noopener noreferrer" '
+                r'aria-label="Share on (?:LinkedIn|Twitter)"',
+                page,
+            )
+        ]
+        assert len(links) == (4 if page is index else 2)
+        assert parse_qs(urlparse(links[-2]).query) == {"url": [post_url]}
+        assert parse_qs(urlparse(links[-1]).query) == {
+            "text": ['Azure & "regions"'],
+            "url": [post_url],
+        }
+        assert 'role="status" aria-live="polite"' in page
+        assert 'navigator.clipboard.writeText(button.dataset.shareUrl)' in page
+        assert "Copy unavailable;" in page
 
 
 def test_blog_post_renders_headline_paragraphs_and_prev_next():
