@@ -284,11 +284,11 @@ def test_digest_restored_only_feature_is_not_first_seen_or_new_geography():
 def test_digest_gaps_track_catalog_and_measurement_gaps():
     previous = snapshot("2026-09-05", {
         "eastus": {"compute": {"vmSkus.standard.target": {"status": "unavailable"}}},
-        "github-global": {"ai": {"modelLatency.openai.gpt": {"status": "available"}}},
+        "github-global": {"ai": {"aiLatency.openai.gpt": {"status": "available"}}},
     })
     current = snapshot("2026-09-06", {
         "eastus": {"compute": {"vmSkus.standard.target": {"status": "unknown"}}},
-        "github-global": {"ai": {"modelLatency.openai.gpt": {"status": "unknown"}}},
+        "github-global": {"ai": {"aiLatency.openai.gpt": {"status": "unknown"}}},
     })
     briefing = build_briefing(current, previous)
 
@@ -297,7 +297,7 @@ def test_digest_gaps_track_catalog_and_measurement_gaps():
     assert briefing["digest"]["totals"]["measurement_gap_listings"] == 1
     assert briefing["digest"]["gaps"] == [
         {
-            "modality": "Model latency",
+            "modality": "Azure model latency",
             "measurement": True,
             "feature_count": 1,
             "listing_count": 1,
@@ -604,6 +604,54 @@ def test_changing_service_scope_does_not_invent_a_rollout():
     briefing = build_briefing(current, previous)
     assert briefing["counts"]["scope_changes"] == 3
     assert briefing["counts"]["new_listings"] == briefing["counts"]["delistings"] == 0
+
+
+def test_retired_modality_removal_is_scope_change_not_delisting():
+    previous = snapshot("2026-07-29", {
+        "github-global": {
+            "model-latency": {
+                f"modelLatency.openai.model-{index}": {"status": "available"}
+                for index in range(13)
+            }
+        }
+    })
+    current = snapshot("2026-07-30", {})
+
+    briefing = build_briefing(current, previous)
+
+    assert briefing["counts"]["scope_changes"] == 13
+    assert briefing["counts"]["delistings"] == 0
+    assert {record["scope_reason"] for record in briefing["records"]} == {"modality_retired"}
+    assert briefing["digest"]["retirements"] == [
+        {
+            "category": "modelLatency",
+            "label": "GitHub Models latency",
+            "retired_on": "2026-07-30",
+            "reason": "GitHub retired the GitHub Models service, so its global endpoint no longer answers.",
+            "source_url": "https://github.blog/changelog/2026-07-01-github-models-is-being-fully-retired-on-july-30-2026/",
+            "historical_checks": 13,
+            "regions": ["github-global"],
+        }
+    ]
+
+
+def test_retired_modality_gaps_are_not_current_measurement_gap_lines():
+    previous = snapshot("2026-07-29", {
+        "github-global": {
+            "model-latency": {"modelLatency.openai.gpt-4o": {"status": "unknown"}}
+        }
+    })
+    current = snapshot("2026-07-30", {
+        "github-global": {
+            "model-latency": {"modelLatency.openai.gpt-4o": {"status": "unknown"}}
+        }
+    })
+
+    briefing = build_briefing(current, previous)
+
+    assert briefing["counts"]["observation_gaps"] == 1
+    assert briefing["digest"]["gaps"] == []
+    assert briefing["digest"]["totals"]["measurement_gap_listings"] == 0
 
 
 def test_before_after_coverage_uses_each_snapshots_denominator():

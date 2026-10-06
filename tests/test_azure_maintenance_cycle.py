@@ -351,17 +351,14 @@ def test_aider_issue_workflow_remains_manual_fallback_without_daily_schedule():
     assert "inputs.dry_run || false" in workflow
 
 
-def test_daily_scan_runs_github_model_latency_on_schedule():
+def test_daily_scan_does_not_run_retired_github_model_latency():
     workflow = (REPO_ROOT / ".github/workflows/daily-scan.yml").read_text(
         encoding="utf-8"
     )
 
-    assert (
-        "github.event_name == 'schedule' || "
-        "(github.event_name == 'workflow_dispatch' && inputs.include_github_model_latency)"
-    ) in workflow
-    assert 'probes: "model-latency-cli"' in workflow
-    assert 'regions: "github-global"' in workflow
+    assert "include_github_model_latency" not in workflow
+    assert 'probes: "model-latency-cli"' not in workflow
+    assert 'regions: "github-global"' not in workflow
 
 
 def test_daily_scan_tracks_the_entire_regional_ai_model_catalog():

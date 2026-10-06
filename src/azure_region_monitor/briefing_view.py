@@ -148,6 +148,10 @@ def _digest_gaps(digest: dict[str, Any]) -> list[dict[str, Any]]:
     return [item for item in digest.get("gaps", []) if isinstance(item, dict)]
 
 
+def _digest_retirements(digest: dict[str, Any]) -> list[dict[str, Any]]:
+    return [item for item in digest.get("retirements", []) if isinstance(item, dict)]
+
+
 def _previous_date(briefing: dict[str, Any]) -> str:
     previous = str(briefing.get("previous_timestamp") or "")
     return previous[:10] if previous else "the previous scan"
@@ -188,6 +192,13 @@ def _digest_headline(briefing: dict[str, Any]) -> str:
     gains = _digest_count(digest, "gained_features")
     losses = _digest_count(digest, "lost_features")
     if not gains and not losses:
+        retirements = _digest_retirements(digest)
+        if retirements:
+            label = str(retirements[0].get("label") or "A retired modality")
+            suffix = f"{label} retired"
+            if len(retirements) > 1:
+                suffix += f" and {len(retirements) - 1:,} more retired"
+            return f"No regional listing changes · {suffix}"
         return f"No regional listing changes since {_previous_date(briefing)}"
     if losses:
         return (
@@ -227,6 +238,20 @@ def _safe_learn_url(value: object) -> str:
     if (
         parsed.scheme == "https"
         and parsed.hostname in {"learn.microsoft.com", "azure.microsoft.com"}
+        and not parsed.username
+        and not parsed.password
+    ):
+        return value
+    return ""
+
+
+def _safe_registry_url(value: object) -> str:
+    if not isinstance(value, str):
+        return ""
+    parsed = urlsplit(value)
+    if (
+        parsed.scheme == "https"
+        and parsed.hostname
         and not parsed.username
         and not parsed.password
     ):
@@ -595,6 +620,23 @@ def _digest_gap_line(gap: dict[str, Any]) -> str:
     )
 
 
+def _digest_retirement_line(retirement: dict[str, Any]) -> str:
+    label = str(retirement.get("label") or "A retired modality")
+    retired_on = str(retirement.get("retired_on") or "the recorded retirement date")
+    checks = retirement.get("historical_checks")
+    checks = checks if isinstance(checks, int) else 0
+    source_url = _safe_registry_url(retirement.get("source_url"))
+    source = (
+        f' <a href="{_escape(source_url)}" target="_blank" rel="noopener noreferrer">Announcement</a>'
+        if source_url else ""
+    )
+    return (
+        f'<li class="briefing-gap-line is-retirement">{_escape(label)} retired: '
+        f"the service shut down on {_escape(retired_on)}, so its {checks:,} "
+        f"{'check is' if checks == 1 else 'checks are'} no longer measured.{source}</li>"
+    )
+
+
 def _render_digest_glance(briefing: dict[str, Any]) -> str:
     digest = briefing["digest"]
     gains = _digest_count(digest, "gained_features")
@@ -608,7 +650,11 @@ def _render_digest_glance(briefing: dict[str, Any]) -> str:
     if not rows:
         rows = f'<p class="briefing-no-change">No regional listing changes since {_escape(_previous_date(briefing))}.</p>'
     gaps = "".join(_digest_gap_line(gap) for gap in _digest_gaps(digest))
-    gap_html = f'<ul class="briefing-gap-list">{gaps}</ul>' if gaps else ""
+    retirements = "".join(
+        _digest_retirement_line(retirement) for retirement in _digest_retirements(digest)
+    )
+    notices = gaps + retirements
+    gap_html = f'<ul class="briefing-gap-list">{notices}</ul>' if notices else ""
     return f"""<div class="briefing-opening briefing-glance">
       <p class="briefing-eyebrow">At a glance — since {_escape(_previous_date(briefing))}<span>Daily regional evidence</span></p>
       <h2 class="briefing-headline--{tone}">{_escape(_digest_headline(briefing))}</h2>

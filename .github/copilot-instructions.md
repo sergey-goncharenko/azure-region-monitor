@@ -12,8 +12,9 @@ Current implemented modalities:
 - Azure AI model catalog: `ai-model-catalog-cli`
 - Container Apps provider metadata: `container-apps-provider-cli`
 - VM SKU regional size listings: `vm-sku-cli`
-- GitHub Models global inference latency: `model-latency-cli`
 - Azure per-region OpenAI inference latency: `ai-model-latency-cli`
+
+Retired modalities are listed in `src/azure_region_monitor/retired_modalities.py`; `merge-snapshot` removes them from the live snapshot while history keeps them. GitHub Models global inference latency (`modelLatency.*`, `github-global`) was retired with that service on 2026-07-30.
 
 The dashboard is deployed to Azure Static Web Apps. Focused modality workflows can merge fresh modality snapshots into the current live snapshot before deployment.
 

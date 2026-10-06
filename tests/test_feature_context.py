@@ -12,7 +12,6 @@ from azure_region_monitor import feature_context
 from azure_region_monitor.config import (
     DEFAULT_CONTAINER_APPS_RESOURCE_FEATURES,
     DEFAULT_FUNCTION_RUNTIME_FEATURES,
-    DEFAULT_LATENCY_MODELS,
 )
 from azure_region_monitor.feature_context import describe_feature
 
@@ -485,7 +484,9 @@ def test_all_profiles_and_defaults_satisfy_contract_offline(monkeypatch):
         "aiModels.anthropic.claude-fable-5-1.1",
         *[item.feature for item in DEFAULT_FUNCTION_RUNTIME_FEATURES],
         *[item.feature for item in DEFAULT_CONTAINER_APPS_RESOURCE_FEATURES],
-        *[item.feature for item in DEFAULT_LATENCY_MODELS],
+        # Retired GitHub Models latency features still appear in archived days.
+        "modelLatency.openai.gpt-4o-mini", "modelLatency.microsoft.phi-4",
+        "modelLatency.meta.llama-3.3-70b-instruct",
     ]
     fields = {
         "title", "summary", "short", "differentiators", "use_cases", "sources", "specificity",

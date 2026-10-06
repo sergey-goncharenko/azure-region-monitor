@@ -9,6 +9,7 @@ from typing import Any, Iterable, Mapping
 from azure_region_monitor.display import plain_feature_name
 from azure_region_monitor.feature_context import describe_feature
 from azure_region_monitor.models import FeatureResult, Snapshot
+from azure_region_monitor.retired_modalities import retired_modality
 from azure_region_monitor.region_groups import region_group
 from azure_region_monitor.summary import ChangeContext, ChangeKey, _modality, feature_details
 
@@ -97,7 +98,13 @@ def build_briefing(
         context = (contexts or {}).get(key)
         scope_reason = None
         if previous is not None:
-            if region not in before_regions:
+            if (
+                retired_modality(feature) is not None
+                and new_result is None
+                and (region, service, modality) not in after_modalities
+            ):
+                scope_reason = "modality_retired"
+            elif region not in before_regions:
                 scope_reason = "region_added"
             elif region not in after_regions:
                 scope_reason = "region_removed"
@@ -293,6 +300,7 @@ def build_digest(
         )
 
     gaps = _digest_gaps(records)
+    retirements = _digest_retirements(records)
     modalities = []
     for modality, feature_entries in sorted(_entries_by_modality(entries.values()).items()):
         feature_entries.sort(
@@ -321,7 +329,7 @@ def build_digest(
             "features": feature_entries,
         })
 
-    return {
+    digest = {
         "version": 1,
         "totals": {
             "gained_features": sum(modality["gained_features"] for modality in modalities),
@@ -338,6 +346,9 @@ def build_digest(
         "modalities": modalities,
         "gaps": gaps,
     }
+    if retirements:
+        digest["retirements"] = retirements
+    return digest
 
 
 def coalesce_briefing_groups(groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -533,6 +544,8 @@ def _entries_by_modality(
 def _digest_gaps(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for record in records:
+        if retired_modality(str(record.get("feature") or "")) is not None:
+            continue
         if record.get("kind") == "observation_gaps":
             grouped[str(record["modality"])].append(record)
 
@@ -546,6 +559,33 @@ def _digest_gaps(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "regions": sorted({str(item["region"]) for item in items}),
         })
     return gaps
+
+
+def _digest_retirements(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    metadata = {}
+    for record in records:
+        if record.get("kind") != "scope_changes" or record.get("scope_reason") != "modality_retired":
+            continue
+        retired = retired_modality(str(record.get("feature") or ""))
+        if retired is None:
+            continue
+        grouped[retired.category].append(record)
+        metadata[retired.category] = retired
+
+    retirements = []
+    for category, items in sorted(grouped.items()):
+        retired = metadata[category]
+        retirements.append({
+            "category": category,
+            "label": retired.label,
+            "retired_on": retired.retired_on,
+            "reason": retired.reason,
+            "source_url": retired.source_url,
+            "historical_checks": len(items),
+            "regions": sorted({str(item["region"]) for item in items}),
+        })
+    return retirements
 
 
 def _evidence(

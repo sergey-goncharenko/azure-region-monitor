@@ -9,7 +9,7 @@ import urllib.request
 from collections.abc import Callable
 from urllib.parse import urlparse
 
-from azure_region_monitor.probes.github_models import _parse_retry_after, _read_error_body
+from azure_region_monitor.probes.inference_http import _parse_retry_after, _read_error_body
 
 DEFAULT_TIMEOUT_SECONDS = 90
 DEFAULT_MAX_OUTPUT_TOKENS = 1_200

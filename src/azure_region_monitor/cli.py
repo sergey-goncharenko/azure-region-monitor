@@ -17,7 +17,6 @@ from azure_region_monitor.config import (
     parse_ai_model_features,
     parse_container_apps_resource_features,
     parse_function_runtime_features,
-    parse_latency_models,
     parse_vm_skus,
 )
 from azure_region_monitor.diff import build_diff
@@ -30,11 +29,10 @@ from azure_region_monitor.probes.aks_versions import AksKubernetesVersionCliProb
 from azure_region_monitor.probes.ai_models import AiModelCatalogCliProbe
 from azure_region_monitor.probes.container_apps import ContainerAppsProviderCliProbe
 from azure_region_monitor.probes.functions import FunctionsFlexConsumptionCliProbe
-from azure_region_monitor.probes.model_latency import ModelLatencyProbe
 from azure_region_monitor.probes.sample import SampleAksExtensionProbe
 from azure_region_monitor.probes.vm_skus import VmSkuCliProbe
 from azure_region_monitor.runner import run_probes
-from azure_region_monitor.snapshot_merge import merge_snapshot_overlay
+from azure_region_monitor.snapshot_merge import merge_snapshot_overlay, prune_retired_modalities
 from azure_region_monitor.storage import load_snapshot, write_diff, write_snapshot
 from azure_region_monitor.static_site import build_static_site
 
@@ -56,7 +54,6 @@ def main() -> None:
             "ai-model-catalog-cli",
             "container-apps-provider-cli",
             "function-flex-cli",
-            "model-latency-cli",
             "ai-model-latency-cli",
             "vm-sku-cli",
         ],
@@ -235,23 +232,7 @@ def _build_narrative_client():
     except (ImportError, ValueError) as error:
         azure_error = error
 
-    token = os.environ.get("GITHUB_MODELS_TOKEN") or os.environ.get("GITHUB_TOKEN")
-    if not token or os.environ.get("AI_SUMMARY_ALLOW_GITHUB_FALLBACK", "0") != "1":
-        return _UnavailableNarrativeClient(str(azure_error) if azure_error else "Azure OpenAI unavailable")
-    try:
-        from azure_region_monitor.probes.github_models import (
-            DEFAULT_SUMMARY_MODELS,
-            GitHubModelsClient,
-            GitHubModelsNarrativeClient,
-            LatencyClientError,
-        )
-
-        # AI_SUMMARY_MODEL may be a single model or a comma-separated preference list;
-        # the client tries them in order. Default is the best-first gpt-5 family.
-        models = os.environ.get("AI_SUMMARY_MODEL") or ",".join(DEFAULT_SUMMARY_MODELS)
-        return GitHubModelsNarrativeClient(GitHubModelsClient.from_env(), models=models)
-    except (ImportError, LatencyClientError, ValueError) as error:
-        return _UnavailableNarrativeClient(str(error))
+    return _UnavailableNarrativeClient(str(azure_error) if azure_error else "Azure OpenAI unavailable")
 
 
 class _UnavailableNarrativeClient:
@@ -280,6 +261,7 @@ def _merge_snapshot(args: argparse.Namespace) -> None:
             continue
         base = merge_snapshot_overlay(base, load_snapshot(overlay_path))
         merged += 1
+    prune_retired_modalities(base)
     write_snapshot(args.output, base)
     print(f"Merged {merged} overlay(s) into {args.output}")
 
@@ -348,24 +330,6 @@ def _build_probe(probe_name: str):
         )
     if probe_name == "vm-sku-cli":
         return VmSkuCliProbe(skus=parse_vm_skus(os.environ.get("AZURE_VM_SKUS")))
-    if probe_name == "model-latency-cli":
-        models_env = os.environ.get("MODEL_LATENCY_MODELS")
-        auto_discover = (models_env or "").strip().lower() == "auto"
-        return ModelLatencyProbe(
-            models=parse_latency_models(None if auto_discover else models_env),
-            samples=int(os.environ.get("MODEL_LATENCY_SAMPLES", "5")),
-            rate_limit_retries=int(os.environ.get("MODEL_LATENCY_RATE_LIMIT_RETRIES", "5")),
-            rate_limit_backoff_seconds=float(
-                os.environ.get("MODEL_LATENCY_RATE_LIMIT_BACKOFF_SECONDS", "20")
-            ),
-            max_backoff_seconds=float(
-                os.environ.get("MODEL_LATENCY_MAX_BACKOFF_SECONDS", "60")
-            ),
-            time_budget_seconds=float(
-                os.environ.get("MODEL_LATENCY_BUDGET_SECONDS", "1500")
-            ),
-            auto_discover=auto_discover,
-        )
     if probe_name == "ai-model-latency-cli":
         return AzureOpenAiLatencyProbe(
             targets=parse_ai_latency_targets(os.environ.get("AI_LATENCY_TARGETS")),

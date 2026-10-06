@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from azure_region_monitor.models import Snapshot
+from azure_region_monitor.retired_modalities import RETIRED_MODALITIES
 
 
 def merge_snapshot_overlay(base: Snapshot, overlay: Snapshot) -> Snapshot:
@@ -19,7 +20,23 @@ def merge_snapshot_overlay(base: Snapshot, overlay: Snapshot) -> Snapshot:
             merged_features.update(overlay_features)
 
     merged.timestamp = overlay.timestamp
+    prune_retired_modalities(merged)
     return merged
+
+
+def prune_retired_modalities(snapshot: Snapshot) -> Snapshot:
+    for region in list(snapshot.regions):
+        services = snapshot.regions[region]
+        for service in list(services):
+            features = services[service]
+            for feature in list(features):
+                if _feature_category(feature) in RETIRED_MODALITIES:
+                    del features[feature]
+            if not features:
+                del services[service]
+        if not services:
+            del snapshot.regions[region]
+    return snapshot
 
 
 def _feature_category(feature: str) -> str:

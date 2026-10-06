@@ -7,6 +7,7 @@ from azure_region_monitor.static_site import (
     _region_badge,
     _region_country_name,
     _region_short_label,
+    _render_latency_page,
     _render_narrative_banner,
     _render_recent_changes_panel,
     _render_region_header,
@@ -310,6 +311,63 @@ def test_regional_latency_section_empty_without_data():
 
     snap = Snapshot(regions={"eastus": {"ai": {"aiModels.x.y.1": FeatureResult(status="available")}}})
     assert _render_regional_latency_section(snap) == ""
+
+
+def test_latency_page_uses_azure_latency_first_and_retired_history():
+    from azure_region_monitor.models import FeatureResult, Snapshot
+
+    snap = _ai_latency_snapshot()
+    html = _render_latency_page(
+        snap,
+        latency_series={"openai/gpt-4o": [{"date": "2026-07-29", "p50_ms": 1600}]},
+        latency_history={
+            "days": [
+                {
+                    "date": "2026-07-29",
+                    "models": {
+                        "openai/gpt-4o": {
+                            "status": "available",
+                            "p50_ms": 1600,
+                            "ttft_ms": 1400,
+                            "tokens_per_second": 52.0,
+                        }
+                    },
+                }
+            ]
+        },
+    )
+
+    assert "<title>Model latency</title>" in html
+    assert "Azure Per-Region Latency</h2>" in html
+    assert "Retired: GitHub Models global endpoint (last measured 2026-07-29)" in html
+    assert "GitHub retired the GitHub Models service" in html
+    assert "https://github.blog/changelog/2026-07-01-github-models-is-being-fully-retired-on-july-30-2026/" in html
+    assert html.index("Azure Per-Region Latency</h2>") < html.index("Retired: GitHub Models")
+    assert "These retained measurements" in html
+
+    # Current snapshots that still carry modelLatency rows also render as retired.
+    current_with_github = Snapshot(
+        regions={
+            **snap.regions,
+            "github-global": {
+                "model-latency": {
+                    "modelLatency.openai.gpt-4o": FeatureResult(
+                        status="available",
+                        latency_ms=1500,
+                        message="openai/gpt-4o from github-global: p50 1500ms, p95 1600ms, TTFT p50 1300ms, 52.0 tok/s over 3/3 samples.",
+                    )
+                }
+            },
+        }
+    )
+    current_html = _render_latency_page(current_with_github, latency_history=None)
+    assert "Retired: GitHub Models global endpoint" in current_html
+
+
+def test_latency_page_omits_retired_section_without_history_or_current_rows():
+    html = _render_latency_page(_ai_latency_snapshot(), latency_history={"days": []})
+    assert "Azure Per-Region Latency</h2>" in html
+    assert "Retired: GitHub Models global endpoint" not in html
 
 
 def test_build_static_site_writes_dashboard_and_latest_json(tmp_path):

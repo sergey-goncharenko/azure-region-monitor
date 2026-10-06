@@ -23,10 +23,6 @@ UNKNOWN_CATEGORY_SOURCE_HINTS = {
     "aksKubernetesVersions": ("src/azure_region_monitor/probes/aks_versions.py",),
     "functions": ("src/azure_region_monitor/probes/functions.py",),
     "aiModels": ("src/azure_region_monitor/probes/ai_models.py",),
-    "modelLatency": (
-        "src/azure_region_monitor/probes/model_latency.py",
-        "src/azure_region_monitor/probes/github_models.py",
-    ),
     "aiLatency": (
         "src/azure_region_monitor/probes/ai_model_latency.py",
         "src/azure_region_monitor/probes/azure_openai.py",

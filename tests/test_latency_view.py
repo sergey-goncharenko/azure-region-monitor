@@ -5,6 +5,7 @@ from azure_region_monitor.latency_view import (
     build_latency_series,
     build_regional_latency_rows,
     extract_latency_metrics,
+    latest_github_models_history_rows,
     parse_latency_message,
 )
 from azure_region_monitor.models import FeatureResult, Snapshot
@@ -167,6 +168,36 @@ def test_build_latency_series_orders_and_filters():
 def test_build_latency_series_empty_for_missing_history():
     assert build_latency_series(None) == {}
     assert build_latency_series({}) == {}
+
+
+def test_latest_github_models_history_rows_uses_newest_retained_models():
+    history = {
+        "days": [
+            {"date": "2026-07-28", "models": {"openai/old": {"p50_ms": 2000}}},
+            {"date": "2026-07-30", "regional": {"gpt-4o": {"eastus": {"p50_ms": 900}}}},
+            {
+                "date": "2026-07-29",
+                "models": {
+                    "openai/gpt-4o": {
+                        "status": "available",
+                        "p50_ms": 1600,
+                        "ttft_ms": 1400,
+                        "tokens_per_second": 52.0,
+                    }
+                },
+            },
+        ]
+    }
+
+    result = latest_github_models_history_rows(history)
+
+    assert result is not None
+    date, rows = result
+    assert date == "2026-07-29"
+    assert rows[0]["model"] == "openai/gpt-4o"
+    assert rows[0]["feature"] == "modelLatency.openai.gpt-4o"
+    assert rows[0]["latency_ms"] == 1600
+    assert rows[0]["region"] == "github-global"
 
 
 def test_build_regional_latency_rows_sorted_fastest_region_first():

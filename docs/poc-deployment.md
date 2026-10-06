@@ -6,7 +6,8 @@ The PoC proves that synthetic checks can produce structured, region-by-region Az
 
 ## Current PoC Shape
 
-- Current probes: `aks-extension-catalog-cli`, `aks-version-cli`, `function-flex-cli`, `ai-model-catalog-cli`, `container-apps-provider-cli`, `vm-sku-cli`, `model-latency-cli`, and `ai-model-latency-cli`
+- Current probes: `aks-extension-catalog-cli`, `aks-version-cli`, `function-flex-cli`, `ai-model-catalog-cli`, `container-apps-provider-cli`, `vm-sku-cli`, and `ai-model-latency-cli`
+- Retired probes: `model-latency-cli` (GitHub Models global latency) was removed when GitHub retired GitHub Models on 2026-07-30; `merge-snapshot` drops retired modalities listed in `src/azure_region_monitor/retired_modalities.py` from the published live snapshot, while retained history keeps the archived measurements
 - Original PoC regions: `westeurope`, `swedencentral`, `eastus`
 - Default workflow regions: blank workflow input, which falls back to the Python `DEFAULT_REGIONS` list
 - Default full run scope: Azure physical locations returned by Azure CLI, including recommended and other public cloud locations
@@ -38,7 +39,6 @@ The PoC proves that synthetic checks can produce structured, region-by-region Az
   - `.github/workflows/ai-model-tests.yml`
   - `.github/workflows/container-apps-tests.yml`
   - `.github/workflows/vm-sku-tests.yml`
-  - `.github/workflows/model-latency-tests.yml`
   - `.github/workflows/azure-latency-tests.yml`
 - Shared runner workflow: `.github/workflows/regional-probe-run.yml`
 - Static host: Azure Static Web Apps
@@ -129,15 +129,6 @@ $env:CONTAINER_APPS_RESOURCE_FEATURES="containerApps.apps=containerApps,containe
 azure-region-monitor run --probe container-apps-provider-cli --output data/snapshots/latest.json
 ```
 
-To run the model latency probe (GitHub Models global vantage, not an Azure region):
-
-```powershell
-$env:GITHUB_MODELS_TOKEN="<a token with models:read>"
-azure-region-monitor run --probe model-latency-cli --region github-global --output data/snapshots/latest.json
-```
-
-Override the model set and sample count with `MODEL_LATENCY_MODELS` (comma-separated `feature=model` pairs) and `MODEL_LATENCY_SAMPLES`. In GitHub Actions the focused `Model latency tests` workflow grants `models: read` and authenticates with `GH_MODELS_TOKEN` if present, otherwise the built-in `github.token`. The probe does not use Azure CLI or Azure credentials.
-
 ## GitHub Actions Setup
 
 Create a Microsoft Entra application or managed identity that can authenticate from GitHub Actions with OIDC. The workflow expects these repository secrets:
@@ -179,7 +170,6 @@ For a faster modality-specific run, select one of the focused workflows instead:
 - `Azure AI model regional tests` runs `ai-model-catalog-cli` only.
 - `Container Apps regional tests` runs `container-apps-provider-cli` only.
 - `VM SKU regional tests` runs `vm-sku-cli` only.
-- `Model latency tests` runs `model-latency-cli` only, against the `github-global` vantage.
 - `Azure model latency tests` runs `ai-model-latency-cli` against the per-region Azure OpenAI deployments from `infra/regional-latency`, measuring real Azure regional latency.
 
 Focused workflows upload modality-specific artifacts and do not deploy the public dashboard by default. When `deploy_dashboard` is enabled, focused deployments merge the fresh modality snapshot into the current live dashboard snapshot before publishing, so other modality sections remain visible.
@@ -384,9 +374,9 @@ For Azure AI models, `unavailable` means `az cognitiveservices model list --loca
 
 For Container Apps, `unavailable` means `az provider show --namespace Microsoft.App --expand resourceTypes/locations --output json` completed successfully, but the configured Microsoft.App resource type did not advertise the region in its `locations` metadata. It does not test a real Container Apps environment or app deployment, Dapr runtime behavior, quota, capacity, policy, or provider registration for the subscription.
 
-For model latency, `available` means at least one timed inference call returned a trustworthy response; `latency_ms` is the p50 round-trip and the message carries p95, time-to-first-token, and tokens/sec. `unknown` means every sample failed. This probe never emits `unavailable` and is not an Azure CLI probe. Latency is a measurement that depends on the network path and the vantage the probe runs from; the default `github-global` vantage measures GitHub Models' single global endpoint and does not attribute timing to any Azure region. It is not an SLA, throughput, or availability guarantee.
+Archived GitHub Models latency rows (`modelLatency.*`, vantage `github-global`) were measurements of one global endpoint, not an Azure region; collection stopped when GitHub retired the service on 2026-07-30.
 
-For Azure model latency (`ai-model-latency-cli`), `available` means a timed Azure OpenAI inference call succeeded for that region; `unknown` means every sample failed. Unlike the GitHub Models modality, each measured deployment is a single-region Standard Azure OpenAI deployment, so latency is attributable to the region. It still includes network distance from the probe runner's vantage and is not an SLA or throughput guarantee.
+For Azure model latency (`ai-model-latency-cli`), `available` means a timed Azure OpenAI inference call succeeded for that region; `unknown` means every sample failed. This probe never emits `unavailable`. Each measured deployment is a single-region Standard Azure OpenAI deployment, so latency is attributable to the region. It still includes network distance from the probe runner's vantage and is not an SLA or throughput guarantee.
 
 ## Success Criteria
 

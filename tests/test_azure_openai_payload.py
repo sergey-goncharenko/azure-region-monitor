@@ -1,5 +1,5 @@
 from azure_region_monitor.probes.azure_openai import DEFAULT_API_VERSION, _build_azure_payload
-from azure_region_monitor.probes.github_models import REASONING_MIN_COMPLETION_TOKENS
+from azure_region_monitor.probes.inference_http import REASONING_MIN_COMPLETION_TOKENS
 
 
 def test_azure_payload_standard_model():

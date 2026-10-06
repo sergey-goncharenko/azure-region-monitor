@@ -371,6 +371,100 @@ def test_digest_no_change_is_neutral_and_missing_digest_falls_back():
     assert "Full evidence, filters and history" not in fallback
 
 
+def test_digest_renders_retired_modality_line_without_overriding_gain_headline():
+    digest = _digest(gained_features=1)
+    digest["retirements"] = [
+        {
+            "category": "modelLatency",
+            "label": "GitHub Models latency",
+            "retired_on": "2026-07-30",
+            "reason": "GitHub retired the GitHub Models service, so its global endpoint no longer answers.",
+            "source_url": "https://github.blog/changelog/2026-07-01-github-models-is-being-fully-retired-on-july-30-2026/",
+            "historical_checks": 13,
+            "regions": ["github-global"],
+        }
+    ]
+    day = _digest_day(digest)
+    page = render_briefing(day)
+
+    assert briefing_headline(day["briefing"]).endswith("· nothing dropped")
+    assert "GitHub Models latency retired: the service shut down on 2026-07-30, so its 13 checks are no longer measured." in page
+    assert "github.blog/changelog/2026-07-01-github-models-is-being-fully-retired" in page
+
+
+def test_digest_retirement_can_extend_no_change_headline():
+    digest = _digest(gained_features=0)
+    digest["modalities"][0]["features"] = []
+    digest["modalities"][0]["gained_regions"] = []
+    digest["gaps"] = []
+    digest["retirements"] = [
+        {
+            "category": "modelLatency",
+            "label": "GitHub Models latency",
+            "retired_on": "2026-07-30",
+            "reason": "GitHub retired the GitHub Models service.",
+            "source_url": "https://github.blog/changelog/2026-07-01-github-models-is-being-fully-retired-on-july-30-2026/",
+            "historical_checks": 13,
+            "regions": ["github-global"],
+        }
+    ]
+    day = _digest_day(digest)
+
+    assert (
+        briefing_headline(day["briefing"])
+        == "No regional listing changes · GitHub Models latency retired"
+    )
+
+
+def test_digest_does_not_render_retired_measurement_gap_line():
+    digest = _digest(gained_features=0)
+    digest["modalities"][0]["features"] = []
+    digest["modalities"][0]["gained_regions"] = []
+    digest["gaps"] = []
+    digest["totals"]["measurement_gap_listings"] = 0
+    day = _digest_day(digest)
+    page = render_briefing(day)
+
+    assert "GitHub Models latency check" not in page
+    assert "measurement gap, not catalog evidence" not in page
+
+
+def test_archived_legacy_model_latency_gap_still_renders():
+    day = _day()
+    day["briefing"]["digest"] = None
+    day["briefing"]["counts"]["observation_gaps"] = 1
+    day["briefing"]["groups"] = [
+        {
+            "modality": "Model latency",
+            "feature_count": 1,
+            "listing_count": 1,
+            "regions": ["github-global"],
+            "region_counts": {"github-global": 1},
+            "statuses": [
+                {
+                    "kind": "observation_gaps",
+                    "feature_count": 1,
+                    "listing_count": 1,
+                    "regions": ["github-global"],
+                    "region_counts": {"github-global": 1},
+                    "examples": [
+                        {
+                            "feature": "modelLatency.openai.gpt-4o",
+                            "coverage_before": {"available": 1},
+                            "coverage_after": {"available": 0},
+                        }
+                    ],
+                }
+            ],
+        }
+    ]
+
+    page = render_briefing(day)
+
+    assert "Model latency" in page
+    assert "No trustworthy current result" in page
+
+
 def test_briefing_answers_reader_questions_without_conflating_features_and_listings():
     page = render_briefing(_day())
     assert "54 VM sizes gained listings across 5 regions" in page

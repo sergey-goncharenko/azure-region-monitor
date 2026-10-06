@@ -280,6 +280,66 @@ def build_latency_series(history: dict[str, Any] | None) -> dict[str, list[dict[
     return series
 
 
+def latest_github_models_history_rows(
+    history: dict[str, Any] | None,
+) -> tuple[str, list[dict[str, Any]]] | None:
+    """Return the newest retained GitHub Models latency rows from history."""
+
+    days = history.get("days", []) if isinstance(history, dict) else []
+    valid_days = [
+        day for day in days
+        if isinstance(day, dict) and day.get("date") and isinstance(day.get("models"), dict)
+    ]
+    for day in sorted(
+        valid_days, key=lambda item: str(item.get("timestamp") or item["date"]), reverse=True
+    ):
+        models = day.get("models")
+        if not isinstance(models, dict) or not models:
+            continue
+        rows = []
+        for model, metrics in models.items():
+            if not isinstance(metrics, dict):
+                continue
+            p50 = metrics.get("p50_ms")
+            rows.append(
+                {
+                    "region": "github-global",
+                    "feature": _feature_from_model_label(str(model)),
+                    "model": str(model),
+                    "status": str(
+                        metrics.get("status")
+                        or ("available" if isinstance(p50, (int, float)) else "unknown")
+                    ),
+                    "latency_ms": p50 if isinstance(p50, (int, float)) else None,
+                    "p95_ms": metrics.get("p95_ms") if isinstance(metrics.get("p95_ms"), (int, float)) else None,
+                    "ttft_ms": metrics.get("ttft_ms") if isinstance(metrics.get("ttft_ms"), (int, float)) else None,
+                    "tokens_per_second": (
+                        metrics.get("tokens_per_second")
+                        if isinstance(metrics.get("tokens_per_second"), (int, float))
+                        else None
+                    ),
+                    "samples_collected": (
+                        metrics.get("samples_collected")
+                        if isinstance(metrics.get("samples_collected"), int)
+                        else None
+                    ),
+                    "samples_requested": (
+                        metrics.get("samples_requested")
+                        if isinstance(metrics.get("samples_requested"), int)
+                        else None
+                    ),
+                    "message": "",
+                }
+            )
+        rows.sort(key=lambda row: (row["latency_ms"] is None, row["latency_ms"] or 0, row["model"]))
+        return str(day["date"]), rows
+    return None
+
+
+def _feature_from_model_label(model: str) -> str:
+    return "modelLatency." + model.replace("/", ".")
+
+
 def _model_label(feature: str) -> str:
     label = feature
     if label.startswith("modelLatency."):

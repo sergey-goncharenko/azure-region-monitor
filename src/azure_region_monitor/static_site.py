@@ -25,10 +25,12 @@ from azure_region_monitor.latency_view import (
     build_latency_rows,
     build_latency_series,
     build_regional_latency_rows,
+    latest_github_models_history_rows,
     previous_leaderboard_ranks,
     previous_regional_ranks,
 )
 from azure_region_monitor.models import Snapshot
+from azure_region_monitor.retired_modalities import retired_modality
 from azure_region_monitor.feedback_context import (
     REPOSITORY_URL as _REPOSITORY_URL,
     SITE_URL as _SITE_URL,
@@ -223,6 +225,7 @@ def _write_site_pages(
             latency_series,
             leaderboard_prev_ranks=leaderboard_prev_ranks,
             regional_prev_ranks=regional_prev_ranks,
+            latency_history=latency_history,
         ),
         encoding="utf-8",
     )
@@ -704,7 +707,7 @@ Latest snapshot: {snapshot.timestamp.isoformat()}
 
 - [{_SITE_URL}/]({_SITE_URL}/): summary dashboard with modality and regional group availability.
 - [{_SITE_URL}/heatmap.html]({_SITE_URL}/heatmap.html): paged, filterable heatmap backed by the latest JSON snapshot.
-- [{_SITE_URL}/latency.html]({_SITE_URL}/latency.html): LLM model response-latency leaderboard measured from the GitHub Models global vantage.
+- [{_SITE_URL}/latency.html]({_SITE_URL}/latency.html): Azure per-region OpenAI latency measurements plus retained historical GitHub Models latency when available.
 - [{_SITE_URL}/methodology.html]({_SITE_URL}/methodology.html): status semantics and probe evidence notes.
 - [{_SITE_URL}/blog/]({_SITE_URL}/blog/): daily changelog blog — a short post per day summarizing region availability changes (RSS at {_SITE_URL}/blog/feed.xml).
 - [{_SITE_URL}/insights/]({_SITE_URL}/insights/): evergreen topic pages for Azure OpenAI, VM SKU, and AKS regional availability search/discovery.
@@ -1211,17 +1214,19 @@ def _render_latency_page(
     latency_series: dict[str, list[dict[str, Any]]] | None = None,
     leaderboard_prev_ranks: dict[str, int] | None = None,
     regional_prev_ranks: dict[str, dict[str, int]] | None = None,
+    latency_history: dict[str, Any] | None = None,
 ) -> str:
-    rows = build_latency_rows(snapshot)
-    annotate_rank_changes(rows, leaderboard_prev_ranks or {}, key_field="model")
     series = latency_series or {}
+    retired_section = _render_retired_github_models_latency_section(
+        snapshot, series, leaderboard_prev_ranks or {}, latency_history
+    )
     return f"""<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Response latency of GitHub Models, measured through a single global access endpoint. Cross-model speed evidence, not Azure per-region latency.">
-  <title>LLM Model Latency via GitHub Models</title>
+  <meta name="description" content="Azure per-region OpenAI latency measurements, with retained historical GitHub Models latency when available.">
+  <title>Model latency</title>
   <link rel="canonical" href="{_SITE_URL}/latency.html">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="alternate" href="/llms.txt" type="text/plain" title="LLM guide">
@@ -1231,7 +1236,7 @@ def _render_latency_page(
   <main id="main-content" class="content-page">
     <header>
       <div>
-        <h1>LLM Model Latency via GitHub Models</h1>
+        <h1>Model latency</h1>
         <div class="timestamp">Latest snapshot: {html.escape(snapshot.timestamp.isoformat())}</div>
       </div>
       <nav class="links" aria-label="Dashboard links">
@@ -1243,22 +1248,13 @@ def _render_latency_page(
       </nav>
     </header>
     <div class="note" role="note">
-      <strong>What this measures:</strong> response latency of models served by
-      <a href="https://github.com/marketplace/models">GitHub Models</a>, called through its
-      <strong>single global access endpoint</strong> (<code>models.github.ai</code>). GitHub Models
-      does not expose a region selector, so these numbers are <strong>not</strong> Azure
-      per-region latency &mdash; they are cross-model speed evidence from one global vantage
-      (labelled <code>github-global</code>), and they include network distance from wherever the
-      probe runs.
+      <strong>What this measures now:</strong> Azure per-region OpenAI latency from the
+      <code>ai-latency</code> modality. Each current row is tied to a real Azure region where the
+      selected model is available as a single-region <code>Standard</code> deployment. Retained
+      GitHub Models latency, when present below, is historical only because that service retired.
     </div>
-    <section class="panel" aria-label="Model latency leaderboard">
-      <div class="panel-header">
-        <h2>Response Latency Leaderboard</h2>
-        <div class="panel-subtitle">Fastest p50 first &middot; GitHub Models global endpoint (<code>github-global</code>) &middot; not Azure per-region latency</div>
-      </div>
-      {_render_latency_table(rows, series)}
-    </section>
     {_render_regional_latency_section(snapshot, regional_prev_ranks or {})}
+    {retired_section}
     <section class="panel prose" aria-label="Model latency methodology">
       <div class="panel-header">
         <h2>How to read this</h2>
@@ -1269,11 +1265,11 @@ def _render_latency_page(
         <strong>p50</strong> and <strong>p95</strong> round-trip time, <strong>TTFT</strong>
         (time to first token), and output <strong>tokens per second</strong>, then publish the
         medians. <code>p50</code> is the headline number used for ranking.</p>
-        <p>These are measurements from a <strong>single global vantage</strong> &mdash; the GitHub
-        Models access endpoint &mdash; taken from wherever the probe runs. They mix model speed with
-        network distance, so treat them as cross-model speed evidence, <em>not</em> as Azure
-        per-region latency, an SLA, or a throughput guarantee. Reasoning models spend hidden tokens
-        before their first visible token, so their TTFT is expected to be higher.</p>
+        <p>The current Azure rows are region-attributable measurements from the probe runner to a
+        single-region Azure OpenAI deployment. They still mix service timing with network distance,
+        so treat them as relative evidence, not an SLA or a throughput guarantee. Reasoning models
+        spend hidden tokens before their first visible token, so their TTFT is expected to be
+        higher.</p>
         <p><span class="status status-available">available</span> means at least one timed call
         returned a trustworthy response. <span class="status status-unknown">unknown</span> means
         every sample failed, timed out, or returned no tokens.</p>
@@ -1292,6 +1288,42 @@ def _render_latency_page(
 </body>
 </html>
 """
+
+
+def _render_retired_github_models_latency_section(
+    snapshot: Snapshot,
+    series: dict[str, list[dict[str, Any]]],
+    previous_ranks: dict[str, int],
+    latency_history: dict[str, Any] | None,
+) -> str:
+    retired = retired_modality("modelLatency")
+    if retired is None:
+        return ""
+
+    rows = build_latency_rows(snapshot)
+    measured_date = snapshot.timestamp.date().isoformat()
+    if not rows:
+        historical = latest_github_models_history_rows(latency_history)
+        if historical is None:
+            return ""
+        measured_date, rows = historical
+
+    annotate_rank_changes(rows, previous_ranks, key_field="model")
+    source_link = (
+        f' <a href="{html.escape(retired.source_url, quote=True)}" '
+        'target="_blank" rel="noopener noreferrer">Source</a>.'
+    )
+    return f"""<section class="panel" aria-label="Retired GitHub Models global endpoint latency">
+      <div class="panel-header">
+        <h2>Retired: GitHub Models global endpoint (last measured {html.escape(measured_date)})</h2>
+        <div class="panel-subtitle">Historical p50 leaderboard &middot; <code>github-global</code> &middot; not current monitoring</div>
+      </div>
+      <div class="note" role="note">
+        <strong>Historical only:</strong> {html.escape(retired.reason)} These retained measurements
+        are not current checks and are no longer updated.{source_link}
+      </div>
+      {_render_latency_table(rows, series)}
+    </section>"""
 
 
 def _render_regional_latency_section(

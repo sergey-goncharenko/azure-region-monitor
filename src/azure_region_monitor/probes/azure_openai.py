@@ -7,7 +7,7 @@ import time
 import urllib.error
 import urllib.request
 
-from azure_region_monitor.probes.github_models import (
+from azure_region_monitor.probes.inference_http import (
     REASONING_MIN_COMPLETION_TOKENS,
     _chunk_has_content,
     _is_reasoning_model,

@@ -189,7 +189,7 @@ def test_merge_snapshot_overlay_replaces_ai_model_features_as_one_modality():
     assert merged.regions["eastus"]["ai"]["otherAi.signal"].status == "unknown"
 
 
-def test_merge_snapshot_overlay_preserves_regions_absent_from_overlay():
+def test_merge_snapshot_overlay_drops_retired_rows_without_overlay():
     base = Snapshot(
         regions={
             "eastus": {
@@ -218,7 +218,57 @@ def test_merge_snapshot_overlay_preserves_regions_absent_from_overlay():
 
     merged = merge_snapshot_overlay(base, overlay)
 
-    latency = merged.regions["github-global"]["model-latency"]
-    assert latency["modelLatency.openai.gpt-4o-mini"].status == "available"
-    assert latency["modelLatency.openai.gpt-4o-mini"].latency_ms == 1700
+    assert "github-global" not in merged.regions
     assert merged.regions["eastus"]["ai"]["aiModels.openai.gpt-5.2025-08-07"].status == "available"
+
+
+def test_merge_snapshot_overlay_prunes_empty_retired_service_but_keeps_region_data():
+    base = Snapshot(
+        regions={
+            "github-global": {
+                "model-latency": {
+                    "modelLatency.openai.gpt-4o-mini": FeatureResult(status="unknown"),
+                },
+                "ai": {
+                    "aiLatency.openai.gpt-4o": FeatureResult(status="available"),
+                },
+            },
+        },
+    )
+    overlay = Snapshot(
+        regions={
+            "eastus": {
+                "compute": {"vmSkus.standard.b2s": FeatureResult(status="available")}
+            }
+        }
+    )
+
+    merged = merge_snapshot_overlay(base, overlay)
+
+    assert "model-latency" not in merged.regions["github-global"]
+    assert merged.regions["github-global"]["ai"]["aiLatency.openai.gpt-4o"].status == "available"
+
+
+def test_merge_snapshot_overlay_preserves_other_categories():
+    base = Snapshot(
+        regions={
+            "eastus": {
+                "custom": {
+                    "customLatency.signal": FeatureResult(status="unknown"),
+                    "modelLatency.openai.gpt-4o-mini": FeatureResult(status="unknown"),
+                },
+            },
+        },
+    )
+    overlay = Snapshot(
+        regions={
+            "eastus": {
+                "ai": {"aiModels.openai.gpt-5": FeatureResult(status="available")}
+            }
+        }
+    )
+
+    merged = merge_snapshot_overlay(base, overlay)
+
+    assert merged.regions["eastus"]["custom"]["customLatency.signal"].status == "unknown"
+    assert "modelLatency.openai.gpt-4o-mini" not in merged.regions["eastus"]["custom"]

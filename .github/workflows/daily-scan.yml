@@ -16,16 +16,10 @@ on:
         required: false
         type: boolean
         default: true
-      include_github_model_latency:
-        description: "Run the GitHub Models global latency probe (may consume GitHub Models allowance)"
-        required: false
-        type: boolean
-        default: false
 
 permissions:
   contents: read
   id-token: write
-  models: read
 
 # Scheduled dispatch has drifted by up to 12 hours, so a late run can still be
 # merging and deploying when the next day fires. Queue instead of overlapping:
@@ -100,19 +94,6 @@ jobs:
       deploy_dashboard: false
     secrets: inherit
 
-  model-latency:
-    if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.include_github_model_latency) }}
-    uses: ./.github/workflows/regional-probe-run.yml
-    with:
-      probes: "model-latency-cli"
-      regions: "github-global"
-      azure_login: false
-      model_latency_models: "auto"
-      model_latency_samples: "3"
-      artifact_name: "shard-model-latency"
-      deploy_dashboard: false
-    secrets: inherit
-
   azure-latency:
     uses: ./.github/workflows/azure-latency-tests.yml
     with:
@@ -129,7 +110,6 @@ jobs:
       - ai-models
       - container-apps
       - vm-skus
-      - model-latency
       - azure-latency
     runs-on: ubuntu-latest
     # Full-archive history fetch, update-history, safeguarded publication and

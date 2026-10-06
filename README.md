@@ -55,7 +55,7 @@ The first implementation slice is a Python service with:
 - An Azure CLI-backed Azure AI model catalog probe for model/version regional rollout checks
 - An Azure CLI-backed Container Apps provider metadata probe for Microsoft.App resource type regional rollout checks
 - An Azure CLI-backed VM SKU probe for compute SKU regional availability
-- A GitHub Models-backed model latency probe for cross-model inference response-time evidence from a single global vantage
+- An Azure OpenAI per-region inference latency probe (`ai-model-latency-cli`); the former GitHub Models global latency probe was retired with that service on 2026-07-30, and its history is kept as archived evidence
 - JSON snapshot and diff storage helpers
 - Daily static snapshot history and compact recent-change summaries
 - A human-readable methodology page explaining what each status means
@@ -144,28 +144,11 @@ azure-region-monitor run --probe ai-model-catalog-cli --output data/snapshots/la
 
 By default, the AI model probe tracks every model/version returned by `az cognitiveservices model list --location <region> --output json` and normalizes regional absences across the snapshot.
 
-Run the read-only model latency probe locally (uses GitHub Models global access, not an Azure region):
-
-```powershell
-$env:GITHUB_MODELS_TOKEN="<a token with models:read>"
-azure-region-monitor run --probe model-latency-cli --region github-global --output data/snapshots/latest.json
-```
-
-The model latency probe sends a small deterministic prompt to each configured model, takes several samples, and records p50/p95 round-trip latency, time-to-first-token, and output tokens/sec. It measures the GitHub Models global endpoint from wherever the probe runs, so results are cross-model speed evidence from a single vantage, not Azure per-region latency. Customize the model set and sample count:
-
-```powershell
-$env:MODEL_LATENCY_MODELS="modelLatency.openai.gpt-4o-mini=openai/gpt-4o-mini,modelLatency.openai.gpt-4o=openai/gpt-4o"
-$env:MODEL_LATENCY_SAMPLES="5"
-azure-region-monitor run --probe model-latency-cli --region github-global --output data/snapshots/latest.json
-```
-
-Set `MODEL_LATENCY_MODELS=auto` (the scheduled workflow default) to discover the model set from the live GitHub Models catalog. Auto mode keeps OpenAI text chat models (excluding audio/realtime/transcribe/embedding/codex), unions them with the curated non-OpenAI anchors, and falls back to the curated default set if the catalog fetch fails. New OpenAI releases surface automatically without code changes. Reasoning models (gpt-5*, o-series) are measured last so the reliable models and cross-publisher anchors are captured before the probe's time budget is spent.
-
-The dedicated `model-latency-tests.yml` workflow remains available for intentional GitHub Models measurements. Scheduled `.github/workflows/daily-scan.yml` runs this global GitHub Models modality every day so latency history does not silently go stale. A manual daily run remains opt-in through `include_github_model_latency=true` because it may consume GitHub Models allowance.
+GitHub retired GitHub Models on 2026-07-30, so the former `model-latency-cli` probe, its `model-latency-tests.yml` workflow, and the daily-scan job were removed. `merge-snapshot` drops retired modalities (see `src/azure_region_monitor/retired_modalities.py`) from the published live snapshot, so their last `unknown` results do not linger as current evidence. Retained history and `latency-history.json` keep the archived GitHub Models measurements, and the latency page shows them only as a labelled, retired section.
 
 The dashboard and latest daily post lead with a deterministic **At a glance** briefing derived from complete snapshot comparisons, not generated prose. It separates distinct features from feature-region listings, names affected regions, and distinguishes new gains, delistings, restorations, catalog observation gaps, measurement-only latency gaps, tracked continuing absences, and monitoring-scope changes. Green ▲ marks gained listings, red ▼ marks lost listings, and grey/amber gap indicators mark observation limits; measurement-only latency gaps are shown but do not drive the headline. Region and service filters narrow grouped cards, with full evidence, filters, and history collapsed below the glance view. Snapshot timestamps describe the comparison, not per-probe freshness or workload health. Missing baselines and gaps between scan dates are explicit.
 
-The stored daily narrative and review-only social drafts still use the configured Azure OpenAI Responses deployment by default. They are not prerequisites for the reader briefing. This keeps recurring writing workloads on the Azure subscription rather than consuming GitHub Copilot or GitHub Models allowance. Set `AI_SUMMARY_ENABLED=0` or `AI_SOCIAL_ENABLED=0` to use deterministic narrative fallbacks. When generated text is rejected, `narrative_fallback_reason` records `unsupported_generation:<check>` for the failed validation check. GitHub Models remains an explicit opt-in fallback only: set `AI_SUMMARY_ALLOW_GITHUB_FALLBACK=1` or `AI_SOCIAL_ALLOW_GITHUB_FALLBACK=1`, then configure `AI_SUMMARY_MODEL` or `AI_SOCIAL_MODEL` with a single model or comma-separated preference list.
+The stored daily narrative and review-only social drafts still use the configured Azure OpenAI Responses deployment by default. They are not prerequisites for the reader briefing. This keeps recurring writing workloads on the Azure subscription rather than consuming GitHub Copilot or GitHub Models allowance. Set `AI_SUMMARY_ENABLED=0` or `AI_SOCIAL_ENABLED=0` to use deterministic narrative fallbacks. When generated text is rejected, `narrative_fallback_reason` records `unsupported_generation:<check>` for the failed validation check. There is no GitHub Models fallback; if Azure OpenAI is unavailable, the deterministic fallback is published.
 
 Quality target: a reader should identify the main change, affected regions, and evidence limits within 15 seconds. Offline scenarios check factual answers and rendering; they do not substitute for a timed human comprehension check.
 
@@ -181,7 +164,7 @@ $env:AZURE_OPENAI_TOKEN = (az account get-access-token --resource https://cognit
 azure-region-monitor run --probe ai-model-latency-cli --region eastus --region westus3 --region swedencentral --output data/snapshots/latest.json
 ```
 
-Unlike the GitHub Models probe, this one targets a single-region Standard Azure OpenAI deployment per region, so the latency is attributable to each Azure region. See `infra/regional-latency/README.md` for setup and cost.
+This probe targets a single-region Standard Azure OpenAI deployment per region, so the latency is attributable to each Azure region. See `infra/regional-latency/README.md` for setup and cost.
 
 Run the read-only Container Apps provider metadata probe locally:
 
@@ -297,9 +280,9 @@ For Azure AI models, `available` means `az cognitiveservices model list --locati
 
 For Container Apps, `available` means `az provider show --namespace Microsoft.App --expand resourceTypes/locations --output json` advertised the configured Microsoft.App resource type in that region. `unavailable` means the provider metadata call succeeded but did not advertise that resource type for that region; it is not a deployment, quota, or Dapr runtime version test.
 
-For model latency, `available` means at least one timed inference call to the model returned a trustworthy response, and the recorded `latency_ms` is the p50 round-trip over the samples (p95, time-to-first-token, and tokens/sec are in the message). `unknown` means every sample failed, timed out, or returned no tokens. This modality does not emit `unavailable`: it only measures models it was asked to probe. Latency is a measurement that depends on the network path and the vantage the probe runs from, not an availability verdict, SLA, or throughput guarantee. The default vantage label `github-global` reflects GitHub Models' single global access endpoint, which does not attribute timing to any Azure region.
+Archived GitHub Models latency rows (`modelLatency.*`, vantage `github-global`, retired 2026-07-30) used the same meanings: `available` was a trustworthy timed response and `unknown` meant every sample failed. They measured one global endpoint, not an Azure region, and are no longer collected.
 
-For Azure model latency (the `ai-latency` modality), `available` means a timed Azure OpenAI inference call succeeded for that region; `unknown` means every sample failed. Unlike the GitHub Models modality, this one is keyed by real Azure regions, because each measured deployment is a single-region Standard Azure OpenAI deployment processed in that region. The latency is therefore attributable to the region, though it still includes network distance from the probe runner's vantage. It is not an SLA or throughput guarantee.
+For Azure model latency (the `ai-latency` modality), `available` means a timed Azure OpenAI inference call succeeded for that region; `unknown` means every sample failed. This modality is keyed by real Azure regions, because each measured deployment is a single-region Standard Azure OpenAI deployment processed in that region. The latency is therefore attributable to the region, though it still includes network distance from the probe runner's vantage. It does not emit `unavailable`, and it is not an SLA or throughput guarantee.
 
 ## Next Engineering Steps
 
