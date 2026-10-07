@@ -516,6 +516,31 @@ def test_rule_summary_groups_vm_sizes_by_feature_context_family():
     assert "D4s" not in narrative
 
 
+def test_rule_editorial_excerpt_teases_multi_region_model_listing():
+    changes = [
+        _change(region, "aiModels.openai.gpt-5.2025", "unavailable", "available", "new_availability")
+        for region in ("eastus", "westus3")
+    ]
+    changes.append(
+        _change("eastus", "vmSkus.standard.d2as.v5", "available", "unavailable", "regression")
+    )
+
+    result = build_change_narrative(changes, client=None)
+
+    assert result["editorial_excerpt"] == (
+        "Worth a closer look: GPT-5 model from OpenAI (version 2025) was newly listed in 2 more regions "
+        "(catalog evidence, not deployment results)."
+    )
+    assert result["narrative"].splitlines()[1].endswith("no longer listed in 1 region (eastus).")
+
+
+def test_rule_editorial_excerpt_keeps_existing_fallback_without_multi_region_gain():
+    result = build_change_narrative([
+        _change("eastus", "extensionTypes.microsoft.vmware", "unavailable", "available", "new_availability")
+    ])
+    assert "Worth a closer look" not in result["editorial_excerpt"]
+
+
 def test_rule_summary_frames_latency_additions_and_removals():
     changes = [
         _change("eastus", "aiLatency.openai.gpt-5.1", "unavailable", "available", "new_availability"),

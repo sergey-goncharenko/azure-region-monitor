@@ -259,6 +259,10 @@ def _digest_headline(briefing: dict[str, Any]) -> str:
 
 
 def _digest_excerpt(digest: dict[str, Any]) -> str:
+    expansion = _digest_expansion_teaser(digest)
+    if expansion:
+        return expansion
+
     lost = _digest_subject(digest, "lost")
     new = _digest_subject(digest, "new")
     returned = _digest_subject(digest, "returned")
@@ -282,6 +286,49 @@ def _digest_excerpt(digest: dict[str, Any]) -> str:
     if measurement_gaps:
         parts.append(f"{measurement_gaps:,} measurement gaps were not catalog evidence")
     return "; ".join(parts) + ". Catalog evidence, not deployment results."
+
+
+def _digest_expansion_teaser(digest: dict[str, Any]) -> str:
+    candidates: list[tuple[int, str]] = []
+    for modality in _digest_modalities(digest):
+        name = str(modality.get("modality") or "")
+        if name not in {"AKS extensions", "VM SKUs", "Azure AI models"}:
+            continue
+        groups: dict[tuple[str, tuple[str, ...]], list[dict[str, Any]]] = {}
+        for feature in _modality_features(modality):
+            regions = tuple(sorted(set(_new_regions(feature))))
+            if len(regions) < 2:
+                continue
+            label = str(feature.get("label") or feature.get("feature") or "")
+            if not label:
+                continue
+            candidates.append((len(regions), f"{label} was newly listed in {len(regions)} more regions"))
+            cluster = feature.get("cluster")
+            if name == "VM SKUs" and isinstance(cluster, dict) and cluster.get("key"):
+                groups.setdefault((str(cluster["key"]), regions), []).append(feature)
+        for (_key, regions), features in groups.items():
+            if len(features) < 2:
+                continue
+            cluster = features[0]["cluster"]
+            family = str(cluster.get("label") or "").split(" · ", 1)[0]
+            if family:
+                count = len(features)
+                candidates.append((
+                    count * len(regions),
+                    f"{count} {family} VM sizes were newly listed in {len(regions)} more regions",
+                ))
+    if not candidates:
+        return ""
+    loss = _digest_subject(digest, "lost")
+    suffix = f", while {loss} lost listings" if loss else ""
+    for _score, description in sorted(candidates, reverse=True):
+        teaser = f"Worth a closer look: {description}{suffix} (catalog evidence, not deployment results)."
+        if len(teaser) <= 220:
+            return teaser
+        teaser = f"Worth a closer look: {description} (catalog evidence, not deployment results)."
+        if len(teaser) <= 220:
+            return teaser
+    return ""
 
 
 def _safe_learn_url(value: object) -> str:
