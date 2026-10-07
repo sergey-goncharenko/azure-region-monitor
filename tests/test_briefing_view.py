@@ -230,11 +230,81 @@ def test_digest_headline_prefers_gains_and_measurement_gaps_do_not_hijack():
     assert "13 GitHub Models latency checks returned no result" in page
     assert "measurement gap, not catalog evidence" in page
     assert briefing_excerpt(day["briefing"]) == (
-        "1 VM size gained new regions (Brazil South, East US, North Central US); "
-        "1 VM size returned (East Asia); "
-        "nothing dropped; 13 measurement gaps were not catalog evidence. "
-        "Catalog evidence, not deployment results."
+        "Worth a closer look: Standard D248ds V7 VM size was newly listed in 3 more regions "
+        "(catalog evidence, not deployment results)."
     )
+
+
+def test_blog_excerpt_teases_specific_aks_expansion_not_restoration():
+    digest = _digest(gained_features=0)
+    digest["modalities"] = [{
+        "modality": "AKS extensions",
+        "features": [{
+            "label": "Azure Key Vault Secrets Provider AKS extension",
+            "gained_regions": ["eastus", "westus3", "westeurope"],
+            "restored_regions": ["westeurope"],
+        }],
+    }]
+    posts = select_blog_posts({"days": [_digest_day(digest)]})
+    excerpt = posts[0]["excerpt"]
+
+    assert excerpt == (
+        "Worth a closer look: Azure Key Vault Secrets Provider AKS extension was newly listed "
+        "in 2 more regions (catalog evidence, not deployment results)."
+    )
+    assert excerpt in render_blog_index(posts, "https://example.test", "")
+    assert excerpt in render_blog_post(posts[0], None, None, "https://example.test", "")
+
+
+def test_digest_excerpt_groups_only_vm_sizes_with_matching_family_and_regions():
+    digest = _digest()
+    first, second = digest["modalities"][0]["features"]
+    first["restored_regions"] = []
+    first["cluster"] = {"key": "vm:D:v7", "label": "Dv7-series · general purpose"}
+    second["gained_regions"] = first["gained_regions"]
+    second["restored_regions"] = []
+    second["cluster"] = first["cluster"]
+    assert briefing_excerpt(_digest_day(digest)["briefing"]) == (
+        "Worth a closer look: 2 Dv7-series VM sizes were newly listed in 4 more regions "
+        "(catalog evidence, not deployment results)."
+    )
+
+    second["gained_regions"] = ["eastus", "northcentralus"]
+    assert "2 Dv7-series VM sizes" not in briefing_excerpt(_digest_day(digest)["briefing"])
+
+
+def test_digest_excerpt_teases_ai_model_and_preserves_no_expansion_fallback():
+    digest = _digest(gained_features=0)
+    digest["modalities"] = [{
+        "modality": "Azure AI models",
+        "features": [{
+            "label": "GPT-5 model from OpenAI (version 2025)",
+            "gained_regions": ["eastus", "westus3"],
+            "restored_regions": [],
+        }],
+    }]
+    assert "GPT-5 model from OpenAI (version 2025) was newly listed in 2 more regions" in (
+        briefing_excerpt(_digest_day(digest)["briefing"])
+    )
+    digest["modalities"][0]["features"][0]["restored_regions"] = ["eastus", "westus3"]
+    assert "Worth a closer look" not in briefing_excerpt(_digest_day(digest)["briefing"])
+
+
+def test_digest_expansion_teaser_keeps_delistings_distinct_from_gains():
+    digest = _digest(gained_features=1, lost_features=1)
+    excerpt = briefing_excerpt(_digest_day(digest)["briefing"])
+
+    assert "newly listed in 3 more regions, while 1 VM size lost listings" in excerpt
+    assert excerpt.count(".") == 1
+
+
+def test_digest_expansion_teaser_skips_oversized_label():
+    digest = _digest(gained_features=0)
+    digest["modalities"][0]["features"][0]["label"] = "A" * 300
+    excerpt = briefing_excerpt(_digest_day(digest)["briefing"])
+
+    assert "Worth a closer look" not in excerpt
+    assert len(excerpt) < 220
 
 
 def test_digest_headline_leads_with_losses_and_uses_red_tone():
