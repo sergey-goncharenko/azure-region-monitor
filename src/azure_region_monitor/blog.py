@@ -13,6 +13,7 @@ import re
 from datetime import datetime, timedelta, timezone
 from email.utils import format_datetime
 from typing import Any
+from urllib.parse import urlencode
 
 from azure_region_monitor.briefing_view import (
     briefing_excerpt,
@@ -687,6 +688,20 @@ def _page(
   <main id="main-content" class="content-page">
 {body}
   </main>
+  <script>
+    document.querySelectorAll(".blog-share").forEach((group) => {{
+      const button = group.querySelector(".blog-copy-link");
+      const status = group.querySelector(".blog-copy-status");
+      button.addEventListener("click", async () => {{
+        try {{
+          await navigator.clipboard.writeText(button.dataset.shareUrl);
+          status.textContent = "Link copied";
+        }} catch {{
+          status.textContent = "Copy unavailable; use your browser's address bar or the post link.";
+        }}
+      }});
+    }});
+  </script>
 </body>
 </html>
 """
@@ -714,6 +729,18 @@ def _json_ld_script(data: dict[str, Any] | None) -> str:
     return f'<script type="application/ld+json">{payload}</script>'
 
 
+def _share_controls(url: str, title: str) -> str:
+    linkedin = "https://www.linkedin.com/sharing/share-offsite/?" + urlencode({"url": url})
+    twitter = "https://twitter.com/intent/tweet?" + urlencode({"text": title, "url": url})
+    return f"""<div class="blog-share" role="group" aria-label="Share {html.escape(title, quote=True)}">
+      <span>Share:</span>
+      <a href="{html.escape(linkedin, quote=True)}" target="_blank" rel="noopener noreferrer" aria-label="Share on LinkedIn">LinkedIn</a>
+      <a href="{html.escape(twitter, quote=True)}" target="_blank" rel="noopener noreferrer" aria-label="Share on Twitter">Twitter</a>
+      <button type="button" class="blog-copy-link" data-share-url="{html.escape(url, quote=True)}">Copy link</button>
+      <span class="blog-copy-status" role="status" aria-live="polite"></span>
+    </div>"""
+
+
 def _nav() -> str:
     return """      <nav class="links" aria-label="Dashboard links">
         <a href="/index.html">Summary</a>
@@ -732,7 +759,7 @@ def render_blog_index(posts: list[dict[str, Any]], site_url: str, style_block: s
     context = str(posts[0].get("weekly_context", "")) if posts else ""
     trend_section = render_briefing(posts[0]) if posts and has_briefing(posts[0]) else _render_executive_summary(summary, context)
     if posts:
-        cards = "\n".join(_render_index_card(post) for post in posts)
+        cards = "\n".join(_render_index_card(post, site_url) for post in posts)
         body_inner = f'<div class="blog-list">{cards}</div>'
     else:
         body_inner = (
@@ -751,6 +778,7 @@ def render_blog_index(posts: list[dict[str, Any]], site_url: str, style_block: s
       Catalog disappearance is not a confirmed retirement or an outage.
       Subscribe via the <a href="/blog/feed.xml">RSS feed</a>.
     </div>
+    {_share_controls(canonical, "Azure Regional Changes — Daily Blog")}
     {trend_section}
     <section class="panel" aria-label="Daily change posts">
       {body_inner}
@@ -772,7 +800,7 @@ def render_blog_index(posts: list[dict[str, Any]], site_url: str, style_block: s
     )
 
 
-def _render_index_card(post: dict[str, Any]) -> str:
+def _render_index_card(post: dict[str, Any], site_url: str) -> str:
     excerpt = _excerpt(post)
     excerpt_html = f'<p class="blog-card-excerpt">{html.escape(excerpt)}</p>' if excerpt else ""
     source_label = "Snapshot comparison" if has_briefing(post) else _source_label(post["source"])
@@ -785,6 +813,7 @@ def _render_index_card(post: dict[str, Any]) -> str:
         {excerpt_html}
         <div class="blog-card-counts">{_counts_line(post)}</div>
         <a class="blog-readmore" href="/{html.escape(post['slug'])}">Read the full post →</a>
+        {_share_controls(f"{site_url}/{post['slug']}", post['title'])}
       </article>"""
 
 
@@ -802,6 +831,7 @@ def render_blog_post(
         paragraphs = f"<p>{html.escape(post['title'])}</p>"
     highlights = _render_highlights(post.get("highlights", []))
     prev_next = _render_prev_next(newer, older)
+    share = _share_controls(canonical, post["title"])
     trend_section = _render_executive_summary(
         str(post.get("executive_summary", "")),
         str(post.get("weekly_context", "")),
@@ -812,6 +842,7 @@ def render_blog_post(
           {_nav()}
         </header>
         {render_briefing(post)}
+        {share}
         {prev_next}"""
         return _page(
             f"{post['title']} | Azure regional availability {post['date']}",
@@ -828,6 +859,7 @@ def render_blog_post(
       </div>
 {_nav()}
     </header>
+    {share}
     <article class="panel blog-post">
       <div class="blog-post-counts">{_counts_line(post)}</div>
       {trend_section}
