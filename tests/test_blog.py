@@ -398,6 +398,23 @@ def test_blog_index_and_feed_prefer_persisted_authored_excerpt():
     assert feed.findtext("./channel/item/description") == authored_excerpt
 
 
+def test_blog_index_and_feed_show_persisted_expansion_teaser():
+    import xml.etree.ElementTree as ET
+
+    teaser = (
+        "Worth a closer look: GPT-5 model from OpenAI was newly listed in 2 more regions "
+        "(catalog evidence, not deployment results)."
+    )
+    posts = select_blog_posts(_history([_day("2026-07-03", "Model update\n\nBody.", excerpt=teaser)]))
+    index = render_blog_index(posts, SITE, STYLE)
+    feed = ET.fromstring(render_blog_feed(posts, SITE))
+    page = render_blog_post(posts[0], None, None, SITE, STYLE)
+
+    assert f'<p class="blog-card-excerpt">{teaser}</p>' in index
+    assert feed.findtext("./channel/item/description") == teaser
+    assert teaser in page
+
+
 def test_blog_sitemap_entries_cover_index_and_posts():
     posts = select_blog_posts(
         _history([_day("2026-07-03", "A\n\nbody a"), _day("2026-07-01", "B\n\nbody b")])

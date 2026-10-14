@@ -8,6 +8,7 @@ from functools import lru_cache
 from importlib import resources
 from typing import Any, Mapping, Protocol
 
+from azure_region_monitor.display import plain_feature_name
 from azure_region_monitor.feature_context import describe_feature
 from azure_region_monitor.models import Change
 
@@ -26,6 +27,9 @@ Format:
   followed by at most 3 to 5 one-line bullets or short sentences.
 - excerpt: one purpose-written, 1-2 sentence summary under 220 characters. Do not truncate
   the narrative or repeat its headline verbatim.
+- When an AKS extension, VM size, or Azure AI model gains listings in multiple regions, make
+  the excerpt a one-sentence hook naming that feature and its regional expansion; similar VM
+  sizes may be grouped by shared family. Call these catalog listings, not deployment results.
 - linkedin and short_post: review-only social variants that name the supplied date, state nonzero
   new/regression counts in compact wording, and may omit zero counts. Do not include URLs.
 
@@ -591,6 +595,9 @@ def _rule_editorial_package(
     label = date or "Latest scan"
     lines = [line.strip() for line in narrative.splitlines() if line.strip()]
     excerpt = (lines[1] if len(lines) > 1 else lines[0]).strip()
+    expansion = _rule_expansion_teaser(changes)
+    if expansion:
+        excerpt = expansion
     if len(excerpt) > 219:
         excerpt = excerpt[:216].rstrip() + "..."
     social = f"{label}: {daily_counts}. {excerpt} {_SOCIAL_EVIDENCE_NOTE}"
@@ -599,6 +606,28 @@ def _rule_editorial_package(
         "editorial_excerpt": excerpt,
         "social_drafts": {"linkedin": social, "short_post": f"{label}: {daily_counts}. {_SOCIAL_EVIDENCE_NOTE}"},
     }
+
+
+def _rule_expansion_teaser(changes: list[Change]) -> str:
+    regions_by_feature: dict[str, set[str]] = {}
+    for change in changes:
+        if (
+            change.change_type == "new_availability"
+            and _modality(change.feature) in {"AKS extensions", "VM SKUs", "Azure AI models"}
+        ):
+            regions_by_feature.setdefault(change.feature, set()).add(change.region)
+    candidates = [
+        (len(regions), feature)
+        for feature, regions in regions_by_feature.items()
+        if len(regions) > 1
+    ]
+    if not candidates:
+        return ""
+    count, feature = max(candidates, key=lambda candidate: (candidate[0], candidate[1]))
+    return (
+        f"Worth a closer look: {plain_feature_name(feature)} was newly listed in "
+        f"{count} more regions (catalog evidence, not deployment results)."
+    )
 
 
 def _parked_unknown_count(changes: list[Change]) -> int:
