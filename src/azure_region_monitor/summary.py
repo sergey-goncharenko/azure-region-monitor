@@ -46,7 +46,9 @@ lead with regressions when they exist. If useful, end with one short sentence be
 Rules: do not invent regions, models, features, dates, numbers, causes, quotas, capacity, customer
 impact, outages, or SLAs. Unavailable means absent from the read-only catalog/list, not proof of
 quota, capacity, deployment failure, or SLA impact. Do not repeat references, disclaimers, sign-offs,
-or a call to action. Keep it around 150 to 200 words.
+or a call to action. Keep the narrative around 80 to 120 words. Use complete feature
+movements for counts and coverage, not partial individual examples; use VM specifications
+only for exact documented sizes.
 """
 _SOCIAL_EVIDENCE_NOTE = (
     "Evidence note: these are read-only Azure catalog/list signals; unavailable does not mean "
@@ -746,7 +748,9 @@ def _compact_change_lines(
     for change in other_changes:
         by_feature.setdefault((_modality(change.feature), change.feature), []).append(change)
 
-    for (_modality_name, _feature), group in sorted(by_feature.items()):
+    for (_modality_name, _feature), group in sorted(
+        by_feature.items(), key=lambda item: (-len(item[1]), item[0])
+    ):
         lines.append(_compact_feature_line(group, change_type, context_map))
     return lines
 
@@ -788,6 +792,10 @@ def _compact_feature_line(
         sentence += f" ({coverage})"
     if expansion:
         sentence += f"; {expansion}"
+    if _modality(feature) == "VM SKUs":
+        documented = describe_feature(feature)
+        if documented["specificity"] == "exact":
+            sentence += f"; documented size: {documented['differentiators'][0]}"
     return sentence + "."
 
 
@@ -946,6 +954,43 @@ def _facts_block(
             f"- {direction} | modality={modality} | listings={len(group)} | "
             f"distinct_features={len({(item.service, item.feature) for item in group})} | "
             f"regions={_csv(tuple(sorted({item.region for item in group})))}"
+        )
+    by_feature: dict[tuple[str, str, str], list[Change]] = {}
+    for change in signals:
+        by_feature.setdefault(
+            (change.change_type, change.service, change.feature), []
+        ).append(change)
+    lines.append("Largest feature movements (complete groups, not individual examples):")
+    ranked = sorted(
+        by_feature.items(),
+        key=lambda item: (
+            -len({change.region for change in item[1]}),
+            item[0][0] != "regression",
+            item[0],
+        ),
+    )
+    for (direction, _service, feature), group in ranked[:6]:
+        regions = tuple(sorted({change.region for change in group}))
+        contexts = [_context_for(change, context_map) for change in group]
+        parts = [
+            f"- {direction} | feature={feature} | modality={_modality(feature)}",
+            f"affected regions={len(regions)} ({_region_phrase(regions)})",
+        ]
+        coverage = _coverage_shift(contexts)
+        if coverage:
+            parts.append(f"listing coverage={coverage}")
+        expansion = _expansion_summary(contexts)
+        if expansion:
+            parts.append(f"expansion={expansion}")
+        if _modality(feature) == "VM SKUs":
+            documented = describe_feature(feature)
+            if documented["specificity"] == "exact":
+                parts.append(f"documented VM size={documented['differentiators'][0]}")
+                parts.append(f"VM documentation={documented['sources'][0]['url']}")
+        lines.append(" | ".join(parts))
+    if len(ranked) > 6:
+        lines.append(
+            f"- ({len(ranked) - 6} other feature movements omitted; use grouped totals above)"
         )
     lines.append("Individual examples follow; their ordering is not a measure of significance:")
     for change in signals[:MAX_FACTS]:

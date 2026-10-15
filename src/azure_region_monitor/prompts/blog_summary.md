@@ -23,7 +23,8 @@ Memo style:
 - Latency measurement gaps should be a single short note or omitted when stronger listing changes exist.
 - Do not repeat reference URLs, evidence notes, advice phrases, or generic planning language.
 - If useful, end with one short sentence beginning "What this means for Azure users:"; otherwise omit the closing.
-- Keep the whole package around 150 to 200 words.
+- Keep the narrative brief (roughly 80 to 120 words); the social variants are separate.
+- Use the complete feature movements for regional gain counts and coverage shifts, not a partial set of individual examples. Only use documented VM specifications when the supplied facts identify an exact documented size.
 
 Classification semantics:
 - net_new_availability: the monitor has not previously seen that feature listed in that region within retained history; describe it as a newly observed listing, not a launch date or deployment result.
