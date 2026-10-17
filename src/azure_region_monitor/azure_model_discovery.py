@@ -8,6 +8,7 @@ DEFAULT_INCLUDE = (
     "gpt-4o",
     "gpt-4.1",
     "gpt-5",
+    "gpt-6",
     "o3",
     "o4",
 )

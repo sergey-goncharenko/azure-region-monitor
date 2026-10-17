@@ -98,6 +98,22 @@ def test_probe_measures_multiple_models_in_same_region():
     assert all(r.result.status == "available" for r in results)
 
 
+def test_probe_measures_reasoning_models_after_standard_models():
+    client = _FakeClient(measurement=LatencyMeasurement(ttft_ms=200, total_ms=900, output_tokens=80))
+    targets = [
+        AiLatencyTarget(region="eastus", endpoint="https://e.openai.azure.com", deployment="gpt-6-astra", model="gpt-6-astra"),
+        AiLatencyTarget(region="eastus", endpoint="https://e.openai.azure.com", deployment="gpt-4o", model="gpt-4o"),
+    ]
+
+    results = list(AzureOpenAiLatencyProbe(targets=targets, client=client, samples=1).run("eastus"))
+
+    assert [result.feature for result in results] == [
+        "aiLatency.openai.gpt-4o",
+        "aiLatency.openai.gpt-6-astra",
+    ]
+    assert [call[1] for call in client.calls] == ["gpt-4o", "gpt-6-astra"]
+
+
 def test_parse_ai_latency_targets_from_infra_json():
     raw = (
         '[{"region":"eastus","endpoint":"https://e.openai.azure.com","deployment":"gpt-4o","model":"gpt-4o"},'
