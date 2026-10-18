@@ -1101,11 +1101,12 @@ def _feature_label(feature: str) -> str:
 
 
 def _feature_description(feature: str) -> str:
+    if feature.startswith("aiModels."):
+        return plain_feature_name(feature)
     label = _feature_label(feature)
     modality = _modality(feature)
     descriptions = {
         "VM SKUs": "Azure virtual-machine size for right-sizing compute",
-        "Azure AI models": "Azure AI model/version catalog entry for model selection",
         "AKS Kubernetes versions": "AKS Kubernetes version for upgrade planning",
         "AKS extensions": "AKS cluster extension type for managed cluster capabilities",
         "Azure Functions": "Azure Functions Flex Consumption runtime or hosting option",
