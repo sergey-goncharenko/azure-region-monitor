@@ -3,14 +3,6 @@ from __future__ import annotations
 import re
 from typing import Any
 
-# Model name prefixes that are region-attributable chat models worth probing.
-DEFAULT_INCLUDE = (
-    "gpt-4o",
-    "gpt-4.1",
-    "gpt-5",
-    "o3",
-    "o4",
-)
 # Substrings that mark non-chat or unsuitable variants.
 DEFAULT_EXCLUDE = (
     "audio",
@@ -31,7 +23,7 @@ DEFAULT_MAX_MODELS = 8
 
 def select_regional_standard_models(
     models_by_region: dict[str, list[dict[str, Any]]],
-    include: tuple[str, ...] = DEFAULT_INCLUDE,
+    include: tuple[str, ...] = (),
     exclude: tuple[str, ...] = DEFAULT_EXCLUDE,
     max_models: int = DEFAULT_MAX_MODELS,
 ) -> list[dict[str, Any]]:
@@ -96,15 +88,25 @@ def _standard_model(
     model = item.get("model")
     if not isinstance(model, dict):
         return None, ""
-    # Skip models fully retired/deprecated for new deployments.
-    if str(model.get("lifecycleStatus", "")).strip().lower() == "deprecated":
+    # These catalog entries are no longer eligible for new deployments.
+    if str(model.get("lifecycleStatus", "")).strip().lower() in {"deprecated", "retired"}:
         return None, ""
     name = str(model.get("name", "")).strip()
     version = str(model.get("version", "")).strip()
     if not name or not version:
         return None, ""
     lowered = name.lower()
-    if not any(lowered.startswith(prefix) for prefix in include):
+    capabilities = model.get("capabilities")
+    chat_completion = capabilities.get("chatCompletion") if isinstance(capabilities, dict) else None
+    if chat_completion is not None and str(chat_completion).lower() != "true":
+        return None, ""
+    if include and not any(lowered.startswith(prefix) for prefix in include):
+        return None, ""
+    # Catalog capabilities allow new chat families without a name patch. Older
+    # listings without capabilities fall back to the GPT and o-series families.
+    if not include and chat_completion is None and not re.match(
+        r"^(?:gpt-\d|o\d)", lowered
+    ):
         return None, ""
     if any(token in lowered for token in exclude):
         return None, ""
