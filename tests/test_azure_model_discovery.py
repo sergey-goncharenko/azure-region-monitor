@@ -10,6 +10,7 @@ def test_selects_only_regional_standard_openai_models():
         "eastus": [
             _model("gpt-4o", "2024-11-20", ["Standard", "GlobalStandard"]),
             _model("gpt-5.1", "2025-11-13", ["Standard", "GlobalStandard"]),
+            _model("gpt-6-astra", "2026-09-03", ["Standard"]),
             _model("gpt-5.2", "2025-12-11", ["GlobalStandard"]),  # global-only -> dropped
             _model("gpt-4o-audio-preview", "2024-12-17", ["Standard"]),  # excluded by name
             _model("text-embedding-3-large", "1", ["Standard"]),  # not in include
@@ -27,11 +28,13 @@ def test_selects_only_regional_standard_openai_models():
     selected = select_regional_standard_models(by_region)
 
     by_name = {m["name"]: m for m in selected}
-    assert set(by_name) == {"gpt-4o", "gpt-5.1"}
+    assert set(by_name) == {"gpt-4o", "gpt-5.1", "gpt-6-astra"}
     assert by_name["gpt-4o"]["version"] == "2024-11-20"
     assert by_name["gpt-4o"]["regions"] == ["eastus", "uksouth", "westus3"]
     assert by_name["gpt-5.1"]["regions"] == ["eastus", "westus3"]
     assert by_name["gpt-5.1"]["deploymentName"] == "gpt-5.1"
+    assert by_name["gpt-6-astra"]["regions"] == ["eastus"]
+    assert by_name["gpt-6-astra"]["deploymentName"] == "gpt-6-astra"
     # gpt-5.2 is GlobalStandard-only -> not region-attributable -> excluded.
     assert "gpt-5.2" not in by_name
 
@@ -66,10 +69,11 @@ def test_prioritizes_current_models_when_capping_deployments():
             _model("gpt-4o", "2024-11-20", ["Standard"]),
             _model("gpt-5.1", "2025-11-13", ["Standard"]),
             _model("gpt-5.6", "2026-08-21", ["Standard"]),
+            _model("gpt-6-astra", "2026-09-03", ["Standard"]),
         ],
     }
     selected = select_regional_standard_models(by_region, max_models=2)
-    assert [m["name"] for m in selected] == ["gpt-5.6", "gpt-5.1"]
+    assert [m["name"] for m in selected] == ["gpt-6-astra", "gpt-5.6"]
 
 
 def test_handles_empty_and_garbage():

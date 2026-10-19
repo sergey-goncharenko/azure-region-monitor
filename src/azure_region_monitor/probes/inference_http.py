@@ -12,7 +12,7 @@ def _is_reasoning_model(model: str) -> bool:
     name = model.split("/")[-1].lower()
     if "gpt-5-chat" in name:
         return False
-    if name.startswith("gpt-5"):
+    if name.startswith(("gpt-5", "gpt-6")):
         return True
     return bool(re.match(r"o\d", name))
 
