@@ -96,3 +96,41 @@ def test_skips_deprecated_lifecycle():
             "regions": ["eastus"],
         }
     ]
+
+
+def test_new_generations_and_catalog_advertised_chat_families_need_no_name_patch():
+    new_gpt = _model("gpt-6.2", "2026-10-01", ["Standard"])
+    new_reasoning = _model("o5-mini", "2026-10-02", ["Standard"])
+    new_family = _model("nova-chat", "2026-10-03", ["Standard"])
+    new_family["model"]["capabilities"] = {"chatCompletion": "true"}
+    not_chat = _model("gpt-7", "2026-10-04", ["Standard"])
+    not_chat["model"]["capabilities"] = {"chatCompletion": "false"}
+    global_only = _model("gpt-8", "2026-10-05", ["GlobalStandard"])
+
+    selected = select_regional_standard_models(
+        {"eastus": [new_gpt, new_reasoning, new_family, not_chat, global_only]},
+    )
+
+    assert {model["name"] for model in selected} == {"gpt-6.2", "o5-mini", "nova-chat"}
+    assert all(model["regions"] == ["eastus"] for model in selected)
+
+
+def test_deprecated_or_retired_versions_leave_eligible_regions():
+    active = _model("gpt-6", "2026-09-01", ["Standard"])
+    deprecated = _model("gpt-6", "2026-10-01", ["Standard"])
+    deprecated["model"]["lifecycleStatus"] = " deprecated "
+    retired = _model("gpt-6", "2026-09-01", ["Standard"])
+    retired["model"]["lifecycleStatus"] = "Retired"
+
+    selected = select_regional_standard_models(
+        {"eastus": [active, deprecated], "westus3": [retired]},
+    )
+
+    assert selected == [
+        {
+            "name": "gpt-6",
+            "version": "2026-09-01",
+            "deploymentName": "gpt-6",
+            "regions": ["eastus"],
+        }
+    ]

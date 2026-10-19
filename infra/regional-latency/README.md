@@ -32,14 +32,21 @@ edits. On each run it:
 1. Lists the model catalog (`az cognitiveservices model list`) for a broad set of
    candidate regions (read-only).
 2. Selects OpenAI chat models that offer a single-region **Standard** SKU (the only
-   region-attributable kind) via `azure_model_discovery.select_regional_standard_models`,
-   one newest version per model, capped by `max_models`.
+   region-attributable kind) via `azure_model_discovery.select_regional_standard_models`.
+   Catalog `chatCompletion` capability identifies chat models when present; older entries
+   without it use the GPT/o-series family pattern. Non-chat variants and catalog entries
+   marked deprecated or retired are excluded. Selection keeps one newest eligible
+   version per model and is capped by `max_models`.
 3. Writes a Bicep `models` parameter file and runs an **idempotent incremental**
    deployment, then probes every deployment found in the resource group.
 
 New models (for example `gpt-5.1`) and newly enabled regions therefore surface
 automatically. The step is best-effort (`continue-on-error`), so a deployment hiccup
 still lets the probe run against existing deployments.
+Discovery only selects new deployment attempts: incremental ARM deployments do not
+delete earlier deployments. The probe still discovers existing deployed targets, even
+if their catalog entry was subsequently deprecated or delisted; removing those targets
+requires a separate, reviewed infrastructure lifecycle decision.
 
 ### Why only some regions appear
 
