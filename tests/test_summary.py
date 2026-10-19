@@ -200,7 +200,8 @@ def test_ai_failure_falls_back_to_rule():
     assert result["narrative_fallback_reason"] == "generation_failed"
     assert result["narrative_model_deployment"] == "gpt-5-mini"
     assert "eastus" in result["narrative"]
-    assert "Azure AI model/version catalog entry for model selection (openai.gpt-5.2025)" in result["narrative"]
+    assert "GPT-5 model from OpenAI (version 2025)" in result["narrative"]
+    assert "openai.gpt-5.2025" not in result["narrative"]
     assert "What this means for Azure users:" in result["narrative"]
 
 
@@ -233,11 +234,11 @@ def test_rule_fallback_is_a_concise_daily_comparison():
 
     assert lines[0] == "30 new listings, 10 no longer listed"
     assert len(lines) <= 6
-    assert "Azure AI model/version catalog entry" in narrative
+    assert "GPT-6 model from OpenAI" in narrative
     assert "now listed in 30 more regions" in narrative
     assert "no longer listed in 10 regions" in narrative
-    assert narrative.count("openai.gpt-6.test-version") == 1
-    assert narrative.count("openai.gpt-5.test-version") == 1
+    assert narrative.count("GPT-6 model from OpenAI") == 1
+    assert narrative.count("GPT-5 model from OpenAI") == 1
     assert "Example:" not in narrative
     assert len(narrative.split()) < 140
 
@@ -455,7 +456,7 @@ def test_rule_fallback_expands_known_identifier_modalities():
 
     narrative = build_change_narrative(changes)["narrative"]
 
-    assert "model/version catalog entry" in narrative
+    assert "GPT-5 model from OpenAI (version 2025)" in narrative
     assert "right-sizing compute" in narrative
     assert "documented size: 2 vCPUs and 8 GiB RAM" in narrative
     assert "managed cluster capabilities" in narrative
@@ -603,9 +604,10 @@ def test_large_model_expansion_is_visible_beyond_bounded_examples():
     facts = client.calls[0][1]
 
     assert "49 new listings" in narrative
-    assert "gpt-5.2025) now listed in 4 more regions" in narrative
+    assert "GPT-5 model from OpenAI (version 2025) now listed in 4 more regions" in narrative
     assert "3 -> 7 monitored regions" in narrative
     assert "first observed in Asia" in narrative
+    assert "openai.gpt-5.2025" not in narrative
     assert "feature=aiModels.openai.gpt-5.2025" in facts
     assert "affected regions=4 (eastasia, japaneast, koreacentral, southeastasia)" in facts
     assert "listing coverage=3 -> 7 monitored regions" in facts
