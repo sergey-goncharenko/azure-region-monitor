@@ -17,6 +17,7 @@ on:
         options:
           - repository-default
           - gpt-6-astra
+          - gpt-6-sol
 
 permissions:
   contents: read
@@ -131,7 +132,7 @@ if: needs.prepare.outputs.has_task == 'true'
 model: ${{ vars.AZWATCH_AGENTIC_MODEL }}
 engine:
   id: copilot
-  model: ${{ inputs.model == 'gpt-6-astra' && 'gpt-6-astra' || vars.AZWATCH_AGENTIC_MODEL }}
+  model: ${{ inputs.model == 'gpt-6-astra' && 'gpt-6-astra' || inputs.model == 'gpt-6-sol' && 'gpt-6-sol' || vars.AZWATCH_AGENTIC_MODEL }}
   version: ${{ vars.AZWATCH_AGENTIC_COPILOT_VERSION }}
   max-continuations: 3
   # A canary must not resume/restart coding work after an inference failure.
@@ -140,8 +141,8 @@ engine:
   env:
     COPILOT_PROVIDER_BASE_URL: ${{ secrets.AZWATCH_AGENTIC_AZURE_BASE_URL }}
     COPILOT_PROVIDER_API_KEY: ${{ secrets.AZURE_CODING_OPENAI_KEY }}
-    COPILOT_PROVIDER_MODEL_ID: ${{ inputs.model == 'gpt-6-astra' && 'gpt-6-astra' || vars.AZWATCH_AGENTIC_MODEL }}
-    COPILOT_PROVIDER_WIRE_MODEL: ${{ inputs.model == 'gpt-6-astra' && 'gpt-6-astra' || vars.AZWATCH_AGENTIC_MODEL }}
+    COPILOT_PROVIDER_MODEL_ID: ${{ inputs.model == 'gpt-6-astra' && 'gpt-6-astra' || inputs.model == 'gpt-6-sol' && 'gpt-6-sol' || vars.AZWATCH_AGENTIC_MODEL }}
+    COPILOT_PROVIDER_WIRE_MODEL: ${{ inputs.model == 'gpt-6-astra' && 'gpt-6-astra' || inputs.model == 'gpt-6-sol' && 'gpt-6-sol' || vars.AZWATCH_AGENTIC_MODEL }}
     COPILOT_PROVIDER_WIRE_API: responses
 
 sandbox:

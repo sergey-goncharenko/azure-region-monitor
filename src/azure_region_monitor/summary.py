@@ -8,6 +8,7 @@ from functools import lru_cache
 from importlib import resources
 from typing import Any, Mapping, Protocol
 
+from azure_region_monitor.display import plain_feature_name
 from azure_region_monitor.feature_context import describe_feature
 from azure_region_monitor.models import Change
 
@@ -26,6 +27,9 @@ Format:
   followed by at most 3 to 5 one-line bullets or short sentences.
 - excerpt: one purpose-written, 1-2 sentence summary under 220 characters. Do not truncate
   the narrative or repeat its headline verbatim.
+- When an AKS extension, VM size, or Azure AI model gains listings in multiple regions, make
+  the excerpt a one-sentence hook naming that feature and its regional expansion; similar VM
+  sizes may be grouped by shared family. Call these catalog listings, not deployment results.
 - linkedin and short_post: review-only social variants that name the supplied date, state nonzero
   new/regression counts in compact wording, and may omit zero counts. Do not include URLs.
 
@@ -42,7 +46,9 @@ lead with regressions when they exist. If useful, end with one short sentence be
 Rules: do not invent regions, models, features, dates, numbers, causes, quotas, capacity, customer
 impact, outages, or SLAs. Unavailable means absent from the read-only catalog/list, not proof of
 quota, capacity, deployment failure, or SLA impact. Do not repeat references, disclaimers, sign-offs,
-or a call to action. Keep it around 150 to 200 words.
+or a call to action. Keep the narrative around 80 to 120 words. Use complete feature
+movements for counts and coverage, not partial individual examples; use VM specifications
+only for exact documented sizes.
 """
 _SOCIAL_EVIDENCE_NOTE = (
     "Evidence note: these are read-only Azure catalog/list signals; unavailable does not mean "
@@ -591,6 +597,9 @@ def _rule_editorial_package(
     label = date or "Latest scan"
     lines = [line.strip() for line in narrative.splitlines() if line.strip()]
     excerpt = (lines[1] if len(lines) > 1 else lines[0]).strip()
+    expansion = _rule_expansion_teaser(changes)
+    if expansion:
+        excerpt = expansion
     if len(excerpt) > 219:
         excerpt = excerpt[:216].rstrip() + "..."
     social = f"{label}: {daily_counts}. {excerpt} {_SOCIAL_EVIDENCE_NOTE}"
@@ -599,6 +608,28 @@ def _rule_editorial_package(
         "editorial_excerpt": excerpt,
         "social_drafts": {"linkedin": social, "short_post": f"{label}: {daily_counts}. {_SOCIAL_EVIDENCE_NOTE}"},
     }
+
+
+def _rule_expansion_teaser(changes: list[Change]) -> str:
+    regions_by_feature: dict[str, set[str]] = {}
+    for change in changes:
+        if (
+            change.change_type == "new_availability"
+            and _modality(change.feature) in {"AKS extensions", "VM SKUs", "Azure AI models"}
+        ):
+            regions_by_feature.setdefault(change.feature, set()).add(change.region)
+    candidates = [
+        (len(regions), feature)
+        for feature, regions in regions_by_feature.items()
+        if len(regions) > 1
+    ]
+    if not candidates:
+        return ""
+    count, feature = max(candidates, key=lambda candidate: (candidate[0], candidate[1]))
+    return (
+        f"Worth a closer look: {plain_feature_name(feature)} was newly listed in "
+        f"{count} more regions (catalog evidence, not deployment results)."
+    )
 
 
 def _parked_unknown_count(changes: list[Change]) -> int:
@@ -717,7 +748,9 @@ def _compact_change_lines(
     for change in other_changes:
         by_feature.setdefault((_modality(change.feature), change.feature), []).append(change)
 
-    for (_modality_name, _feature), group in sorted(by_feature.items()):
+    for (_modality_name, _feature), group in sorted(
+        by_feature.items(), key=lambda item: (-len(item[1]), item[0])
+    ):
         lines.append(_compact_feature_line(group, change_type, context_map))
     return lines
 
@@ -759,6 +792,10 @@ def _compact_feature_line(
         sentence += f" ({coverage})"
     if expansion:
         sentence += f"; {expansion}"
+    if _modality(feature) == "VM SKUs":
+        documented = describe_feature(feature)
+        if documented["specificity"] == "exact":
+            sentence += f"; documented size: {documented['differentiators'][0]}"
     return sentence + "."
 
 
@@ -918,6 +955,43 @@ def _facts_block(
             f"distinct_features={len({(item.service, item.feature) for item in group})} | "
             f"regions={_csv(tuple(sorted({item.region for item in group})))}"
         )
+    by_feature: dict[tuple[str, str, str], list[Change]] = {}
+    for change in signals:
+        by_feature.setdefault(
+            (change.change_type, change.service, change.feature), []
+        ).append(change)
+    lines.append("Largest feature movements (complete groups, not individual examples):")
+    ranked = sorted(
+        by_feature.items(),
+        key=lambda item: (
+            -len({change.region for change in item[1]}),
+            item[0][0] != "regression",
+            item[0],
+        ),
+    )
+    for (direction, _service, feature), group in ranked[:6]:
+        regions = tuple(sorted({change.region for change in group}))
+        contexts = [_context_for(change, context_map) for change in group]
+        parts = [
+            f"- {direction} | feature={feature} | modality={_modality(feature)}",
+            f"affected regions={len(regions)} ({_region_phrase(regions)})",
+        ]
+        coverage = _coverage_shift(contexts)
+        if coverage:
+            parts.append(f"listing coverage={coverage}")
+        expansion = _expansion_summary(contexts)
+        if expansion:
+            parts.append(f"expansion={expansion}")
+        if _modality(feature) == "VM SKUs":
+            documented = describe_feature(feature)
+            if documented["specificity"] == "exact":
+                parts.append(f"documented VM size={documented['differentiators'][0]}")
+                parts.append(f"VM documentation={documented['sources'][0]['url']}")
+        lines.append(" | ".join(parts))
+    if len(ranked) > 6:
+        lines.append(
+            f"- ({len(ranked) - 6} other feature movements omitted; use grouped totals above)"
+        )
     lines.append("Individual examples follow; their ordering is not a measure of significance:")
     for change in signals[:MAX_FACTS]:
         context = _context_for(change, context_map)
@@ -1027,11 +1101,12 @@ def _feature_label(feature: str) -> str:
 
 
 def _feature_description(feature: str) -> str:
+    if feature.startswith("aiModels."):
+        return plain_feature_name(feature)
     label = _feature_label(feature)
     modality = _modality(feature)
     descriptions = {
         "VM SKUs": "Azure virtual-machine size for right-sizing compute",
-        "Azure AI models": "Azure AI model/version catalog entry for model selection",
         "AKS Kubernetes versions": "AKS Kubernetes version for upgrade planning",
         "AKS extensions": "AKS cluster extension type for managed cluster capabilities",
         "Azure Functions": "Azure Functions Flex Consumption runtime or hosting option",

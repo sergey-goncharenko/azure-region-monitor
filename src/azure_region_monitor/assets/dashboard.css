@@ -288,6 +288,11 @@
     .blog-count-parked { background: #f0f1f4; color: #667085; }
     .blog-readmore { font-weight: 600; font-size: 14px; text-decoration: none; color: #0f4c81; }
     .blog-readmore:hover { text-decoration: underline; }
+    .blog-share { display: flex; align-items: center; flex-wrap: wrap; gap: calc(var(--space-unit) * 3); margin: calc(var(--space-unit) * 5) 0; font-size: 14px; }
+    .blog-share a, .blog-share button { color: #0f4c81; font: inherit; font-weight: 600; }
+    .blog-share button { cursor: pointer; border: var(--border-width) solid var(--line); border-radius: var(--radius-sm); background: var(--panel); padding: var(--space-unit) calc(var(--space-unit) * 3); }
+    .blog-share a:focus-visible, .blog-share button:focus-visible { outline: 2px solid #0f4c81; outline-offset: 2px; }
+    .blog-copy-status { color: var(--muted); }
     .blog-post-title { margin: 0; font-size: 26px; line-height: 1.25; }
     .blog-post-body { display: flex; flex-direction: column; gap: calc(var(--space-unit) * 6); }
     .blog-post-body p { margin: 0; color: var(--text); font-size: 16px; line-height: 1.6; }

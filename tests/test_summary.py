@@ -137,7 +137,8 @@ def test_ai_prompt_requires_compact_memo_and_plain_language_identifiers():
     assert "Mention each feature once" in system
     assert "Group many similar VM sizes into one line" in system
     assert "delta from the immediately preceding snapshot" in system
-    assert "around 150 to 200 words" in system
+    assert "roughly 80 to 120 words" in system
+    assert "complete feature movements" in system
 
 
 def test_ai_facts_include_history_classification_and_sre_impact():
@@ -199,7 +200,8 @@ def test_ai_failure_falls_back_to_rule():
     assert result["narrative_fallback_reason"] == "generation_failed"
     assert result["narrative_model_deployment"] == "gpt-5-mini"
     assert "eastus" in result["narrative"]
-    assert "Azure AI model/version catalog entry for model selection (openai.gpt-5.2025)" in result["narrative"]
+    assert "GPT-5 model from OpenAI (version 2025)" in result["narrative"]
+    assert "openai.gpt-5.2025" not in result["narrative"]
     assert "What this means for Azure users:" in result["narrative"]
 
 
@@ -232,11 +234,11 @@ def test_rule_fallback_is_a_concise_daily_comparison():
 
     assert lines[0] == "30 new listings, 10 no longer listed"
     assert len(lines) <= 6
-    assert "Azure AI model/version catalog entry" in narrative
+    assert "GPT-6 model from OpenAI" in narrative
     assert "now listed in 30 more regions" in narrative
     assert "no longer listed in 10 regions" in narrative
-    assert narrative.count("openai.gpt-6.test-version") == 1
-    assert narrative.count("openai.gpt-5.test-version") == 1
+    assert narrative.count("GPT-6 model from OpenAI") == 1
+    assert narrative.count("GPT-5 model from OpenAI") == 1
     assert "Example:" not in narrative
     assert len(narrative.split()) < 140
 
@@ -454,8 +456,9 @@ def test_rule_fallback_expands_known_identifier_modalities():
 
     narrative = build_change_narrative(changes)["narrative"]
 
-    assert "model/version catalog entry" in narrative
+    assert "GPT-5 model from OpenAI (version 2025)" in narrative
     assert "right-sizing compute" in narrative
+    assert "documented size: 2 vCPUs and 8 GiB RAM" in narrative
     assert "managed cluster capabilities" in narrative
     assert "Flex Consumption runtime" in narrative
     assert "serverless container planning" in narrative
@@ -516,6 +519,31 @@ def test_rule_summary_groups_vm_sizes_by_feature_context_family():
     assert "D4s" not in narrative
 
 
+def test_rule_editorial_excerpt_teases_multi_region_model_listing():
+    changes = [
+        _change(region, "aiModels.openai.gpt-5.2025", "unavailable", "available", "new_availability")
+        for region in ("eastus", "westus3")
+    ]
+    changes.append(
+        _change("eastus", "vmSkus.standard.d2as.v5", "available", "unavailable", "regression")
+    )
+
+    result = build_change_narrative(changes, client=None)
+
+    assert result["editorial_excerpt"] == (
+        "Worth a closer look: GPT-5 model from OpenAI (version 2025) was newly listed in 2 more regions "
+        "(catalog evidence, not deployment results)."
+    )
+    assert "no longer listed in 1 region (eastus)" in result["narrative"].splitlines()[1]
+
+
+def test_rule_editorial_excerpt_keeps_existing_fallback_without_multi_region_gain():
+    result = build_change_narrative([
+        _change("eastus", "extensionTypes.microsoft.vmware", "unavailable", "available", "new_availability")
+    ])
+    assert "Worth a closer look" not in result["editorial_excerpt"]
+
+
 def test_rule_summary_frames_latency_additions_and_removals():
     changes = [
         _change("eastus", "aiLatency.openai.gpt-5.1", "unavailable", "available", "new_availability"),
@@ -541,6 +569,69 @@ def test_complete_aggregate_facts_are_not_lost_when_examples_are_bounded():
     assert "modality=AKS extensions | listings=1 | distinct_features=1" in facts
     assert "additional records not shown" in facts
     assert "more similar changes" not in facts
+
+
+def test_large_model_expansion_is_visible_beyond_bounded_examples():
+    changes = [
+        _change(
+            "eastus", f"aiModels.openai.other-{index}.1",
+            "unavailable", "available", "new_availability",
+        )
+        for index in range(45)
+    ]
+    model_changes = [
+        _change(
+            region, "aiModels.openai.gpt-5.2025",
+            "unavailable", "available", "new_availability",
+        )
+        for region in ("eastasia", "southeastasia", "japaneast", "koreacentral")
+    ]
+    changes.extend(model_changes)
+    contexts = {
+        change_key(change): ChangeContext(
+            classification="net_new_availability",
+            feature_total_regions=12,
+            feature_previous_available_regions=3,
+            feature_current_available_regions=7,
+            region_group="Asia",
+            expansion_kind="region_group_first",
+        )
+        for change in model_changes
+    }
+    client = _FakeClient()
+
+    narrative = build_change_narrative(changes, contexts=contexts, client=client)["narrative"]
+    facts = client.calls[0][1]
+
+    assert "49 new listings" in narrative
+    assert "GPT-5 model from OpenAI (version 2025) now listed in 4 more regions" in narrative
+    assert "3 -> 7 monitored regions" in narrative
+    assert "first observed in Asia" in narrative
+    assert "openai.gpt-5.2025" not in narrative
+    assert "feature=aiModels.openai.gpt-5.2025" in facts
+    assert "affected regions=4 (eastasia, japaneast, koreacentral, southeastasia)" in facts
+    assert "listing coverage=3 -> 7 monitored regions" in facts
+    assert "expansion=first observed in Asia" in facts
+    assert "additional records not shown" in facts
+
+
+def test_vm_facts_only_include_documented_exact_specifications():
+    changes = [
+        _change("eastus", "vmSkus.standard.d2as.v5", "unavailable", "available", "new_availability"),
+        _change("westus3", "vmSkus.standard.z2s.v9", "unavailable", "available", "new_availability"),
+    ]
+    client = _FakeClient()
+
+    build_change_narrative(changes, client=client)
+
+    facts = client.calls[0][1]
+    grouped = [line for line in facts.splitlines() if "affected regions" in line]
+    exact = next(line for line in grouped if "feature=vmSkus.standard.d2as.v5" in line)
+    unverified = next(line for line in grouped if "feature=vmSkus.standard.z2s.v9" in line)
+    assert "documented VM size=2 vCPUs and 8 GiB RAM" in exact
+    assert "VM documentation=https://learn.microsoft.com/" in exact
+    assert "documented VM size=" not in unverified
+    assert "VM documentation=" not in unverified
 
 
 def test_longstanding_absence_before_a_listing_is_not_called_instability():
