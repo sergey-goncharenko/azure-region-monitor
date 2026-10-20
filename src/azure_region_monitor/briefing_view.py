@@ -737,12 +737,16 @@ def _digest_modality_row(modality: dict[str, Any]) -> str:
     lost_html = _region_delta_html(lost_regions, label="lost")
     if lost_html:
         region_bits.append(f'<span><strong>Dropped:</strong> {lost_html}</span>')
+    region_summary = (
+        f'<p class="briefing-region-deltas">{" ".join(region_bits)}</p>'
+        if len(features) != 1 else ""
+    )
     return f"""<article class="briefing-digest-modality">
       <div class="briefing-digest-modality-top">
         <h3>{_escape(name)}</h3>
         <div class="briefing-pills">{''.join(pills)}</div>
       </div>
-      <p class="briefing-region-deltas">{' '.join(region_bits)}</p>
+      {region_summary}
       {_digest_feature_list(features)}
     </article>"""
 

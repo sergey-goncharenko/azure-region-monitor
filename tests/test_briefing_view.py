@@ -336,6 +336,8 @@ def test_digest_feature_with_gain_and_loss_renders_both_region_deltas():
 
 def test_digest_regions_tooltip_restored_badges_and_safe_learn_links():
     page = render_briefing(_digest_day(_digest()))
+    glance = page.split("briefing-full-evidence")[0]
+    assert "<strong>New regions:</strong>" in glance
     assert 'title="Brazil South, East Asia (returned), East US, North Central US"' in page
     assert 'aria-label="+4 regions: Brazil South, East Asia (returned), East US, North Central US"' in page
     assert "East Asia (returned)" in page
@@ -360,6 +362,41 @@ def test_first_listing_collapses_geography_badges_and_expansions_keep_them():
     assert "first in Africa" in page
     assert "first in Europe" in page
     assert "first listing" not in page
+
+
+def test_single_model_expansion_shows_regions_once_with_first_geography():
+    digest = _digest(gained_features=1)
+    digest["modalities"] = [{
+        "modality": "Azure AI models",
+        "gained_features": 1,
+        "gained_listings": 4,
+        "gained_regions": ["eastasia", "japaneast", "koreacentral", "southeastasia"],
+        "lost_features": 0,
+        "lost_listings": 0,
+        "lost_regions": [],
+        "features": [{
+            "feature": "aiModels.openai.gpt-5.2025",
+            "label": "GPT-5 model from OpenAI (version 2025)",
+            "modality": "Azure AI models",
+            "short": "Regional model catalog entry",
+            "gained_regions": ["eastasia", "japaneast", "koreacentral", "southeastasia"],
+            "restored_regions": [],
+            "lost_regions": [],
+            "coverage_before": 3,
+            "coverage_after": 7,
+            "first_seen": False,
+            "new_geographies": ["Asia Pacific"],
+        }],
+    }]
+    digest["gaps"] = []
+    page = render_briefing(_digest_day(digest))
+    glance = page.split("briefing-full-evidence")[0]
+
+    assert glance.count("+4 regions") == 1
+    assert "3 &rarr; 7 regions" in glance
+    assert "first in Asia Pacific" in glance
+    assert "GPT-5 model from OpenAI (version 2025)" in glance
+    assert "briefing-region-deltas" not in glance
 
 
 def test_learn_search_fallback_is_not_rendered_as_a_reference():
