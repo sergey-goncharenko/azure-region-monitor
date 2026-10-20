@@ -127,6 +127,49 @@ def test_recent_changes_panel_leads_with_daily_summary_and_weekly_context():
     assert '<details class="narrative"' in html
 
 
+def test_recent_changes_single_model_brief_does_not_repeat_regions():
+    feature = {
+        "label": "GPT-5 model from OpenAI (version 2025)",
+        "modality": "Azure AI models",
+        "gained_regions": ["eastasia", "japaneast", "koreacentral", "southeastasia"],
+        "restored_regions": [],
+        "lost_regions": [],
+        "coverage_before": 3,
+        "coverage_after": 7,
+        "first_seen": False,
+        "new_geographies": ["Asia Pacific"],
+    }
+    html = _render_recent_changes_panel({"days": [{
+        "date": "2026-10-04",
+        "briefing": {
+            "version": 1,
+            "baseline_available": True,
+            "current_timestamp": "2026-10-04T08:00:00Z",
+            "previous_timestamp": "2026-10-03T08:00:00Z",
+            "counts": {"new_listings": 4},
+            "groups": [],
+            "digest": {
+                "totals": {"gained_features": 1},
+                "modalities": [{
+                    "modality": "Azure AI models",
+                    "gained_features": 1,
+                    "gained_listings": 4,
+                    "gained_regions": feature["gained_regions"],
+                    "lost_features": 0,
+                    "lost_listings": 0,
+                    "lost_regions": [],
+                    "features": [feature],
+                }],
+                "gaps": [],
+            },
+        },
+    }]})
+    glance = html.split("briefing-full-evidence")[0]
+    assert glance.count("+4 regions") == 1
+    assert "3 &rarr; 7 regions" in glance
+    assert "first in Asia Pacific" in glance
+
+
 def test_high_volume_auto_summary_is_secondary_to_scannable_daily_brief():
     legacy_digest = (
         "Latest scan: 453 new availability signals and 41 regressions across 39 regions. "
