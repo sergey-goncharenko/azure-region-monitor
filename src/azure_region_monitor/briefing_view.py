@@ -37,6 +37,7 @@ _GUIDANCE = {
     "Azure Functions": "Planning serverless hosting? Check the hosting plan and runtime together.",
     "Container Apps": "Planning container hosting? Check which resource type advertises the region.",
 }
+_VM_REGION_BUNDLE_MIN_SIZES = 30
 
 
 def has_briefing(day: dict[str, Any]) -> bool:
@@ -294,6 +295,12 @@ def _digest_expansion_teaser(digest: dict[str, Any]) -> str:
         name = str(modality.get("modality") or "")
         if name not in {"AKS extensions", "VM SKUs", "Azure AI models"}:
             continue
+        if name == "VM SKUs":
+            for region, features in _vm_region_bundles(_modality_features(modality)).items():
+                candidates.append((
+                    len(features),
+                    f"{region_name(region)} gained listings for {len(features)} VM sizes",
+                ))
         groups: dict[tuple[str, tuple[str, ...]], list[dict[str, Any]]] = {}
         for feature in _modality_features(modality):
             regions = tuple(sorted(set(_new_regions(feature))))
@@ -608,6 +615,43 @@ def _digest_clusters(features: list[dict[str, Any]]) -> list[list[dict[str, Any]
     return clusters
 
 
+def _vm_region_bundles(features: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    by_region: dict[str, list[dict[str, Any]]] = {}
+    for feature in features:
+        regions = _new_regions(feature)
+        if (
+            feature.get("modality") == "VM SKUs"
+            and len(regions) == 1
+            and not _strings(feature.get("restored_regions"))
+            and not _strings(feature.get("lost_regions"))
+        ):
+            by_region.setdefault(regions[0], []).append(feature)
+    return {
+        region: items
+        for region, items in by_region.items()
+        if len(items) >= _VM_REGION_BUNDLE_MIN_SIZES
+    }
+
+
+def _vm_region_bundle_line(region: str, features: list[dict[str, Any]]) -> str:
+    count = len(features)
+    details = _cluster_list_html(
+        _digest_clusters(features), show_all_label=f"Show all size groups for {region_name(region)}"
+    )
+    return f"""<li class="briefing-digest-cluster is-gain">
+      <details>
+        <summary>
+          <span class="briefing-change-icon" aria-hidden="true">▲</span>
+          <div>
+            <strong>{_escape(region_name(region))} gained listings for {count:,} VM sizes</strong>
+            <span class="briefing-cluster-members">Regional VM size listings; not deployment or capacity evidence.</span>
+          </div>
+        </summary>
+        {details}
+      </details>
+    </li>"""
+
+
 def _digest_feature_line(feature: dict[str, Any]) -> str:
     label = str(feature.get("label") or feature.get("feature") or "Feature")
     short = str(feature.get("short") or "")
@@ -669,13 +713,21 @@ def _cluster_list_html(clusters: list[list[dict[str, Any]]], *, show_all_label: 
 
 
 def _digest_feature_list(features: list[dict[str, Any]]) -> str:
-    clusters = _digest_clusters(features)
+    bundles = _vm_region_bundles(features)
+    bundled_ids = {id(feature) for items in bundles.values() for feature in items}
+    clusters = _digest_clusters([feature for feature in features if id(feature) not in bundled_ids])
     active = [cluster for cluster in clusters if not all(_is_returned_only(feature) for feature in cluster)]
     returned = [cluster for cluster in clusters if all(_is_returned_only(feature) for feature in cluster)]
+    bundled = "".join(
+        _vm_region_bundle_line(region, items)
+        for region, items in sorted(bundles.items(), key=lambda item: region_name(item[0]))
+    )
     html = (
         _cluster_list_html(active, show_all_label=f"Show all {len(active):,} groups")
         if active else ""
     )
+    if bundled:
+        html = f'<ul class="briefing-digest-features">{bundled}</ul>' + html
     if returned:
         modality = str(returned[0][0].get("modality") or "")
         count = sum(len(cluster) for cluster in returned)

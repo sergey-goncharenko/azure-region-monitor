@@ -273,6 +273,69 @@ def test_digest_excerpt_groups_only_vm_sizes_with_matching_family_and_regions():
     assert "2 Dv7-series VM sizes" not in briefing_excerpt(_digest_day(digest)["briefing"])
 
 
+def test_vm_size_gains_in_one_region_get_one_expandable_summary_on_blog():
+    digest = _digest()
+    modality = digest["modalities"][0]
+    sizes = [
+        {
+            "feature": f"vmSkus.standard.nc{i}.v5",
+            "label": f"Standard NC{i} V5 VM size",
+            "modality": "VM SKUs",
+            "cluster": {"key": f"vm:NC:{i // 10}", "label": f"NC group {i // 10}"},
+            "gained_regions": ["eastus"],
+            "restored_regions": [],
+            "lost_regions": [],
+        }
+        for i in range(30)
+    ]
+    sizes.append({
+        "feature": "vmSkus.standard.d2.v5",
+        "label": "Standard D2 V5 VM size",
+        "modality": "VM SKUs",
+        "gained_regions": ["westus3"],
+        "restored_regions": ["westus3"],
+        "lost_regions": [],
+    })
+    modality["features"] = sizes
+    modality["gained_features"] = 31
+    modality["gained_listings"] = 31
+    day = _digest_day(digest)
+    day["date"] = "2026-10-18"
+    posts = select_blog_posts({"days": [day]})
+    page = render_blog_post(posts[0], None, None, "https://example.test", "")
+
+    assert page.count("<strong>East US gained listings for 30 VM sizes</strong>") == 1
+    assert "East US gained listings for 30 VM sizes" in render_blog_index(
+        posts, "https://example.test", ""
+    )
+    assert "Worth a closer look: East US gained listings for 30 VM sizes" in posts[0]["excerpt"]
+    assert page.count('class="briefing-digest-cluster is-gain"') == 1
+    assert page.index("East US gained listings for 30 VM sizes") < page.index("Standard NC0 V5")
+    assert "Standard NC29 V5 VM size" in page
+    assert "D2 V5 VM size" in page
+    assert "returned after a gap" in page
+    assert "not deployment or capacity evidence" in page
+
+
+def test_vm_region_bundle_does_not_hide_mixed_or_small_movements():
+    digest = _digest()
+    modality = digest["modalities"][0]
+    modality["features"] = [
+        {
+            "feature": f"vmSkus.standard.nc{i}.v5",
+            "label": f"Standard NC{i} V5 VM size",
+            "modality": "VM SKUs",
+            "gained_regions": ["eastus"] if i < 29 else ["eastus", "westus3"],
+            "restored_regions": [],
+            "lost_regions": [],
+        }
+        for i in range(30)
+    ]
+    page = render_briefing(_digest_day(digest))
+    assert "East US gained listings for 30 VM sizes" not in page
+    assert "Standard NC29 V5 VM size" in page
+
+
 def test_digest_excerpt_teases_ai_model_and_preserves_no_expansion_fallback():
     digest = _digest(gained_features=0)
     digest["modalities"] = [{
