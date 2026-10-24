@@ -621,16 +621,23 @@ def _vm_region_bundles(features: list[dict[str, Any]]) -> dict[str, list[dict[st
         regions = _new_regions(feature)
         if (
             feature.get("modality") == "VM SKUs"
-            and len(regions) == 1
+            and regions
             and not _strings(feature.get("restored_regions"))
             and not _strings(feature.get("lost_regions"))
         ):
-            by_region.setdefault(regions[0], []).append(feature)
-    return {
-        region: items
-        for region, items in by_region.items()
-        if len(items) >= _VM_REGION_BUNDLE_MIN_SIZES
-    }
+            for region in set(regions):
+                by_region.setdefault(region, []).append(feature)
+    bundles: dict[str, list[dict[str, Any]]] = {}
+    assigned: set[int] = set()
+    ranked_regions = sorted(
+        by_region.items(), key=lambda entry: (-len(entry[1]), region_name(entry[0]))
+    )
+    for region, items in ranked_regions:
+        remaining = [feature for feature in items if id(feature) not in assigned]
+        if len(remaining) >= _VM_REGION_BUNDLE_MIN_SIZES:
+            bundles[region] = remaining
+            assigned.update(id(feature) for feature in remaining)
+    return bundles
 
 
 def _vm_region_bundle_line(region: str, features: list[dict[str, Any]]) -> str:
