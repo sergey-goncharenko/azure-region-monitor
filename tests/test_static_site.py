@@ -54,6 +54,7 @@ def test_rendered_page_embeds_the_stylesheet_rules():
     assert "--unknown-text: #4f5f73;" in block
     assert ".opening-summary { display: grid;" in block
     assert ".opening-summary-item {" in block
+    assert ".briefing-modality-nav { margin-top: calc(var(--space-unit) * 4);" in block
 
 
 def test_narrative_banner_renders_ai_blog_post_with_headline_and_paragraphs():
@@ -168,6 +169,40 @@ def test_recent_changes_single_model_brief_does_not_repeat_regions():
     assert glance.count("+4 regions") == 1
     assert "3 &rarr; 7 regions" in glance
     assert "first in Asia Pacific" in glance
+
+
+def test_recent_changes_panel_links_every_changed_modality_above_details():
+    modalities = [
+        {
+            "modality": name,
+            "gained_features": 1,
+            "gained_listings": 1,
+            "features": [{
+                "modality": name,
+                "label": name + " feature",
+                "gained_regions": ["eastus"],
+                "restored_regions": [],
+                "lost_regions": [],
+            }],
+        }
+        for name in ("VM SKUs", "Azure AI models")
+    ]
+    html = _render_recent_changes_panel({"days": [{
+        "date": "2026-10-24",
+        "briefing": {
+            "version": 1,
+            "baseline_available": True,
+            "current_timestamp": "2026-10-24T08:00:00Z",
+            "previous_timestamp": "2026-10-23T08:00:00Z",
+            "counts": {"new_listings": 2},
+            "groups": [],
+            "digest": {"totals": {"gained_features": 2}, "modalities": modalities, "gaps": []},
+        },
+    }]})
+
+    assert '<a href="#briefing-modality-0">VM SKUs</a>' in html
+    assert '<a href="#briefing-modality-1">Azure AI models</a>' in html
+    assert html.index('href="#briefing-modality-1"') < html.index('id="briefing-modality-0"')
 
 
 def test_high_volume_auto_summary_is_secondary_to_scannable_daily_brief():

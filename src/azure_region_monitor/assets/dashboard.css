@@ -134,6 +134,7 @@
     .briefing-eyebrow span { color: var(--muted); font-weight: 500; }
     .briefing-opening h2 { max-width: 42ch; color: #122f48; font-size: clamp(23px, 3vw, 32px); line-height: 1.2; }
     .briefing-glance { background: #f8fbf8; }
+    .briefing-modality-nav { margin-top: calc(var(--space-unit) * 4); line-height: 1.6; }
     .briefing-headline--gain { color: #145c2e !important; }
     .briefing-headline--loss { color: #8f1f1d !important; }
     .briefing-headline--neutral { color: #17334d !important; }

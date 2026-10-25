@@ -273,6 +273,43 @@ def test_digest_excerpt_groups_only_vm_sizes_with_matching_family_and_regions():
     assert "2 Dv7-series VM sizes" not in briefing_excerpt(_digest_day(digest)["briefing"])
 
 
+def test_mixed_modality_changes_are_visible_before_vm_details_on_blog_and_dashboard():
+    digest = _digest(gained_features=2)
+    digest["modalities"].append({
+        "modality": "Azure AI models",
+        "gained_features": 1,
+        "gained_listings": 1,
+        "gained_regions": ["eastus"],
+        "lost_features": 0,
+        "lost_listings": 0,
+        "lost_regions": [],
+        "features": [{
+            "feature": "aiModels.openai.gpt-5.2025",
+            "label": "GPT-5 model from OpenAI (version 2025)",
+            "modality": "Azure AI models",
+            "gained_regions": ["eastus"],
+            "restored_regions": [],
+            "lost_regions": [],
+        }],
+    })
+    day = _digest_day(digest)
+    excerpt = briefing_excerpt(day["briefing"])
+    page = render_briefing(day)
+    posts = select_blog_posts({"days": [day]})
+    index = render_blog_index(posts, "https://example.test", "")
+
+    assert "Worth a closer look: Standard D248ds V7 VM size" in excerpt
+    assert "also changed: Azure AI models" in excerpt
+    assert excerpt in index
+    assert excerpt in render_blog_post(posts[0], None, None, "https://example.test", "")
+    assert '<nav class="briefing-modality-nav" aria-label="Changed modalities">' in page
+    assert '<a href="#briefing-modality-0">VM SKUs</a>' in page
+    assert '<a href="#briefing-modality-1">Azure AI models</a>' in page
+    assert page.index('href="#briefing-modality-1"') < page.index('id="briefing-modality-0"')
+    assert 'id="briefing-modality-1"' in page
+    assert '<a href="#briefing-modality-1">Azure AI models</a>' in index
+
+
 def test_vm_size_gains_in_one_region_get_one_expandable_summary_on_blog():
     digest = _digest()
     modality = digest["modalities"][0]
