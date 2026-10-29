@@ -405,8 +405,10 @@ def test_vm_region_bundle_includes_sizes_gaining_other_regions_without_double_co
         for feature in modality["features"]
     ]
     page = render_briefing(day)
+    assert page.count("<strong>East US and West US 3 gained listings for 30 VM sizes</strong>") == 1
     assert page.count("gained listings for 30 VM sizes</strong>") == 1
     assert page.count("Standard NC29 V5 VM size") == 1
+    assert "East US and West US 3 gained listings for 30 VM sizes" in briefing_excerpt(day["briefing"])
 
 
 def test_digest_excerpt_teases_ai_model_and_preserves_no_expansion_fallback():

@@ -299,7 +299,7 @@ def _digest_expansion_teaser(digest: dict[str, Any]) -> str:
             for region, features in _vm_region_bundles(_modality_features(modality)).items():
                 candidates.append((
                     len(features),
-                    f"{region_name(region)} gained listings for {len(features)} VM sizes",
+                    _vm_region_bundle_title(region, features),
                     name,
                 ))
         groups: dict[tuple[str, tuple[str, ...]], list[dict[str, Any]]] = {}
@@ -652,8 +652,17 @@ def _vm_region_bundles(features: list[dict[str, Any]]) -> dict[str, list[dict[st
     return bundles
 
 
+def _vm_region_bundle_title(region: str, features: list[dict[str, Any]]) -> str:
+    # Name every region that all bundled sizes gained, so a shared rollout is not credited to one.
+    shared = set.intersection(*(set(_new_regions(feature)) for feature in features)) - {region}
+    names = [region_name(region), *sorted((region_name(item) for item in shared))]
+    place = names[0] if len(names) == 1 else (
+        " and ".join(names) if len(names) <= 3 else f"{names[0]} and {len(names) - 1} more regions"
+    )
+    return f"{place} gained listings for {len(features):,} VM sizes"
+
+
 def _vm_region_bundle_line(region: str, features: list[dict[str, Any]]) -> str:
-    count = len(features)
     details = _cluster_list_html(
         _digest_clusters(features), show_all_label=f"Show all size groups for {region_name(region)}"
     )
@@ -662,7 +671,7 @@ def _vm_region_bundle_line(region: str, features: list[dict[str, Any]]) -> str:
         <summary>
           <span class="briefing-change-icon" aria-hidden="true">▲</span>
           <div>
-            <strong>{_escape(region_name(region))} gained listings for {count:,} VM sizes</strong>
+            <strong>{_escape(_vm_region_bundle_title(region, features))}</strong>
             <span class="briefing-cluster-members">Regional VM size listings; not deployment or capacity evidence.</span>
           </div>
         </summary>
