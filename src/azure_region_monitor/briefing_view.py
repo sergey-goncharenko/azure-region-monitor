@@ -290,7 +290,7 @@ def _digest_excerpt(digest: dict[str, Any]) -> str:
 
 
 def _digest_expansion_teaser(digest: dict[str, Any]) -> str:
-    candidates: list[tuple[int, str]] = []
+    candidates: list[tuple[int, str, str]] = []
     for modality in _digest_modalities(digest):
         name = str(modality.get("modality") or "")
         if name not in {"AKS extensions", "VM SKUs", "Azure AI models"}:
@@ -300,6 +300,7 @@ def _digest_expansion_teaser(digest: dict[str, Any]) -> str:
                 candidates.append((
                     len(features),
                     f"{region_name(region)} gained listings for {len(features)} VM sizes",
+                    name,
                 ))
         groups: dict[tuple[str, tuple[str, ...]], list[dict[str, Any]]] = {}
         for feature in _modality_features(modality):
@@ -309,7 +310,7 @@ def _digest_expansion_teaser(digest: dict[str, Any]) -> str:
             label = str(feature.get("label") or feature.get("feature") or "")
             if not label:
                 continue
-            candidates.append((len(regions), f"{label} was newly listed in {len(regions)} more regions"))
+            candidates.append((len(regions), f"{label} was newly listed in {len(regions)} more regions", name))
             cluster = feature.get("cluster")
             if name == "VM SKUs" and isinstance(cluster, dict) and cluster.get("key"):
                 groups.setdefault((str(cluster["key"]), regions), []).append(feature)
@@ -323,18 +324,29 @@ def _digest_expansion_teaser(digest: dict[str, Any]) -> str:
                 candidates.append((
                     count * len(regions),
                     f"{count} {family} VM sizes were newly listed in {len(regions)} more regions",
+                    name,
                 ))
     if not candidates:
         return ""
     loss = _digest_subject(digest, "lost")
     suffix = f", while {loss} lost listings" if loss else ""
-    for _score, description in sorted(candidates, reverse=True):
-        teaser = f"Worth a closer look: {description}{suffix} (catalog evidence, not deployment results)."
+    for _score, description, name in sorted(candidates, reverse=True):
+        others = [
+            str(modality.get("modality"))
+            for modality in _digest_modalities(digest)
+            if modality.get("modality") != name
+            and any(_modality_change_counts(modality).values())
+        ]
+        also = f"; also changed: {', '.join(others)}" if others else ""
+        teaser = f"Worth a closer look: {description}{suffix}{also} (catalog evidence, not deployment results)."
         if len(teaser) <= 220:
             return teaser
-        teaser = f"Worth a closer look: {description} (catalog evidence, not deployment results)."
+        teaser = f"Worth a closer look: {description}{also} (catalog evidence, not deployment results)."
         if len(teaser) <= 220:
             return teaser
+        if others:
+            names = [name, *others]
+            return f"Changed modalities: {', '.join(names)}. Catalog evidence, not deployment results."
     return ""
 
 
@@ -749,7 +761,7 @@ def _digest_feature_list(features: list[dict[str, Any]]) -> str:
     return html
 
 
-def _digest_modality_row(modality: dict[str, Any]) -> str:
+def _digest_modality_row(modality: dict[str, Any], index: int) -> str:
     name = str(modality.get("modality") or "Service")
     gained_listings = modality.get("gained_listings") if isinstance(modality.get("gained_listings"), int) else 0
     lost_features = modality.get("lost_features") if isinstance(modality.get("lost_features"), int) else 0
@@ -800,7 +812,7 @@ def _digest_modality_row(modality: dict[str, Any]) -> str:
         f'<p class="briefing-region-deltas">{" ".join(region_bits)}</p>'
         if len(features) != 1 else ""
     )
-    return f"""<article class="briefing-digest-modality">
+    return f"""<article class="briefing-digest-modality" id="briefing-modality-{index}">
       <div class="briefing-digest-modality-top">
         <h3>{_escape(name)}</h3>
         <div class="briefing-pills">{''.join(pills)}</div>
@@ -864,7 +876,17 @@ def _render_digest_glance(briefing: dict[str, Any]) -> str:
         modality for modality in _digest_modalities(digest)
         if modality.get("gained_features") or modality.get("lost_features")
     ]
-    rows = "".join(_digest_modality_row(modality) for modality in changed)
+    rows = "".join(_digest_modality_row(modality, index) for index, modality in enumerate(changed))
+    modality_nav = (
+        '<nav class="briefing-modality-nav" aria-label="Changed modalities">'
+        '<strong>Changes by modality:</strong> '
+        + " · ".join(
+            f'<a href="#briefing-modality-{index}">{_escape(modality.get("modality") or "Service")}</a>'
+            for index, modality in enumerate(changed)
+        )
+        + "</nav>"
+        if len(changed) > 1 else ""
+    )
     if not rows:
         rows = f'<p class="briefing-no-change">No regional listing changes since {_escape(_previous_date(briefing))}.</p>'
     gaps = "".join(_digest_gap_line(gap) for gap in _digest_gaps(digest))
@@ -877,6 +899,7 @@ def _render_digest_glance(briefing: dict[str, Any]) -> str:
       <p class="briefing-eyebrow">At a glance — since {_escape(_previous_date(briefing))}<span>Daily regional evidence</span></p>
       <h2 class="briefing-headline--{tone}">{_escape(_digest_headline(briefing))}</h2>
       <p class="briefing-evidence"><strong>What this proves:</strong> read-only catalog/list or measurement evidence; not quota, capacity, successful deployment, outage, or confirmed retirement. <a href="/methodology.html">Methodology</a></p>
+      {modality_nav}
       <div class="briefing-digest-list">{rows}</div>
       {gap_html}
     </div>"""

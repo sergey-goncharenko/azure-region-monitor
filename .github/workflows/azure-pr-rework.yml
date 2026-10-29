@@ -44,6 +44,18 @@ jobs:
             --github-output "$GITHUB_OUTPUT" \
             >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Explain refused rework
+        if: ${{ steps.resolve.outputs.eligible == 'false' && steps.resolve.outputs.notify_pr != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          python scripts/manage_azure_pr_rework.py explain-refusal \
+            --result "$RUNNER_TEMP/azure-pr-rework.json" \
+            --repository "$GITHUB_REPOSITORY" \
+            --run-url "$RUN_URL"
+
       - name: Create rework status
         id: queue
         if: ${{ steps.resolve.outputs.eligible == 'true' }}

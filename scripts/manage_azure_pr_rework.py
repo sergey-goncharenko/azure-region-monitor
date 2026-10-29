@@ -328,20 +328,26 @@ def resolve_rework_event(
 
     permission = client.get_permission(actor)
     if permission not in ALLOWED_PERMISSIONS:
+        # Do not echo refusals to requesters without write access; that would be a spam vector.
         return _result("The requester does not have write-level repository permission.")
 
     issue = client.get_issue(target_issue)
     labels = _labels(issue.get("labels"))
-    if (
-        issue.get("state") != "open"
-        or BACKLOG_LABEL not in labels
-        or PAUSED_LABEL in labels
-    ):
-        return _result("The source issue is not currently eligible for Azure backlog work.")
+    if issue.get("state") != "open" or BACKLOG_LABEL not in labels:
+        return _result(
+            "The source issue is not currently eligible for Azure backlog work.",
+            notify_pr=pr_number,
+        )
+    # azure-paused stops unattended daily retries; an explicit write-collaborator
+    # review is the human decision that the pause asks for, so it may rework the PR.
+    source_issue_paused = PAUSED_LABEL in labels
 
     current_time = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     if _active_rework_exists(client.list_issue_comments(pr_number), current_time):
-        return _result("An Azure BYOK rework request is already active for this pull request.")
+        return _result(
+            "An Azure BYOK rework request is already active for this pull request.",
+            notify_pr=pr_number,
+        )
 
     return _result(
         "Eligible collaborator feedback will be dispatched to the existing Azure BYOK runner.",
@@ -353,6 +359,7 @@ def resolve_rework_event(
         lane=lane,
         base_branch=default_branch,
         head_ref=head_ref,
+        source_issue_paused=source_issue_paused,
         rework_requirements=_bounded_rework_requirements(feedback),
     )
 
@@ -366,6 +373,40 @@ def _validate_run_url(run_url: str, repository: str) -> None:
     expected = rf"https://github\.com/{re.escape(repository)}/actions/runs/[1-9][0-9]*"
     if re.fullmatch(expected, run_url) is None:
         raise ValueError("The PR rework workflow URL is invalid.")
+
+
+REFUSAL_MARKER = "<!-- azure-pr-rework-refused"
+
+
+def refusal_body(result: dict[str, Any], run_url: str, repository: str) -> str:
+    _validate_run_url(run_url, repository)
+    reason = result.get("reason")
+    if result.get("eligible") is not False or not isinstance(reason, str) or not reason:
+        raise ValueError("Only an ineligible rework resolution can be explained.")
+    return "\n".join(
+        [
+            f"{REFUSAL_MARKER} -->",
+            "This **Request changes** review did not start an automated rework.",
+            "",
+            f"- Reason: {reason}",
+            f"- [Dispatcher run]({run_url})",
+            "",
+            "Fix the condition above, then submit a new **Request changes** review to retry.",
+        ]
+    )
+
+
+def explain_refusal(
+    client: GitHubReworkClient, result: dict[str, Any], *, run_url: str
+) -> int | None:
+    pr_number = result.get("notify_pr")
+    if not isinstance(pr_number, int) or pr_number <= 0:
+        return None
+    comment = client.create_issue_comment(
+        pr_number, refusal_body(result, run_url, client.repository)
+    )
+    comment_id = comment.get("id")
+    return comment_id if isinstance(comment_id, int) else None
 
 
 def running_status_body(result: dict[str, Any], request_id: str, run_url: str) -> str:
@@ -386,6 +427,11 @@ def running_status_body(result: dict[str, Any], request_id: str, run_url: str) -
             f"- Trigger: `{trigger}`",
             f"- Requested by: @{actor}",
             f"- [Dispatcher run]({run_url})",
+            *(
+                ["- Source issue is `azure-paused`: this review reworks the open PR only; "
+                 "the daily queue stays paused until the label is removed."]
+                if result.get("source_issue_paused") is True else []
+            ),
             "",
             "The existing PR branch will be updated only after bounded scope and validation checks pass.",
         ]
@@ -645,6 +691,7 @@ def _write_github_outputs(path: Path, values: dict[str, Any]) -> None:
         "base_branch",
         "head_ref",
         "comment_id",
+        "notify_pr",
     )
     lines = []
     for key in safe_keys:
@@ -712,9 +759,18 @@ def main() -> None:
     finalize_agentic.add_argument("--publication", type=Path, required=True)
     finalize_agentic.add_argument("--run-url", required=True)
 
+    refusal = subparsers.add_parser("explain-refusal")
+    refusal.add_argument("--result", type=Path, required=True)
+    refusal.add_argument("--repository", required=True)
+    refusal.add_argument("--run-url", required=True)
+
     args = parser.parse_args()
 
     client = GitHubApiClient.from_env(args.repository)
+
+    if args.command == "explain-refusal":
+        explain_refusal(client, _result_file(args.result), run_url=args.run_url)
+        return
 
     if args.command == "finalize-agentic-status":
         outcome = finalize_agentic_rework_status(

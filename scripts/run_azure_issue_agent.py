@@ -471,7 +471,7 @@ def _priority(body: str) -> int:
     return _PRIORITIES["normal"]
 
 
-def _load_issues(path: Path) -> list[dict[str, Any]]:
+def _load_issues(path: Path, *, include_paused: bool = False) -> list[dict[str, Any]]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
@@ -484,7 +484,7 @@ def _load_issues(path: Path) -> list[dict[str, Any]]:
         if not isinstance(issue, dict):
             continue
         labels = _labels(issue)
-        if BACKLOG_LABEL not in labels or PAUSED_LABEL in labels:
+        if BACKLOG_LABEL not in labels or (PAUSED_LABEL in labels and not include_paused):
             continue
         number = issue.get("number")
         title = issue.get("title")

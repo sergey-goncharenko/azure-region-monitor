@@ -233,6 +233,21 @@ def test_daily_summary_recovers_additions_from_legacy_rule_narrative():
     assert summary.count("Kimi K3 model") == 1
 
 
+def test_daily_summary_names_every_modality_with_changes():
+    day = _day("2026-10-24", "Scan\n\nDetails.", new=4)
+    day["change_modality_counts"] = {
+        "VM SKUs": {"new_availability": 1},
+        "Azure AI models": {"new_availability": 1},
+        "AKS extensions": {"new_availability": 1},
+        "Azure Functions": {"new_availability": 1},
+    }
+
+    summary = daily_executive_summary(day)
+
+    assert "Azure Functions: 1 new listing" in summary
+    assert "other area" not in summary
+
+
 def test_weekly_context_is_limited_to_seven_calendar_days():
     days = [
         _day("2026-07-03", "Current\n\nBody.", new=4, reg=1),
