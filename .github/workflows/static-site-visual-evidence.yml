@@ -79,7 +79,9 @@ jobs:
 
   capture:
     needs: resolve
-    runs-on: ubuntu-latest
+    # ubuntu-latest moved to 26.04 on 2026-10-19; pinned Playwright 1.55.0 cannot install
+    # Chromium there. Keep 24.04 until the Playwright pin supports the newer image.
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
       BASE_DIR: ${{ github.workspace }}/base
