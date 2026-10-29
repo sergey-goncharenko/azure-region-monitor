@@ -385,23 +385,31 @@ def test_social_count_validator_accepts_label_colon_counts_and_derived_region_co
     assert result["narrative_fallback_reason"] is None
 
 
-def test_social_count_validator_requires_nonzero_gain_and_loss_counts():
+def test_social_posts_may_omit_counts_but_numbers_present_must_be_supported():
     changes = [
         _change("eastus", "aiModels.openai.gpt-5.2025", "unavailable", "available", "new_availability"),
     ]
-    reply = json.dumps(
-        {
-            "narrative": "Model listing expanded\nEast US now lists the monitored Azure AI model/version.",
-            "excerpt": "East US now lists the monitored Azure AI model/version.",
-            "linkedin": "2026-07-03: East US gained the monitored Azure AI model listing.",
-            "short_post": "2026-07-03: 1 new listing for openai.gpt-5.2025.",
-        }
+    reply = {
+        "narrative": "Model listing expanded\nEast US now lists the monitored Azure AI model/version.",
+        "excerpt": "East US now lists the monitored Azure AI model/version.",
+        "linkedin": "2026-07-03: East US gained the monitored Azure AI model listing.",
+        "short_post": "2026-07-03: 1 new listing for openai.gpt-5.2025.",
+    }
+
+    accepted = build_change_narrative(
+        changes, client=_FakeClient(reply=json.dumps(reply)), date="2026-07-03"
+    )
+    reply["linkedin"] = "2026-07-03: 7 new listings, led by East US."
+    rejected = build_change_narrative(
+        changes, client=_FakeClient(reply=json.dumps(reply)), date="2026-07-03"
     )
 
-    result = build_change_narrative(changes, client=_FakeClient(reply=reply), date="2026-07-03")
-
-    assert result["narrative_source"] == "rule"
-    assert result["narrative_fallback_reason"] == "unsupported_generation:social_linkedin_missing_new_count"
+    assert accepted["narrative_fallback_reason"] is None
+    assert accepted["narrative_source"] != "rule"
+    assert rejected["narrative_source"] == "rule"
+    assert rejected["narrative_fallback_reason"] == (
+        "unsupported_generation:social_linkedin_unsupported_new_count"
+    )
 
 
 def test_social_count_validator_rejects_unsupported_standalone_numbers():
