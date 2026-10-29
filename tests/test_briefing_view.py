@@ -365,7 +365,7 @@ def test_vm_region_bundle_does_not_hide_mixed_or_small_movements():
             "feature": f"vmSkus.standard.nc{i}.v5",
             "label": f"Standard NC{i} V5 VM size",
             "modality": "VM SKUs",
-            "gained_regions": ["eastus"] if i < 29 else ["eastus", "westus3"],
+            "gained_regions": ["eastus"] if i < 29 else ["westus3"],
             "restored_regions": [],
             "lost_regions": [],
         }
@@ -374,6 +374,41 @@ def test_vm_region_bundle_does_not_hide_mixed_or_small_movements():
     page = render_briefing(_digest_day(digest))
     assert "East US gained listings for 30 VM sizes" not in page
     assert "Standard NC29 V5 VM size" in page
+
+
+def test_vm_region_bundle_includes_sizes_gaining_other_regions_without_double_counting():
+    digest = _digest()
+    modality = digest["modalities"][0]
+    modality["features"] = [
+        {
+            "feature": f"vmSkus.standard.nc{i}.v5",
+            "label": f"Standard NC{i} V5 VM size",
+            "modality": "VM SKUs",
+            "gained_regions": ["westus3", "eastus"] if i == 29 else ["eastus"],
+            "restored_regions": [],
+            "lost_regions": [],
+        }
+        for i in range(30)
+    ]
+    day = _digest_day(digest)
+    page = render_briefing(day)
+    assert page.count("<strong>East US gained listings for 30 VM sizes</strong>") == 1
+    assert page.count("Standard NC29 V5 VM size") == 1
+    assert "+ West US 3" in page
+    assert "Worth a closer look: East US gained listings for 30 VM sizes" in briefing_excerpt(day["briefing"])
+
+    modality["features"] = [
+        {
+            **feature,
+            "gained_regions": ["eastus", "westus3"],
+        }
+        for feature in modality["features"]
+    ]
+    page = render_briefing(day)
+    assert page.count("<strong>East US and West US 3 gained listings for 30 VM sizes</strong>") == 1
+    assert page.count("gained listings for 30 VM sizes</strong>") == 1
+    assert page.count("Standard NC29 V5 VM size") == 1
+    assert "East US and West US 3 gained listings for 30 VM sizes" in briefing_excerpt(day["briefing"])
 
 
 def test_digest_excerpt_teases_ai_model_and_preserves_no_expansion_fallback():
