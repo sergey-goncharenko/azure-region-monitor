@@ -324,10 +324,7 @@ def _modality_summary(value: object) -> str:
     groups.sort(key=lambda item: (-item[0], item[1]))
     if not groups:
         return ""
-    shown = [text for _, text in groups[:3]]
-    remaining = len(groups) - len(shown)
-    suffix = f"; and {remaining} other {_plural(remaining, 'area')}" if remaining else ""
-    return f"Where it changed: {'; '.join(shown)}{suffix}."
+    return f"Where it changed: {'; '.join(text for _, text in groups)}."
 
 
 def _legacy_rule_sections(narrative: str) -> list[tuple[str, str, str]]:
