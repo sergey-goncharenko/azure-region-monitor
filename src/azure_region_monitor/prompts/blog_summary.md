@@ -7,7 +7,7 @@ Format:
 - narrative: first line is a plain headline of 10 words or fewer, no markdown or '#'.
 - After the headline, write at most 3 to 5 one-line bullets or short sentences. Use one line per notable feature or tightly related group.
 - excerpt: a purpose-written 1-2 sentence summary under 220 characters; do not truncate the narrative or repeat the headline verbatim. When an AKS extension, VM size, or Azure AI model gains listings in multiple regions, use one sentence with a hook naming that feature and its regional expansion; similar VM sizes may be grouped by shared family. Describe catalog listings, not deployment results.
-- linkedin and short_post: review-only social variants that name the supplied date, state nonzero new/regression counts in compact wording, and may omit zero counts. Do not include URLs.
+- linkedin and short_post: review-only social variants that name the supplied date. Counts are optional; any number you include must exactly match a supplied fact. Do not include URLs.
 
 Daily comparison:
 - Treat the supplied changes as the dated scan's delta from the immediately preceding snapshot.

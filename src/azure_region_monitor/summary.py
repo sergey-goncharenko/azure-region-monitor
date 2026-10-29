@@ -30,8 +30,8 @@ Format:
 - When an AKS extension, VM size, or Azure AI model gains listings in multiple regions, make
   the excerpt a one-sentence hook naming that feature and its regional expansion; similar VM
   sizes may be grouped by shared family. Call these catalog listings, not deployment results.
-- linkedin and short_post: review-only social variants that name the supplied date, state nonzero
-  new/regression counts in compact wording, and may omit zero counts. Do not include URLs.
+- linkedin and short_post: review-only social variants that name the supplied date. Counts are
+  optional; any number you include must exactly match a supplied fact. Do not include URLs.
 
 Treat the supplied changes as the dated scan's delta from the immediately preceding snapshot.
 Lead with what changed in that comparison. Use historical classifications only to explain today's
@@ -505,9 +505,7 @@ def _unsupported_social_count_reason(
         observed.add(key)
         if count != expected[key]:
             return f"social_{field}_unsupported_{key}_count"
-    for key in ("new", "regression"):
-        if expected[key] > 0 and key not in observed:
-            return f"social_{field}_missing_{key}_count"
+    # Omitting a count invents nothing; every number that is present must still be supported.
     allowed_numbers = _supported_social_numbers(changes, expected, date)
     for match in _STANDALONE_SOCIAL_NUMBER_RE.finditer(text):
         if _social_count(match.group()) not in allowed_numbers:
