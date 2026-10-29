@@ -6,6 +6,8 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "run_azure_backlog_cycle.py"
 SPEC = importlib.util.spec_from_file_location("run_azure_backlog_cycle", SCRIPT_PATH)
@@ -360,6 +362,50 @@ def test_targeted_issue_task_carries_trusted_rework_requirements(tmp_path):
     )
 
     assert tasks[0]["rework"] == rework
+
+
+def _paused_issue_file(tmp_path):
+    issues_path = tmp_path / "issues.json"
+    issues_path.write_text(
+        json.dumps(
+            [
+                {
+                    "number": 151,
+                    "title": "[reader-feedback] Group VM SKU gains",
+                    "body": "### Priority\nNormal\n\n### Objective\nGroup VM SKU gains by family.",
+                    "labels": [{"name": "azure-backlog"}, {"name": "azure-paused"}],
+                    "url": "https://example.test/issues/151",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return issues_path
+
+
+def test_targeted_rework_may_load_a_paused_source_issue(tmp_path):
+    rework = {
+        "pull_request": 154,
+        "trigger": "request-changes",
+        "requested_by": "maintainer-user",
+        "requirements": "Fix the failed validation.",
+    }
+
+    tasks = backlog_cycle._build_issue_tasks(
+        _paused_issue_file(tmp_path), 1, "", target_issue=151, rework_context=rework,
+    )
+
+    assert len(tasks) == 1
+    assert tasks[0]["rework"] == rework
+
+
+@pytest.mark.parametrize("target_issue", [None, 151])
+def test_paused_issue_stays_out_of_unattended_selection(tmp_path, target_issue):
+    tasks = backlog_cycle._build_issue_tasks(
+        _paused_issue_file(tmp_path), 1, "", target_issue=target_issue,
+    )
+
+    assert tasks == []
 
 
 def test_current_unknown_context_selects_top_group_scope(monkeypatch):

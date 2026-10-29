@@ -199,7 +199,11 @@ def _build_issue_tasks(
     )
     tasks = []
     unknown_context: dict[str, Any] | None = None
-    eligible_issues = issues._load_issues(issues_path)
+    # A maintainer-requested rework targets one issue's open PR; azure-paused only
+    # holds the unattended daily queue, so it must not block that explicit request.
+    eligible_issues = issues._load_issues(
+        issues_path, include_paused=rework_context is not None and target_issue is not None
+    )
     if target_issue is not None:
         eligible_issues = [
             issue for issue in eligible_issues if issue["number"] == target_issue

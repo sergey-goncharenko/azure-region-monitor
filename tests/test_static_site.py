@@ -166,7 +166,8 @@ def test_recent_changes_single_model_brief_does_not_repeat_regions():
         },
     }]})
     glance = html.split("briefing-full-evidence")[0]
-    assert glance.count("+4 regions") == 1
+    # Count visible chip text; the same chip's aria-label also names "+4 regions".
+    assert glance.count(">+4 regions<") == 1
     assert "3 &rarr; 7 regions" in glance
     assert "first in Asia Pacific" in glance
 

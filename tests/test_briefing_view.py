@@ -346,7 +346,10 @@ def test_vm_size_gains_in_one_region_get_one_expandable_summary_on_blog():
         posts, "https://example.test", ""
     )
     assert "Worth a closer look: East US gained listings for 30 VM sizes" in posts[0]["excerpt"]
-    assert page.count('class="briefing-digest-cluster is-gain"') == 1
+    # The bundle is the only top-level group; family groups are nested inside its details.
+    bundle = page.index("<strong>East US gained listings for 30 VM sizes</strong>")
+    assert page[:bundle].count('class="briefing-digest-cluster is-gain"') == 1
+    assert page.index("NC group 0") > bundle
     assert page.index("East US gained listings for 30 VM sizes") < page.index("Standard NC0 V5")
     assert "Standard NC29 V5 VM size" in page
     assert "D2 V5 VM size" in page
@@ -492,7 +495,8 @@ def test_single_model_expansion_shows_regions_once_with_first_geography():
     page = render_briefing(_digest_day(digest))
     glance = page.split("briefing-full-evidence")[0]
 
-    assert glance.count("+4 regions") == 1
+    # Count visible chip text; the same chip's aria-label also names "+4 regions".
+    assert glance.count(">+4 regions<") == 1
     assert "3 &rarr; 7 regions" in glance
     assert "first in Asia Pacific" in glance
     assert "GPT-5 model from OpenAI (version 2025)" in glance

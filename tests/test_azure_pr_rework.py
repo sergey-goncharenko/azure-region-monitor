@@ -232,7 +232,6 @@ def test_only_expected_bot_pull_request_shape_is_eligible(mutation, reason_fragm
     [
         {"state": "closed"},
         {"labels": [{"name": "bug"}]},
-        {"labels": [{"name": "azure-backlog"}, {"name": "azure-paused"}]},
     ],
 )
 def test_source_issue_must_remain_eligible(issue_update):
@@ -243,6 +242,74 @@ def test_source_issue_must_remain_eligible(issue_update):
 
     assert result["eligible"] is False
     assert "source issue" in result["reason"].lower()
+    assert result["notify_pr"] == 51
+
+
+def test_paused_source_issue_still_accepts_an_explicit_maintainer_rework():
+    client = FakeClient()
+    client.issue["labels"] = [{"name": "azure-backlog"}, {"name": "azure-paused"}]
+
+    result = _resolve(_review_event(), "pull_request_review", client)
+
+    assert result["eligible"] is True
+    assert result["source_issue_paused"] is True
+    body = pr_rework.running_status_body(
+        result, "100-1", f"https://github.com/{REPOSITORY}/actions/runs/100"
+    )
+    assert "azure-paused" in body and "daily queue stays paused" in body
+
+
+def test_unpaused_rework_status_does_not_mention_the_pause():
+    result = _resolve(_review_event(), "pull_request_review")
+
+    assert result["source_issue_paused"] is False
+    body = pr_rework.running_status_body(
+        result, "100-1", f"https://github.com/{REPOSITORY}/actions/runs/100"
+    )
+    assert "azure-paused" not in body
+
+
+def test_refusal_after_authorization_is_explained_on_the_pull_request():
+    client = FakeClient()
+    client.issue["state"] = "closed"
+    result = _resolve(_review_event(), "pull_request_review", client)
+
+    comment_id = pr_rework.explain_refusal(
+        client, result, run_url=f"https://github.com/{REPOSITORY}/actions/runs/100"
+    )
+
+    assert comment_id == 700
+    number, body = client.created_comments[0]
+    assert number == 51
+    assert "did not start an automated rework" in body
+    assert result["reason"] in body
+    assert "submit a new **Request changes** review" in body
+
+
+@pytest.mark.parametrize("permission", ["read", "none"])
+def test_refusals_before_write_permission_is_verified_post_nothing(permission):
+    client = FakeClient()
+    client.permission = permission
+    result = _resolve(_review_event(), "pull_request_review", client)
+
+    assert "notify_pr" not in result
+    assert pr_rework.explain_refusal(
+        client, result, run_url=f"https://github.com/{REPOSITORY}/actions/runs/100"
+    ) is None
+    assert client.created_comments == []
+
+
+def test_refusal_explanation_rejects_eligible_results_and_foreign_run_urls():
+    client = FakeClient()
+    eligible = _resolve(_review_event(), "pull_request_review", client)
+    with pytest.raises(ValueError):
+        pr_rework.refusal_body(
+            eligible, f"https://github.com/{REPOSITORY}/actions/runs/100", REPOSITORY
+        )
+    client.issue["state"] = "closed"
+    refused = _resolve(_review_event(), "pull_request_review", client)
+    with pytest.raises(ValueError):
+        pr_rework.refusal_body(refused, "https://example.com/runs/1", REPOSITORY)
 
 
 def test_recent_running_status_deduplicates_but_stale_status_does_not():
@@ -340,6 +407,8 @@ def test_dispatcher_wires_request_changes_without_azure_secrets():
     assert 'echo "Unsupported rework lane: $LANE" >&2; exit 1' in workflow
     assert "rework_requirements" in workflow
     assert "azure-pr-rework.json" in workflow
+    assert "explain-refusal" in workflow
+    assert "steps.resolve.outputs.notify_pr != ''" in workflow
     assert "AZURE_OPENAI" not in workflow
     assert "secrets." not in workflow
 
