@@ -642,6 +642,13 @@ def test_build_static_site_copies_history_and_renders_recent_changes(tmp_path):
                         "current": "available",
                     }
                 ],
+                "feature_events": [{
+                    "id": "new-feature:123",
+                    "type": "new_feature",
+                    "feature": "extensionTypes.microsoft.flux",
+                    "service": "aks",
+                    "regions": ["eastus"],
+                }],
             }
         ],
     }
@@ -665,12 +672,39 @@ def test_build_static_site_copies_history_and_renders_recent_changes(tmp_path):
     assert "Parked unknown" in index_html
     assert 'href="api/history/changes/2026-05-10.json"' in index_html
     assert "eastus flux unavailable -> available" in index_html
+    assert "New to the monitored catalog" in index_html
+    assert "extensionTypes.microsoft.flux" in index_html
+    published = json.loads(
+        (output_dir / "api" / "history" / "recent-changes.json").read_text(encoding="utf-8")
+    )
+    assert published["days"][0]["feature_events"] == recent_changes["days"][0]["feature_events"]
     assert "History baseline starts today" in index_html
     assert index_html.index('aria-label="Availability summary"') < index_html.index(
         'aria-label="Recent availability changes"'
     )
     assert (output_dir / "api" / "history" / "recent-changes.json").exists()
     assert (output_dir / "api" / "history" / "changes" / "2026-05-10.json").exists()
+
+
+def test_recent_panel_highlights_persisted_new_feature_events():
+    from azure_region_monitor.static_site import _render_recent_changes_panel
+
+    day = {
+        "date": "2026-05-10",
+        "feature_events": [{
+            "id": "new-feature:123",
+            "feature": "vmSkus.standard.new",
+            "service": "compute",
+            "regions": ["eastus"],
+        }],
+        "briefing": {"version": 0},
+    }
+    html = _render_recent_changes_panel({"days": [day]})
+    assert "New to the monitored catalog" in html
+    assert "vmSkus.standard.new" in html
+    assert "first observed in retained history" in html
+    assert "/api/history/changes/2026-05-10.json" in html
+    assert "deployment guarantee" in html
 
 
 def test_build_static_site_writes_blog_from_history_index(tmp_path):
