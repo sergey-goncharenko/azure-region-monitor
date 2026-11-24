@@ -1870,6 +1870,32 @@ def _load_recent_changes(history_path: Path) -> dict[str, Any] | None:
         return None
 
 
+def _render_new_feature_highlight(day: dict[str, Any]) -> str:
+    events = day.get("feature_events")
+    if not isinstance(events, list) or not events:
+        return ""
+    date = html.escape(str(day.get("date", "")))
+    items = []
+    for event in events[:8]:
+        if not isinstance(event, dict):
+            continue
+        feature = html.escape(str(event.get("feature", "")))
+        service = html.escape(str(event.get("service", "")))
+        items.append(f"<li><strong>{feature}</strong> ({service})</li>")
+    if not items:
+        return ""
+    more = f"<p>+{len(events) - 8} more in the JSON evidence.</p>" if len(events) > 8 else ""
+    return f"""<section class="panel" aria-label="Never-before-seen feature listings">
+      <div class="panel-header"><h2>New to the monitored catalog</h2>
+        <div class="panel-subtitle">{len(events)} feature(s) first observed in retained history on {date}</div>
+      </div>
+      <ul>{''.join(items)}</ul>
+      {more}
+      <p>Read-only regional listing evidence, not a deployment guarantee or product launch.
+        <a href="/api/history/changes/{date}.json">Full event records and regions</a></p>
+    </section>"""
+
+
 def _render_recent_changes_panel(recent_changes: dict[str, Any] | None) -> str:
     if not recent_changes:
         return ""
@@ -1879,6 +1905,7 @@ def _render_recent_changes_panel(recent_changes: dict[str, Any] | None) -> str:
         return ""
 
     latest = days[0]
+    feature_highlight = _render_new_feature_highlight(latest)
     if has_briefing(latest):
         links = []
         for day in days[:10]:
@@ -1888,7 +1915,7 @@ def _render_recent_changes_panel(recent_changes: dict[str, Any] | None) -> str:
                 f'<li><a href="/blog/{date}.html">{date}: {html.escape(title)}</a> '
                 f'(<a href="/api/history/changes/{date}.json">JSON evidence</a>)</li>'
             )
-        return render_briefing(latest) + f"""<details class="panel reader-history">
+        return feature_highlight + render_briefing(latest) + f"""<details class="panel reader-history">
           <summary>Earlier daily comparisons</summary>
           <ul>{''.join(links)}</ul>
           <p><a href="/blog/">Browse all daily comparisons</a></p>
@@ -1905,7 +1932,7 @@ def _render_recent_changes_panel(recent_changes: dict[str, Any] | None) -> str:
     )
     narrative_banner = _render_narrative_banner(days[0])
     rows = "\n".join(_render_recent_change_row(day) for day in days[:10])
-    return f"""<section class="panel" aria-label="Recent availability changes">
+    return feature_highlight + f"""<section class="panel" aria-label="Recent availability changes">
       <div class="panel-header">
         <h2>Recent Availability Signals</h2>
         <div class="panel-subtitle">Latest daily scans; unknown transitions are counted separately from rollout signals</div>

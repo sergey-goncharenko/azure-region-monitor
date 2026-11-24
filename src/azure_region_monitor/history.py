@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import gzip
+import hashlib
 import json
 import logging
 import shutil
@@ -229,6 +230,7 @@ def update_history(
     diff = build_diff(previous, current) if previous else None
     changes = diff.changes if diff else []
     change_contexts = _build_change_contexts(history_dir, existing_index, current_date, changes, previous, current)
+    feature_events = _new_feature_events(history_dir, existing_index, current, current_date, previous)
 
     _write_snapshot_gzip(history_dir / snapshot_history_path, current)
     day_summary = _build_day_summary(
@@ -243,6 +245,7 @@ def update_history(
         ),
         change_contexts=change_contexts,
     )
+    day_summary["feature_events"] = feature_events
     day_summary["briefing"] = enrich_briefing_features(
         build_briefing(
             current,
@@ -291,6 +294,71 @@ def update_history(
     _write_json(history_dir / "recent-changes.json", recent_changes)
     _update_latency_history(history_dir, current, current_date, generated_at)
     return recent_changes
+
+
+def _new_feature_events(
+    history_dir: Path,
+    index: dict[str, Any],
+    current: Snapshot,
+    current_date: str,
+    previous: Snapshot | None,
+) -> list[dict[str, Any]]:
+    if previous is None:
+        return []
+    prefixes = (
+        "aiModels.", "vmSkus.", "extensionTypes.", "kubernetesVersions.",
+        "runtimes.", "containerApps.",
+    )
+    available: dict[tuple[str, str], set[str]] = {}
+    for region, services in current.regions.items():
+        for service, features in services.items():
+            for feature, result in features.items():
+                if result.status == "available" and feature.startswith(prefixes):
+                    available.setdefault((service, feature), set()).add(region)
+    if not available:
+        return []
+
+    prior_features: set[tuple[str, str]] = set()
+    prior_scopes: set[tuple[str, str]] = set()
+    for day in index.get("days", []):
+        if not isinstance(day, dict) or str(day.get("date", "")) >= current_date:
+            continue
+        path = day.get("snapshot_path")
+        if not isinstance(path, str):
+            _LOGGER.warning("Cannot establish first observation: missing historical snapshot path")
+            return []
+        try:
+            snapshot = _load_history_snapshot(_resolve_history_reference(history_dir, path))
+        except (OSError, ValueError, EOFError, json.JSONDecodeError) as error:
+            _LOGGER.warning("Cannot establish first observation for %s: %s", path, error)
+            return []
+        for services in snapshot.regions.values():
+            for service, features in services.items():
+                for feature in features:
+                    prior_features.add((service, feature))
+                    for prefix in prefixes:
+                        if feature.startswith(prefix):
+                            prior_scopes.add((service, prefix))
+                            break
+
+    events = []
+    for service, feature in sorted(available):
+        prefix = next(prefix for prefix in prefixes if feature.startswith(prefix))
+        if (service, feature) in prior_features or (service, prefix) not in prior_scopes:
+            continue
+        identity = json.dumps([service, feature], ensure_ascii=True, separators=(",", ":"))
+        events.append({
+            "id": "new-feature:" + hashlib.sha256(identity.encode("utf-8")).hexdigest(),
+            "type": "new_feature",
+            "date": current_date,
+            "observed_at": _normalize_timestamp(current.timestamp).isoformat(),
+            "service": service,
+            "feature": feature,
+            "modality": _feature_category(feature),
+            "regions": sorted(available[(service, feature)]),
+            "evidence_path": f"changes/{current_date}.json",
+        })
+    return events
 
 
 def _attach_live_learn_references(

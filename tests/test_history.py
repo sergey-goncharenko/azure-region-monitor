@@ -162,6 +162,81 @@ def test_update_history_classifies_net_new_and_restored_availability(tmp_path):
     assert net_new["details_url"] == "https://learn.microsoft.com/en-us/azure/foundry/foundry-models/concepts/models-sold-directly-by-azure#gpt-5"
 
 
+def test_new_feature_events_are_stable_uncapped_and_not_regional_expansions(tmp_path):
+    history_dir = tmp_path / "history"
+
+    def record(date, regions):
+        path = tmp_path / f"{date}.json"
+        path.write_text(
+            json.dumps({"timestamp": f"{date}T00:00:00Z", "regions": regions}),
+            encoding="utf-8",
+        )
+        return update_history(path, history_dir, learn_lookup_enabled=False)
+
+    old = "vmSkus.standard.existing"
+    observed_unknown = "vmSkus.standard.unknown"
+    baseline = {
+        "eastus": {"compute": {
+            old: {"status": "available"},
+            observed_unknown: {"status": "unknown"},
+        }},
+    }
+    assert record("2026-05-07", baseline)["days"][0]["feature_events"] == []
+    new_features = {f"vmSkus.standard.new{i}": {"status": "available"} for i in range(12)}
+    current = {
+        "eastus": {"compute": {
+            **new_features,
+            old: {"status": "available"},
+            observed_unknown: {"status": "available"},
+        }},
+        "westus": {"compute": {
+            old: {"status": "available"},
+            "vmSkus.standard.new0": {"status": "available"},
+        }},
+    }
+    recent = record("2026-05-08", current)
+    events = recent["days"][0]["feature_events"]
+    assert len(events) == 12
+    assert events[0]["regions"] == ["eastus", "westus"]
+    assert events[0]["type"] == "new_feature"
+    assert events[0]["evidence_path"] == "changes/2026-05-08.json"
+    assert len({event["id"] for event in events}) == 12
+    day = json.loads((history_dir / "changes" / "2026-05-08.json").read_text())
+    index = json.loads((history_dir / "index.json").read_text())
+    assert day["feature_events"] == index["days"][0]["feature_events"] == events
+    assert record("2026-05-08", current)["days"][0]["feature_events"] == events
+    later = record("2026-05-09", current)
+    assert later["days"][0]["feature_events"] == []
+    absent = {"eastus": {"compute": {old: {"status": "available"}}}}
+    record("2026-05-10", absent)
+    assert record("2026-05-11", current)["days"][0]["feature_events"] == []
+
+
+def test_new_feature_events_require_retained_comparable_history(tmp_path):
+    history_dir = tmp_path / "history"
+    first = tmp_path / "first.json"
+    second = tmp_path / "second.json"
+    first.write_text(json.dumps({
+        "timestamp": "2026-05-07T00:00:00Z",
+        "regions": {"eastus": {"compute": {"vmSkus.old": {"status": "available"}}}},
+    }))
+    second.write_text(json.dumps({
+        "timestamp": "2026-05-08T00:00:00Z",
+        "regions": {"eastus": {
+            "compute": {"vmSkus.new": {"status": "available"}},
+            "ai": {"aiModels.openai.new.1": {"status": "available"}},
+        }},
+    }))
+    update_history(first, history_dir, learn_lookup_enabled=False)
+    assert update_history(second, history_dir, learn_lookup_enabled=False)["days"][0][
+        "feature_events"
+    ][0]["feature"] == "vmSkus.new"
+    (history_dir / "snapshots" / "2026-05-07.json.gz").unlink()
+    assert update_history(second, history_dir, learn_lookup_enabled=False)["days"][0][
+        "feature_events"
+    ] == []
+
+
 def test_update_history_classifies_deprecation_and_recurring_regression(tmp_path):
     history_dir = tmp_path / "history"
     snapshots = {
