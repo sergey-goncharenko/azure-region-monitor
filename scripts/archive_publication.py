@@ -9,6 +9,7 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -40,6 +41,29 @@ def _json_url(url: str) -> dict[str, Any]:
     return result
 
 
+def _committed_publication(root: str, *, bootstrap: bool = False) -> tuple[str, bytes] | None:
+    try:
+        pointer = _json_url(root + "/publication-latest.json")
+    except urllib.error.HTTPError as error:
+        if error.code != 404 or not bootstrap:
+            raise RuntimeError("Cannot read archive pointer; publication must not omit history.") from error
+        print("Archive bootstrap explicitly enabled: preserving history from the existing public site.")
+        return None
+    base = pointer.get("archive_base_url", "")
+    if (
+        pointer.get("schema_version") != 1
+        or not isinstance(base, str)
+        or not re.fullmatch(re.escape(root) + r"/publications/[0-9]+-[0-9]+", base)
+        or not re.fullmatch(r"[0-9a-f]{64}", str(pointer.get("manifest_sha256", "")))
+    ):
+        raise ValueError("Archive pointer has invalid schema, generation URL, or manifest digest.")
+    with urllib.request.urlopen(base + "/_publication-manifest.json", timeout=60) as response:
+        payload = response.read()
+    if hashlib.sha256(payload).hexdigest() != pointer["manifest_sha256"]:
+        raise ValueError("Archive generation manifest does not match its committed pointer.")
+    return base, payload
+
+
 def sources(
     root: str, snapshot_url: str, history_url: str, *, bootstrap: bool = False,
     snapshot_override: bool = False, history_override: bool = False,
@@ -47,26 +71,9 @@ def sources(
     if not root:
         return {"snapshot_url": snapshot_url, "history_url": history_url, "archive_base_url": ""}
     root = archive_root(root)
-    try:
-        pointer = _json_url(root + "/publication-latest.json")
-    except urllib.error.HTTPError as error:
-        if error.code != 404 or not bootstrap:
-            raise RuntimeError("Cannot read archive pointer; publication must not omit history.") from error
-        print("Archive bootstrap explicitly enabled: preserving history from the existing public site.")
-        pointer = None
-    if pointer is not None:
-        base = pointer.get("archive_base_url", "")
-        if (
-            pointer.get("schema_version") != 1
-            or not isinstance(base, str)
-            or not re.fullmatch(re.escape(root) + r"/publications/[0-9]+-[0-9]+", base)
-            or not re.fullmatch(r"[0-9a-f]{64}", str(pointer.get("manifest_sha256", "")))
-        ):
-            raise ValueError("Archive pointer has invalid schema, generation URL, or manifest digest.")
-        with urllib.request.urlopen(base + "/_publication-manifest.json", timeout=60) as response:
-            payload = response.read()
-        if hashlib.sha256(payload).hexdigest() != pointer["manifest_sha256"]:
-            raise ValueError("Archive generation manifest does not match its committed pointer.")
+    committed = _committed_publication(root, bootstrap=bootstrap)
+    if committed is not None:
+        base, _ = committed
         if not snapshot_override:
             snapshot_url = base + "/api/latest.json"
         if not history_override:
@@ -79,6 +86,64 @@ def sources(
         "history_url": history_url,
         "archive_base_url": f"{root}/publications/{run}-{attempt}",
     }
+
+
+def _require_history_extension(bundle: Path, manifest: dict[str, Any], root: str) -> None:
+    committed = _committed_publication(archive_root(root))
+    if committed is None:
+        raise ValueError("Recovery requires an existing committed archive.")
+    base, payload = committed
+    files = json.loads(payload)["files"]
+    index_path = "api/history/index.json"
+    with urllib.request.urlopen(f"{base}/{index_path}", timeout=60) as response:
+        index_bytes = response.read()
+    if hashlib.sha256(index_bytes).hexdigest() != files[index_path]["sha256"]:
+        raise ValueError("Committed history index does not match its verified manifest.")
+    current = json.loads(index_bytes)
+    recovered = json.loads((bundle / "history" / "index.json").read_bytes())
+    indexed = {day["date"]: day for day in recovered["days"]}
+    for day in current["days"]:
+        candidate = indexed.get(day["date"])
+        if not candidate or any(candidate[key] != day[key] for key in ("snapshot_path", "change_path")):
+            raise ValueError(f"Recovery would remove or replace the indexed date {day['date']}.")
+    for path, receipt in files.items():
+        if path.startswith(("api/history/changes/", "api/history/snapshots/")):
+            if manifest["files"].get(path.removeprefix("api/")) != receipt:
+                raise ValueError(f"Recovery would remove or replace committed evidence: {path}")
+
+
+def restore_daily_scan(run_id: str, root: str) -> None:
+    if __package__:
+        from .publication_recovery import verify_bundle
+    else:
+        from publication_recovery import verify_bundle
+
+    repo = os.environ["GITHUB_REPOSITORY"]
+    branch = os.environ["DEFAULT_BRANCH"]
+    if not re.fullmatch(r"[1-9][0-9]*", run_id) or os.environ["GITHUB_REF"] != f"refs/heads/{branch}":
+        raise ValueError("Recovery requires a numeric run ID and a dispatch from the default branch.")
+    run = json.loads(subprocess.check_output(["gh", "api", f"repos/{repo}/actions/runs/{run_id}"]))
+    if (
+        run["head_repository"]["full_name"] != repo or run["head_branch"] != branch
+        or run["path"] != ".github/workflows/daily-scan.yml"
+        or run["event"] not in {"schedule", "workflow_dispatch"}
+        or run["status"] != "completed" or run["conclusion"] != "failure"
+    ):
+        raise ValueError("Only a completed, failed Daily scan from this repository's default branch can be restored.")
+    artifact = f"publication-recovery-{run_id}-{run['run_attempt']}"
+    with tempfile.TemporaryDirectory(prefix="daily-scan-recovery-") as directory:
+        subprocess.run(["gh", "run", "download", run_id, "--repo", repo, "--name", artifact,
+                        "--dir", directory], check=True)
+        bundle = Path(directory) / ".publication" / "recovery"
+        manifest = verify_bundle(bundle)
+        if manifest["provenance"] != run["html_url"]:
+            raise ValueError("Recovery bundle provenance does not match the selected Daily scan.")
+        if manifest["history_baseline"]["latest_timestamp"] != manifest["observation_timestamp"]:
+            raise ValueError("The saved observation is not the latest indexed observation; replay is required.")
+        _require_history_extension(bundle, manifest, root)
+        shutil.copytree(bundle / "history", ROOT / "data" / "history")
+        shutil.copyfile(bundle / "snapshot.json", ROOT / "data" / "snapshots" / "latest.json")
+        print(f"Restored {manifest['observation_timestamp']} from {artifact}; no probes or history updates.")
 
 
 def build(base: str) -> None:
@@ -221,6 +286,8 @@ def main() -> None:
     resolve.add_argument("--github-output", type=Path, required=True)
     resolve.add_argument("--snapshot-override", action="store_true")
     resolve.add_argument("--history-override", action="store_true")
+    restore = sub.add_parser("restore-daily-scan")
+    restore.add_argument("--run-id", required=True)
     build_parser = sub.add_parser("build")
     build_parser.add_argument("--archive-base-url", default="")
     publish = sub.add_parser("upload")
@@ -238,6 +305,8 @@ def main() -> None:
                 if "\n" in value or "\r" in value:
                     raise ValueError("Publication source URL contains a newline.")
                 stream.write(f"{key}={value}\n")
+    elif args.command == "restore-daily-scan":
+        restore_daily_scan(args.run_id, root)
     elif args.command == "build":
         build(args.archive_base_url)
     else:

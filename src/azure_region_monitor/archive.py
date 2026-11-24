@@ -258,10 +258,9 @@ def build_archive_publication(
         _write_json(public_history / "recent-changes.json", recent)
         if latency is not None:
             _write_json(public_history / "latency-history.json", latency)
-        retained = {
-            day[key] for day in projected["days"] for key in ("snapshot_path", "change_path")
-        } | {f"snapshots/{snapshot.timestamp.date()}.json.gz"}
-        for relative in sorted(retained):
+        snapshots = {day["snapshot_path"] for day in projected["days"]}
+        snapshots.add(f"snapshots/{snapshot.timestamp.date()}.json.gz")
+        for relative in sorted(snapshots):
             source_path = _resolve_history_reference(complete_history, relative)
             target_path = public_history / source_path.relative_to(complete_history)
             target_path.parent.mkdir(parents=True, exist_ok=True)
@@ -272,7 +271,8 @@ def build_archive_publication(
         shutil.copyfile(_ASSETS / "archive-browser.js", public / "assets" / "archive-browser.js")
         notice = (
             '<aside class="archive-notice" aria-label="Complete history archive">'
-            f'This publication keeps the latest {recent_days} calendar days locally. '
+            f'Reader pages and snapshots for the latest {recent_days} calendar days are kept locally. '
+            'Detailed daily change reports are served from the archive at their usual URLs. '
             '<a href="/archive.html">Browse all recorded dates and complete historical evidence</a>. '
             'Older evidence is preserved in the archive, not discarded.</aside>'
         )

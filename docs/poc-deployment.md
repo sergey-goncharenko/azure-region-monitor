@@ -258,8 +258,12 @@ The dashboard-only workflow's default source URLs follow this durable pointer.
 Explicit non-default snapshot/history URLs still override their respective source,
 allowing an operator to rebuild from a verified recovery baseline deliberately.
 
-The Static Web App contains only the current/recent projection, not a growing
-raw archive. Historical entries remain discoverable through the archive browser.
+With archive mode enabled, the Static Web App keeps recent reader pages,
+summaries, and snapshots locally. Detailed daily change reports, including
+today's, live in the verified Blob generation rather than in the static upload.
+Their existing `/api/history/changes/{date}.json` URLs still return the full JSON.
+Without archive mode, the same files are served locally. Historical entries
+remain discoverable through the archive browser.
 The bundled, read-only [managed Functions reader](../api/reader.js) keeps
 `/api/history/...` and the current JSON API working at the same origin; dated
 HTML links use an explicit archive fallback. It reads only the pinned Azure Blob
@@ -301,6 +305,16 @@ already-updated history as that baseline. The new output contains `history/`,
 `replay-report.json`. Recovery directories must be new paths. For a single
 complete checkpoint needing no replay, its verified history and snapshot are
 already a rebuild input.
+For a failed **Daily scan** with a complete checkpoint, dispatch **Dashboard
+redeploy** from the default branch with `recovery_run_id` set to the failed
+run's numeric ID. Leave both source URLs at their defaults and `update_history`
+off. This restores the latest attempt's saved snapshot and history without
+probing or regenerating the observation. Recovery requires the existing Blob
+archive: it checks the bundle's hashes and provenance, and refuses to replace
+any already committed dated evidence or drop an indexed date. If the checkpoint
+and current archive have diverged, reconcile them using the replay procedure
+instead of overriding the guard.
+
 Capture validates the copied history that will actually be retained. Each
 physical snapshot is parsed once per validation pass; only its timestamp and
 content digest are reused within that pass. A later verification rechecks the

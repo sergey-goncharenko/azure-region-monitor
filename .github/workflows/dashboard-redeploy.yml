@@ -16,8 +16,13 @@ on:
         required: false
         type: boolean
         default: false
+      recovery_run_id:
+        description: "Optional failed Daily scan run ID; use its verified checkpoint instead of URL inputs"
+        required: false
+        type: string
 
 permissions:
+  actions: read
   contents: read
   id-token: write
 
@@ -52,6 +57,8 @@ jobs:
         env:
           SNAPSHOT_URL: ${{ inputs.snapshot_url }}
           HISTORY_BASE_URL: ${{ inputs.history_base_url }}
+          RECOVERY_RUN_ID: ${{ inputs.recovery_run_id }}
+          UPDATE_HISTORY: ${{ inputs.update_history }}
         run: |
           args=()
           if [ "$SNAPSHOT_URL" != "https://azwatch.operator.lat/api/latest.json" ]; then
@@ -60,12 +67,26 @@ jobs:
           if [ "$HISTORY_BASE_URL" != "https://azwatch.operator.lat/api/history" ]; then
             args+=(--history-override)
           fi
+          if [[ -n "$RECOVERY_RUN_ID" && ( ${#args[@]} -ne 0 || "$UPDATE_HISTORY" == "true" || -z "$AZWATCH_ARCHIVE_BASE_URL" ) ]]; then
+            echo "::error::Checkpoint recovery requires the existing archive, default source URLs and update_history=false."
+            exit 1
+          fi
           python scripts/archive_publication.py sources \
             --snapshot-url "$SNAPSHOT_URL" --history-url "$HISTORY_BASE_URL" \
             --github-output "$GITHUB_OUTPUT" "${args[@]}"
 
+      - name: Restore verified Daily scan checkpoint
+        id: restore
+        if: ${{ inputs.recovery_run_id != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RECOVERY_RUN_ID: ${{ inputs.recovery_run_id }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: python scripts/archive_publication.py restore-daily-scan --run-id "$RECOVERY_RUN_ID"
+
       - name: Fetch existing snapshot
         id: snapshot
+        if: ${{ inputs.recovery_run_id == '' }}
         env:
           SNAPSHOT_URL: ${{ steps.sources.outputs.snapshot_url }}
         run: |
@@ -100,14 +121,14 @@ jobs:
 
       - name: Fetch existing history
         id: history-fetch
-        if: ${{ !inputs.update_history }}
+        if: ${{ inputs.recovery_run_id == '' && !inputs.update_history }}
         env:
           HISTORY_BASE_URL: ${{ steps.sources.outputs.history_url }}
         run: azure-region-monitor fetch-history --base-url "$HISTORY_BASE_URL" --output data/history --require-existing
 
       - name: Update snapshot history
         id: history-update
-        if: ${{ inputs.update_history }}
+        if: ${{ inputs.recovery_run_id == '' && inputs.update_history }}
         env:
           HISTORY_BASE_URL: ${{ steps.sources.outputs.history_url }}
           AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_KEY }}
@@ -123,10 +144,10 @@ jobs:
             --require-existing
 
       - name: Publish dashboard with recovery and capacity safeguards
-        if: ${{ always() && steps.snapshot.outcome == 'success' }}
+        if: ${{ always() && steps.sources.outcome == 'success' && (steps.snapshot.outcome == 'success' || steps.restore.outcome == 'success') }}
         uses: ./.github/actions/publish-dashboard
         with:
-          history-ready: ${{ steps.history-fetch.outcome == 'success' || steps.history-update.outcome == 'success' }}
+          history-ready: ${{ steps.restore.outcome == 'success' || steps.history-fetch.outcome == 'success' || steps.history-update.outcome == 'success' }}
           archive-base-url: ${{ steps.sources.outputs.archive_base_url }}
           swa-token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
           azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}

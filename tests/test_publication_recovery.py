@@ -1,6 +1,9 @@
 import gzip
+import hashlib
+import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 import urllib.request
@@ -9,6 +12,7 @@ from pathlib import Path
 import pytest
 
 from azure_region_monitor.history import update_history
+from scripts import archive_publication as publication
 from scripts import publication_recovery as recovery
 
 
@@ -89,6 +93,67 @@ def test_complete_bundle_preserves_exact_inputs_and_manifest(tmp_path):
     assert set(manifest["files"]) == set(tree_bytes(output)) - {"manifest.json"}
     assert "sha256" in manifest["files"]["snapshot.json"]
     assert recovery.main(["verify", "--bundle", str(output)]) == 0
+
+
+@pytest.mark.parametrize("case,error", [
+    ("restore", None),
+    ("foreign-run", "default branch"),
+    ("wrong-provenance", "provenance"),
+    ("missing-date", "indexed date"),
+    ("changed-report", "committed evidence"),
+])
+def test_restore_daily_scan_only_publishes_verified_extensions(tmp_path, monkeypatch, case, error):
+    repo = "example/monitor"
+    url = f"https://github.com/{repo}/actions/runs/42"
+    history = history_fixture(tmp_path / "source")
+    prior = json.loads((history / "index.json").read_bytes())
+    report_path = prior["days"][0]["change_path"]
+    latest = snapshot(tmp_path, "2026-09-02T09:00:00Z")
+    update_history(latest, history)
+    saved = tmp_path / "saved"
+    manifest = recovery.create_bundle(
+        latest, history, saved, provenance=url if case != "wrong-provenance" else url + "0"
+    )
+    if case == "missing-date":
+        prior["days"][0]["date"] = "2026-08-31"
+    index = json.dumps(prior).encode()
+    files = {
+        "api/history/index.json": {"sha256": hashlib.sha256(index).hexdigest()},
+        f"api/history/{report_path}": dict(manifest["files"][f"history/{report_path}"]),
+    }
+    if case == "changed-report":
+        files[f"api/history/{report_path}"]["sha256"] = "0" * 64
+    root = "https://example.blob.core.windows.net/archive"
+    monkeypatch.setattr(publication, "_committed_publication", lambda _: (
+        root + "/publications/41-1", json.dumps({"files": files}).encode()
+    ))
+    monkeypatch.setattr(publication.urllib.request, "urlopen", lambda *a, **k: io.BytesIO(index))
+    monkeypatch.setenv("GITHUB_REPOSITORY", repo)
+    monkeypatch.setenv("GITHUB_REF", "refs/heads/main")
+    monkeypatch.setenv("DEFAULT_BRANCH", "main")
+    run = {"head_repository": {"full_name": "example/fork" if case == "foreign-run" else repo},
+           "head_branch": "main", "path": ".github/workflows/daily-scan.yml", "event": "schedule",
+           "status": "completed", "conclusion": "failure", "html_url": url, "run_attempt": 2}
+    monkeypatch.setattr(publication.subprocess, "check_output", lambda args: json.dumps(run).encode())
+
+    def download(command, *, check):
+        assert check and case != "foreign-run"
+        assert command[2:-1] == ["download", "42", "--repo", repo, "--name", "publication-recovery-42-2", "--dir"]
+        shutil.copytree(saved, Path(command[-1]) / ".publication" / "recovery")
+
+    monkeypatch.setattr(publication.subprocess, "run", download)
+    workspace = tmp_path / "checkout"
+    monkeypatch.setattr(publication, "ROOT", workspace)
+    (workspace / "data/snapshots").mkdir(parents=True)
+    if error:
+        with pytest.raises(ValueError, match=error):
+            publication.restore_daily_scan("42", root)
+        assert not (workspace / "data/history").exists()
+        assert not (workspace / "data/snapshots/latest.json").exists()
+    else:
+        publication.restore_daily_scan("42", root)
+        assert tree_bytes(workspace / "data/history") == tree_bytes(saved / "history")
+        assert (workspace / "data/snapshots/latest.json").read_bytes() == latest.read_bytes()
 
 
 def test_capture_validates_the_complete_copied_history_once(tmp_path, monkeypatch):

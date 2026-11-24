@@ -91,9 +91,13 @@ def test_complete_archive_preserves_all_snapshots_records_and_dates_without_infl
         for kind in ("blog", "feedback", "reading-check"):
             assert (archive / kind / f"{day['date']}.html").is_file()
     assert not (public / "api" / "history" / "index.json").exists()
-    assert sorted(path.stem for path in (public / "api/history/changes").glob("*.json")) == sorted(
-        day["date"] for day in index["days"][:30]
-    )
+    public_history = public / "api" / "history"
+    assert not (public_history / "changes").exists()
+    for day in index["days"][:30]:
+        assert (public_history / day["snapshot_path"]).is_file()
+        assert (public / "blog" / f"{day['date']}.html").is_file()
+    newest = index["days"][0]
+    assert f'api/history/{newest["change_path"]}' in (public / "index.html").read_text(encoding="utf-8")
     latency = json.loads((public / "api" / "history" / "latency-history.json").read_bytes())
     assert len(latency["days"]) == 60
     assert not (public / "blog" / "2026-07-28.html").exists()
@@ -292,7 +296,9 @@ def test_default_build_keeps_all_history_and_has_no_archive_fallback(tmp_path):
     config = json.loads((output / "staticwebapp.config.json").read_bytes())
     assert "navigationFallback" not in config
     assert "platform" not in config
-    assert len(json.loads((output / "api/history/index.json").read_bytes())["days"]) == 2
+    days = json.loads((output / "api/history/index.json").read_bytes())["days"]
+    assert len(days) == 2
+    assert all((output / "api/history" / day["change_path"]).is_file() for day in days)
     build_static_site(output, latest, tmp_path / "missing.json", source)
 
 

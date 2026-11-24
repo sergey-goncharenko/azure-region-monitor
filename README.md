@@ -65,7 +65,7 @@ The first implementation slice is a Python service with:
 - A FastAPI read-only API matching the initial API spec
 - A GitHub Actions workflow for manual or scheduled PoC runs, plus [weekly and source-triggered documentation augmentation](docs/agentic-sessions.md#documentation-augmentation) for evolving reader needs, terminology, and use cases; edits stay within `README.md`, `.github/copilot-instructions.md`, and `docs/agentic-sessions.md` and require a stated reader benefit with supporting evidence
 - A generated static dashboard and JSON endpoint for Azure Static Web Apps
-- Shared publication byte/file budgets, pre-deployment recovery artifacts, and an optional complete Blob archive with compatible historical evidence URLs; see [publication and recovery operations](docs/poc-deployment.md#publication-budgets-recovery-and-optional-blob-archive)
+- Shared publication byte/file budgets and pre-deployment recovery artifacts. With the optional Blob archive enabled, daily change reports are served from the archive at their existing URLs rather than duplicated in the static site. See [publication and recovery operations](docs/poc-deployment.md#publication-budgets-recovery-and-optional-blob-archive).
 - Tests for the diff engine and API behavior
 
 ## Scope Discovery
