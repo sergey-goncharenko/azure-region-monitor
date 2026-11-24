@@ -21,6 +21,8 @@ Alpha scope:
 - Focused workflows per modality
 - Explicit methodology for status semantics and evidence limits
 
+The dashboard groups changes across modalities, so a large VM SKU or AI model result set does not mean nothing changed elsewhere on the same day.
+
 Alpha limits:
 
 - Results are catalog/listing evidence, not deployment guarantees.
