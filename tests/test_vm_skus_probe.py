@@ -72,6 +72,28 @@ def test_vm_sku_probe_uses_list_skus_fallback_when_legacy_listing_fails():
     assert "az vm list-skus" in results[0].result.message
 
 
+def test_vm_sku_probe_reports_supported_listing_failure_before_legacy_failure():
+    def cli_runner(command: list[str]) -> subprocess.CompletedProcess[str]:
+        if command[1:3] == ["vm", "list-sizes"]:
+            return subprocess.CompletedProcess(
+                command, 1, stdout="", stderr="WARNING: deprecated. ERROR: (NotFound) Region not found"
+            )
+        assert command[1:3] == ["vm", "list-skus"]
+        return subprocess.CompletedProcess(command, 1, stdout="", stderr="supported listing failed")
+
+    probe = VmSkuCliProbe(skus=[], cli_runner=cli_runner)
+
+    results = list(probe.run("taiwannorth"))
+
+    assert results[0].feature == "vmSkuCatalog"
+    assert results[0].result.status == "unknown"
+    assert results[0].result.error_code == "AzureCliCommandFailed"
+    assert results[0].result.message.startswith(
+        "az vm list-skus fallback failed: supported listing failed"
+    )
+    assert "Legacy az vm list-sizes failed: WARNING: deprecated." in results[0].result.message
+
+
 def test_vm_sku_probe_uses_legacy_listing_when_supported_listing_omits_size():
     def cli_runner(command: list[str]) -> subprocess.CompletedProcess[str]:
         if command[1:3] == ["vm", "list-skus"]:

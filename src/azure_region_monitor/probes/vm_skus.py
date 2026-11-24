@@ -184,8 +184,8 @@ class VmSkuCliProbe:
 
 def _combine_errors(primary: AzureCliError, fallback: AzureCliError) -> AzureCliError:
     return AzureCliError(
-        primary.error_code,
-        f"Legacy az vm list-sizes failed: {primary.message} az vm list-skus fallback failed: {fallback.message}",
+        fallback.error_code,
+        f"az vm list-skus fallback failed: {fallback.message} Legacy az vm list-sizes failed: {primary.message}",
     )
 
 
