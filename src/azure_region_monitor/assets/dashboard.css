@@ -214,7 +214,9 @@
     .briefing-regions { margin: calc(var(--space-unit) * 6) 0; font-size: 15px; line-height: 1.5; }
     .briefing-example { margin: 0 0 calc(var(--space-unit) * 6); color: #415972; font-size: 13px; line-height: 1.5; }
     .briefing-guidance { margin: 0 0 calc(var(--space-unit) * 8); color: var(--muted); font-size: 13px; line-height: 1.5; }
-    .briefing-feature-context { width: 100%; margin-bottom: calc(var(--space-unit) * 7); padding: calc(var(--space-unit) * 6); background: #f5f9fc; border-radius: var(--radius-sm); font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+    .briefing-feature-context { width: 100%; margin-bottom: calc(var(--space-unit) * 7); padding: calc(var(--space-unit) * 4) calc(var(--space-unit) * 6); background: #f5f9fc; border-radius: var(--radius-sm); font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+    .briefing-feature-context > summary { cursor: pointer; color: #145578; font-weight: 700; }
+    .briefing-feature-context > div { margin-top: calc(var(--space-unit) * 4); }
     .briefing-feature-context p { margin: 0 0 calc(var(--space-unit) * 3); }
     .briefing-feature-context ul { padding-left: calc(var(--space-unit) * 9); margin: calc(var(--space-unit) * 4) 0; }
     .briefing-context-label { color: #145578; font-size: 11px; font-weight: 700; text-transform: uppercase; }
