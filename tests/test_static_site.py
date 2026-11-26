@@ -53,6 +53,8 @@ def test_rendered_page_embeds_the_stylesheet_rules():
     block = _style_block()
     assert "--unknown-text: #4f5f73;" in block
     assert ".opening-summary { display: grid;" in block
+    assert ".briefing-feature-context > summary { cursor: pointer;" in block
+    assert ".briefing-feature-context > div { margin-top:" in block
     assert ".opening-summary-item {" in block
     assert ".briefing-modality-nav { margin-top: calc(var(--space-unit) * 4);" in block
 

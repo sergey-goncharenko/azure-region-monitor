@@ -121,14 +121,16 @@ def _feature_explanation(context: dict[str, Any]) -> str:
         "category": "Category context",
         "unverified": "Exact capability unverified",
     }.get(context["specificity"], "Context")
-    return f"""<div class="briefing-feature-context">
-      <p class="briefing-context-label">{_escape(specificity)}</p>
-      <p><strong>{_escape(context['title'])}</strong></p>
-      <p>{_escape(context['summary'])}</p>
-      <ul>{facts}</ul>
-      <p class="briefing-context-limit">{_escape(context['limitations'])}</p>
-      <p class="briefing-context-sources">Read more: {' &middot; '.join(links)}</p>
-    </div>"""
+    return f"""<details class="briefing-feature-context">
+      <summary>Read more about this check <span class="briefing-context-label">({_escape(specificity)})</span></summary>
+      <div>
+        <p><strong>{_escape(context['title'])}</strong></p>
+        <p>{_escape(context['summary'])}</p>
+        <ul>{facts}</ul>
+        <p class="briefing-context-limit">{_escape(context['limitations'])}</p>
+        <p class="briefing-context-sources">References: {' &middot; '.join(links)}</p>
+      </div>
+    </details>"""
 
 
 def _digest_totals(digest: dict[str, Any]) -> dict[str, Any]:
@@ -921,6 +923,15 @@ def _status_summary(status: dict[str, Any], modality: str, status_index: int) ->
     for example in status.get("examples", [])[:1]:
         before = _coverage_count(example.get("coverage_before"))
         after = _coverage_count(example.get("coverage_after"))
+        context = example.get("feature_context")
+        vm_spec = (
+            f" Documented size: {_escape(context['differentiators'][0])}."
+            if modality == "VM SKUs"
+            and isinstance(context, dict)
+            and context.get("specificity") == "exact"
+            and context.get("differentiators")
+            else ""
+        )
         coverage = (
             f" Listing coverage: {before} &rarr; {after} regions."
             if isinstance(before, int) and isinstance(after, int)
@@ -928,12 +939,12 @@ def _status_summary(status: dict[str, Any], modality: str, status_index: int) ->
         )
         examples.append(
             f'<p class="briefing-example">Example: {_escape(plain_feature_name(example["feature"]))}.'
-            f"{coverage}</p>"
+            f"{vm_spec}{coverage}</p>"
         )
         if example.get("novelty"):
             examples.append(f'<p class="briefing-novelty">{_escape(example["novelty"])}</p>')
-        if isinstance(example.get("feature_context"), dict):
-            examples.append(_feature_explanation(example["feature_context"]))
+        if isinstance(context, dict):
+            examples.append(_feature_explanation(context))
     if kind == "delistings":
         guidance = "If this matches a planned regional target, verify it with the provider. This is not an outage or retirement notice."
     elif kind == "observation_gaps":

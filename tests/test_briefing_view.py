@@ -5,6 +5,7 @@ from azure_region_monitor.briefing import build_briefing
 from azure_region_monitor.blog import render_blog_index, render_blog_post, select_blog_posts
 from azure_region_monitor.briefing_view import briefing_excerpt, briefing_headline, render_briefing
 from azure_region_monitor.display import plain_feature_name, region_name
+from azure_region_monitor.feature_context import describe_feature
 from azure_region_monitor.models import Snapshot
 from azure_region_monitor.summary import ChangeContext
 
@@ -152,6 +153,27 @@ def _digest(gained_features=2, lost_features=0):
             }
         ],
     }
+
+
+def test_vm_example_shows_only_verified_size_facts_and_collapses_references():
+    day = _day()
+    status = day["briefing"]["groups"][0]["statuses"][0]
+    status["examples"] = [
+        {
+            "feature": "vmSkus.standard.d2as.v5",
+            "feature_context": describe_feature("vmSkus.standard.d2as.v5"),
+        },
+    ]
+    page = render_briefing(day)
+    assert "Documented size: 2 vCPUs and 8 GiB RAM, from the documented size table." in page
+    assert '<details class="briefing-feature-context">' in page
+    assert "<summary>Read more about this check" in page
+    assert page.index("Documented size:") < page.index('class="briefing-feature-context"')
+    assert page.index("https://learn.microsoft.com/") > page.index('class="briefing-feature-context"')
+    assert '<details class="briefing-feature-context" open' not in page
+
+    status["examples"][0]["feature_context"] = describe_feature("vmSkus.standard.d2s.v7")
+    assert "Documented size:" not in render_briefing(day)
 
 
 def _clustered_digest(*, varying=False, returned=False):
